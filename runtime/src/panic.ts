@@ -179,3 +179,17 @@ export function recover(): Iface | null {
   f.panicking = null;
   return v;
 }
+
+// rangeError panics for an iterator that misuses yield (Go's runtime
+// checks on range-over-func). state is the loop state when yield was
+// called (1 body returned false, 2 loop exited, 3 body panicked) or 4 when
+// the iterator returned after recovering a panic of the body.
+export function rangeError(state: number): never {
+  runtimePanic([
+    "",
+    "range function continued iteration after function for loop body returned false",
+    "range function continued iteration after whole loop exit",
+    "range function continued iteration after loop body panic",
+    "range function recovered a loop body panic and did not resume panicking",
+  ][state]);
+}

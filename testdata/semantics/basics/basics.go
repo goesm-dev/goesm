@@ -887,3 +887,132 @@ end:
 }
 
 func GotoLabels() []string { return []string{gotoSearch(2), gotoSearch(5)} }
+
+// ---- range-over-func: branches out of nested statements ----
+
+func RangeFuncNestedReturn() []int {
+	find := func(target int) (int, int) {
+		for i := range Count(5) {
+			for j := 0; j < 5; j++ {
+				if i*j == target {
+					return i, j
+				}
+			}
+		}
+		return -1, -1
+	}
+	a, b := find(6)
+	c, d := find(100)
+	return []int{a, b, c, d}
+}
+
+func RangeFuncNestedRangeReturn() int {
+	for i := range Count(4) {
+		for j := range Count(4) {
+			if i+j == 5 {
+				return i*10 + j
+			}
+		}
+	}
+	return -1
+}
+
+func RangeFuncLabeled() []int {
+	var out []int
+outer:
+	for i := range Count(5) {
+		for j := range Count(5) {
+			switch {
+			case j > i:
+				continue outer
+			case i == 3:
+				break outer
+			}
+			out = append(out, i*10+j)
+		}
+	}
+	return out
+}
+
+func RangeFuncSwitchContinue() []int {
+	var out []int
+	for i := range Count(6) {
+		switch i % 2 {
+		case 0:
+			continue
+		}
+		out = append(out, i)
+	}
+	return out
+}
+
+func RangeFuncReturnWithDefer() (s string) {
+	defer func() { s += "!" }()
+	for i := range Count(5) {
+		for {
+			if i == 2 {
+				return "two"
+			}
+			break
+		}
+	}
+	return "none"
+}
+
+// ---- range-over-func: iterators that misuse yield ----
+
+func badSeq(yield func(int) bool) {
+	yield(1)
+	yield(2)
+}
+
+var savedYield func(int) bool
+
+func savingSeq(yield func(int) bool) {
+	savedYield = yield
+	yield(1)
+}
+
+func recoveringSeq(yield func(int) bool) {
+	defer func() { recover() }()
+	yield(1)
+}
+
+func panicContinueSeq(yield func(int) bool) {
+	func() {
+		defer func() { recover() }()
+		yield(1)
+	}()
+	yield(2)
+}
+
+func rangeErr(f func()) (msg string) {
+	defer func() { msg = recover().(error).Error() }()
+	f()
+	return "no panic"
+}
+
+func RangeFuncMisuse() []string {
+	return []string{
+		rangeErr(func() {
+			for range badSeq {
+				break
+			}
+		}),
+		rangeErr(func() {
+			for range savingSeq {
+			}
+			savedYield(2)
+		}),
+		rangeErr(func() {
+			for range recoveringSeq {
+				panic("body")
+			}
+		}),
+		rangeErr(func() {
+			for range panicContinueSeq {
+				panic("body")
+			}
+		}),
+	}
+}
