@@ -345,10 +345,12 @@ func (fe *funcEmitter) funcLit(lit *ast.FuncLit) string {
 	params := c.paramList(lit.Type.Params, nil)
 	c.funcBody(nil, lit.Type, lit.Body, sig)
 	prefix := ""
+	ret := c.resultTSType(sig)
 	if c.async {
 		prefix = "async "
+		ret = "Promise<" + ret + ">"
 	}
-	return fmt.Sprintf("%s%s(%s): %s => {\n%s%s}", fe.mark(lit), prefix, strings.Join(params, ", "), c.resultTSType(sig), w.String(), strings.Repeat("  ", fe.w.indent))
+	return fmt.Sprintf("%s%s(%s): %s => {\n%s%s}", fe.mark(lit), prefix, strings.Join(params, ", "), ret, w.String(), strings.Repeat("  ", fe.w.indent))
 }
 
 var simpleRef = regexp.MustCompile(`^[\w$]+(\.[\w$]+)*$`)
