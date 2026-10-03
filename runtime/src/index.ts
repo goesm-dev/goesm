@@ -14,6 +14,7 @@ export * from "./string.ts";
 export * from "./int.ts";
 export * from "./chan.ts";
 export * from "./interop.ts";
+export * from "./complex.ts";
 
 import { toJSString } from "./string.ts";
 
