@@ -323,7 +323,26 @@ func (pe *pkgEmitter) copyExpr(s string, t types.Type, tp tpScope) string {
 // tsType renders a TypeScript annotation. Annotations document the IR for
 // readers and debuggers; they are erased by esbuild and never checked.
 func (pe *pkgEmitter) tsType(t types.Type, tp tpScope) string {
+	return pe.tsTypeIn(t, tp, nil)
+}
+
+// tsTypeIn renders t; in holds the named types being rendered, so a type
+// defined in terms of itself (type S []S) is any at the recursion.
+func (pe *pkgEmitter) tsTypeIn(t types.Type, tp tpScope, in map[string]bool) string {
 	t = types.Unalias(t)
+	if n, ok := t.(*types.Named); ok {
+		if _, isStruct := n.Underlying().(*types.Struct); !isStruct {
+			key := types.TypeString(n, nil)
+			if in[key] {
+				return "any"
+			}
+			m := map[string]bool{key: true}
+			for k := range in {
+				m[k] = true
+			}
+			in = m
+		}
+	}
 	switch u := t.(type) {
 	case *types.TypeParam:
 		// Under erasure a type parameter is typed by what its constraint
@@ -353,15 +372,15 @@ func (pe *pkgEmitter) tsType(t types.Type, tp tpScope) string {
 			return "number"
 		}
 	case *types.Slice:
-		return "$rt.S<" + pe.tsType(u.Elem(), tp) + ">"
+		return "$rt.S<" + pe.tsTypeIn(u.Elem(), tp, in) + ">"
 	case *types.Map:
-		return "$rt.M<" + pe.tsType(u.Key(), tp) + ", " + pe.tsType(u.Elem(), tp) + ">"
+		return "$rt.M<" + pe.tsTypeIn(u.Key(), tp, in) + ", " + pe.tsTypeIn(u.Elem(), tp, in) + ">"
 	case *types.Chan:
-		return "$rt.Chan<" + pe.tsType(u.Elem(), tp) + "> | null"
+		return "$rt.Chan<" + pe.tsTypeIn(u.Elem(), tp, in) + "> | null"
 	case *types.Interface:
 		return "$rt.Iface | null"
 	case *types.Array:
-		return pe.tsType(u.Elem(), tp) + "[]"
+		return pe.tsTypeIn(u.Elem(), tp, in) + "[]"
 	}
 	return "any"
 }

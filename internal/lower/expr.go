@@ -1062,8 +1062,19 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			return fmt.Sprintf("%s$rt.makeChan(%s, %s)", m, c, fe.zeroFn(u.Elem()))
 		}
 	case "new":
-		t := fe.info.TypeOf(e.Args[0])
-		if _, isTP := types.Unalias(t).(*types.TypeParam); isTP {
+		t := fe.info.TypeOf(e).(*types.Pointer).Elem()
+		if tv := fe.info.Types[e.Args[0]]; !tv.IsType() {
+			// new(expr) (Go 1.26): a new variable initialised to expr.
+			v := fe.valueOf(e.Args[0], t)
+			switch {
+			case isTypeParam(t):
+				return "$rt.newPtrOf(" + fe.desc(t) + ", " + v + ")"
+			case isAggregate(t):
+				return v // a fresh copy: the object is the pointer
+			}
+			return "$rt.cell<" + fe.ts(t) + ">(" + v + ")"
+		}
+		if isTypeParam(t) {
 			return "$rt.newPtr(" + fe.desc(t) + ")"
 		}
 		if isAggregate(t) {

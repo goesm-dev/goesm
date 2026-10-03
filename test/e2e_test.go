@@ -94,7 +94,7 @@ func TestJS(t *testing.T) {
 // Both sides are rendered as encoding/json-shaped values.
 func TestGolden(t *testing.T) {
 	requireNode(t)
-	for _, pkg := range []string{"basics", "generics", "goroutines", "panics", "stdlibuse"} {
+	for _, pkg := range []string{"basics", "conformance", "generics", "goroutines", "panics", "stdlibuse"} {
 		t.Run(pkg, func(t *testing.T) {
 			dir := testdata("semantics")
 			pkgPath := "example.com/sem/" + pkg
