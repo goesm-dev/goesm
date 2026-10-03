@@ -32,8 +32,9 @@ type Options struct {
 
 // Result describes the outputs.
 type Result struct {
-	Outputs []string // written JS files
-	TSDir   string
+	Outputs  []string // written JS files
+	TSDir    string
+	Warnings []string // see Lowered.Warnings
 }
 
 // DiagError carries diagnostics from one pipeline layer.
@@ -44,8 +45,17 @@ type DiagError struct {
 
 func (e *DiagError) Error() string { return strings.Join(e.Lines, "\n") }
 
+// Lowered is the result of the frontend and the semantic lowering.
+type Lowered struct {
+	Mods  []*lower.Module
+	Entry string // import path of the root package
+	// Warnings name standard library functions that goesm cannot lower yet;
+	// they were replaced by stubs that panic when called.
+	Warnings []string
+}
+
 // Lower runs the Go frontend and the semantic lowering.
-func Lower(dir string, patterns []string) ([]*lower.Module, string, error) {
+func Lower(dir string, patterns []string) (*Lowered, error) {
 	prog, err := loader.Load(dir, patterns...)
 	if err != nil {
 		if le, ok := err.(*loader.Error); ok {
@@ -53,24 +63,28 @@ func Lower(dir string, patterns []string) ([]*lower.Module, string, error) {
 			for _, d := range le.Diags {
 				lines = append(lines, d.String())
 			}
-			return nil, "", &DiagError{Layer: "go", Lines: lines}
+			return nil, &DiagError{Layer: "go", Lines: lines}
 		}
-		return nil, "", err
+		return nil, err
 	}
 	if len(prog.Roots) != 1 {
-		return nil, "", fmt.Errorf("goesm: expected exactly one package, got %d", len(prog.Roots))
+		return nil, fmt.Errorf("goesm: expected exactly one package, got %d", len(prog.Roots))
 	}
 	entry := prog.Roots[0].PkgPath
-	lp := lower.NewProgram(prog.Fset, prog.All)
+	lp := lower.NewProgram(prog.Fset, prog.All, prog.Std)
 	mods := lp.LowerAll(lower.Options{Entry: entry})
 	if len(lp.Diags) > 0 {
 		var lines []string
 		for _, d := range lp.SortedDiags() {
 			lines = append(lines, d.String())
 		}
-		return nil, "", &DiagError{Layer: "goesm", Lines: lines}
+		return nil, &DiagError{Layer: "goesm", Lines: lines}
 	}
-	return mods, entry, nil
+	l := &Lowered{Mods: mods, Entry: entry}
+	for _, d := range lp.SortedWarns() {
+		l.Warnings = append(l.Warnings, d.String())
+	}
+	return l, nil
 }
 
 // tsPath is where the module of a Go package is written below the TS dir.
@@ -148,6 +162,14 @@ func resolver(tsDir, outDir string, split bool) api.Plugin {
 				}
 				return api.OnResolveResult{Path: filepath.Join(tsDir, "@goesm", "runtime", "src", "index.ts")}, nil
 			})
+			// The natives are a module of their own so that re-exporting
+			// the runtime ($runtime) does not keep all of them.
+			b.OnResolve(api.OnResolveOptions{Filter: `^@goesm/runtime/natives$`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
+				if split {
+					return api.OnResolveResult{Path: relImport(args.Importer, filepath.Join(outDir, "@goesm", "runtime", "natives.js")), External: true}, nil
+				}
+				return api.OnResolveResult{Path: filepath.Join(tsDir, "@goesm", "runtime", "src", "natives.ts")}, nil
+			})
 		},
 	}
 }
@@ -157,10 +179,11 @@ func Build(opts Options) (*Result, error) {
 	if opts.OutDir == "" {
 		opts.OutDir = "dist"
 	}
-	mods, entry, err := Lower(opts.Dir, opts.Patterns)
+	l, err := Lower(opts.Dir, opts.Patterns)
 	if err != nil {
 		return nil, err
 	}
+	mods, entry := l.Mods, l.Entry
 	tsDir := opts.TSDir
 	if tsDir == "" {
 		tsDir, err = os.MkdirTemp("", "goesm-ts-")
@@ -195,13 +218,17 @@ func Build(opts Options) (*Result, error) {
 	}
 	if opts.Split {
 		// One ES module per Go package (dist/<import path>.js) plus the
-		// runtime module (dist/@goesm/runtime.js).
+		// runtime modules (dist/@goesm/runtime.js and
+		// dist/@goesm/runtime/natives.js).
 		for _, m := range mods {
 			bo.EntryPointsAdvanced = append(bo.EntryPointsAdvanced, api.EntryPoint{InputPath: tsPath(tsDir, m.Path), OutputPath: m.Path})
 		}
 		bo.EntryPointsAdvanced = append(bo.EntryPointsAdvanced, api.EntryPoint{
 			InputPath:  filepath.Join(tsDir, "@goesm", "runtime", "src", "index.ts"),
 			OutputPath: "@goesm/runtime",
+		}, api.EntryPoint{
+			InputPath:  filepath.Join(tsDir, "@goesm", "runtime", "src", "natives.ts"),
+			OutputPath: "@goesm/runtime/natives",
 		})
 		bo.Outdir = outDir
 	} else {
@@ -221,7 +248,7 @@ func Build(opts Options) (*Result, error) {
 		}
 		return nil, &DiagError{Layer: "esbuild", Lines: lines}
 	}
-	r := &Result{TSDir: opts.TSDir}
+	r := &Result{TSDir: opts.TSDir, Warnings: l.Warnings}
 	for _, f := range res.OutputFiles {
 		r.Outputs = append(r.Outputs, f.Path)
 	}

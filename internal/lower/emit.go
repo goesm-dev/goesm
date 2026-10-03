@@ -74,6 +74,13 @@ type pkgEmitter struct {
 
 	lastPos token.Pos
 
+	// std is set for standard library packages, whose functions that goesm
+	// cannot lower yet become stubs that panic when called (a warning, not
+	// an error: most programs never reach them).
+	std bool
+	// usesNatives: the module imports the runtime's natives ($natives).
+	usesNatives bool
+
 	inits    []string
 	initObjs []any
 }
@@ -86,7 +93,7 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		info:       pkg.TypesInfo,
 		tab:        tab,
 		isEntry:    entry,
-		reserved:   map[string]bool{"$rt": true},
+		reserved:   map[string]bool{"$rt": true, "$natives": true},
 		imports:    map[*types.Package]string{},
 		localTypes: map[*types.TypeName]string{},
 		classes:    newWriter(tab),
@@ -96,12 +103,41 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		funcs:      newWriter(tab),
 		vars:       newWriter(tab),
 		exportSet:  map[string]bool{},
+		std:        p.std[pkg],
 	}
 	scope := pkg.Types.Scope()
 	for _, name := range scope.Names() {
 		pe.reserved[jsName(name)] = true
 	}
 	return pe
+}
+
+// emitStdFuncDecl lowers a standard library function. If goesm cannot lower
+// it yet, the diagnostics become one warning and the function a stub that
+// panics when called.
+func (pe *pkgEmitter) emitStdFuncDecl(file *ast.File, fd *ast.FuncDecl) {
+	n := len(pe.prog.Diags)
+	funcs := pe.funcs
+	pe.funcs = newWriter(pe.tab)
+	pe.emitFuncDecl(file, fd)
+	body := pe.funcs
+	pe.funcs = funcs
+	if len(pe.prog.Diags) == n {
+		funcs.append(body)
+		return
+	}
+	first := pe.prog.Diags[n]
+	pe.prog.Diags = pe.prog.Diags[:n]
+	fn := pe.info.Defs[fd.Name].(*types.Func)
+	pe.prog.Warns = append(pe.prog.Warns, Diagnostic{
+		Pos: pe.prog.Fset.Position(fd.Pos()),
+		Msg: fmt.Sprintf("%s is not lowered and panics if called: %s", fn.FullName(), first.Msg),
+	})
+	name := pe.funcDeclName(fd, fn)
+	if fd.Name.Name == "init" {
+		name = pe.inits[len(pe.inits)-1]
+	}
+	funcs.ln("%sfunction %s(...a: any[]): any { $rt.plainPanic(%s); }", pe.tab.mark(fd.Pos()), name, jsString("goesm: "+fn.FullName()+" is not supported yet"))
 }
 
 func (pe *pkgEmitter) errorf(pos token.Pos, format string, args ...any) {
@@ -219,7 +255,11 @@ func (pe *pkgEmitter) emit() *Module {
 	for _, f := range files {
 		for _, d := range f.Decls {
 			if fd, ok := d.(*ast.FuncDecl); ok {
-				pe.emitFuncDecl(f, fd)
+				if pe.std {
+					pe.emitStdFuncDecl(f, fd)
+				} else {
+					pe.emitFuncDecl(f, fd)
+				}
 			}
 		}
 	}
@@ -262,6 +302,9 @@ func (pe *pkgEmitter) emit() *Module {
 	// test harness and future JS ABI work).
 	var meta []string
 	for _, name := range scope.Names() {
+		if pe.std {
+			break
+		}
 		if fn, ok := scope.Lookup(name).(*types.Func); ok && fn.Exported() && fn.Signature().TypeParams().Len() == 0 {
 			meta = append(meta, fmt.Sprintf("%s: { fn: %s, type: %s, async: %v }", jsPropName(name), jsName(name), pe.typeDesc(fn.Type(), tpScope{}), pe.prog.IsAsync(fn)))
 		}
@@ -275,14 +318,17 @@ func (pe *pkgEmitter) emit() *Module {
 	out.ln("// This TypeScript is an intermediate representation: Go semantics were")
 	out.ln("// checked by go/types; esbuild only strips types and bundles.")
 	out.ln("import * as $rt from %s;", jsString(RuntimeSpecifier))
+	if pe.usesNatives {
+		out.ln("import * as $natives from %s;", jsString(RuntimeSpecifier+"/natives"))
+	}
 	// Evaluate every dependency, not only referenced ones: a blank import, or
 	// one used only through folded constants, must still run its variable
 	// initializers and init functions (Go orders them by import path). A
 	// bare import is needed because esbuild drops unused TS namespace imports.
 	var deps []string
-	for path := range pkg.Imports {
-		if path != "unsafe" {
-			deps = append(deps, path)
+	for _, ip := range pkg.Types.Imports() { // after goesm replacements
+		if ip.Path() != "unsafe" {
+			deps = append(deps, ip.Path())
 		}
 	}
 	sort.Strings(deps)

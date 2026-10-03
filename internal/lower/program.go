@@ -34,6 +34,7 @@ type Program struct {
 	Pkgs []*packages.Package
 
 	byTypes map[*types.Package]*packages.Package
+	std     map[*packages.Package]bool
 
 	// async is the set of functions (declarations by *types.Func, literals by
 	// *ast.FuncLit) that may block and are therefore lowered to async
@@ -44,19 +45,28 @@ type Program struct {
 	boxed map[*types.Var]bool
 
 	units []*unit
+	// funcValues are the functions that can be called through a function
+	// value: function literals not called in place, and functions or
+	// methods referenced other than as the callee of a call.
+	funcValues map[any]bool
 
 	Diags []Diagnostic
+	// Warns are standard library functions that were replaced by stubs
+	// that panic when called.
+	Warns []Diagnostic
 }
 
 func (p *Program) errorf(pos token.Pos, format string, args ...any) {
 	p.Diags = append(p.Diags, Diagnostic{Pos: p.Fset.Position(pos), Msg: fmt.Sprintf(format, args...)})
 }
 
-// NewProgram analyses the loaded packages (dependencies first).
-func NewProgram(fset *token.FileSet, pkgs []*packages.Package) *Program {
+// NewProgram analyses the loaded packages (dependencies first). std is the
+// set of standard library packages.
+func NewProgram(fset *token.FileSet, pkgs []*packages.Package, std map[*packages.Package]bool) *Program {
 	p := &Program{
 		Fset:    fset,
 		Pkgs:    pkgs,
+		std:     std,
 		byTypes: map[*types.Package]*packages.Package{},
 		async:   map[any]bool{},
 		boxed:   map[*types.Var]bool{},
@@ -183,6 +193,7 @@ func (p *Program) analyzeBlocking() {
 		}
 	}
 	p.units = units
+	p.funcValues = p.findFuncValues()
 	for changed := true; changed; {
 		changed = false
 		for _, u := range units {
@@ -197,6 +208,51 @@ func (p *Program) analyzeBlocking() {
 	}
 }
 
+func (p *Program) findFuncValues() map[any]bool {
+	vals := map[any]bool{}
+	for _, pkg := range p.Pkgs {
+		info := pkg.TypesInfo
+		for _, f := range pkg.Syntax {
+			callees := map[ast.Expr]bool{}
+			ast.Inspect(f, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.CallExpr:
+					fun := unparen(n.Fun)
+					switch g := fun.(type) {
+					case *ast.IndexExpr:
+						fun = unparen(g.X)
+					case *ast.IndexListExpr:
+						fun = unparen(g.X)
+					}
+					callees[fun] = true
+					if sel, ok := fun.(*ast.SelectorExpr); ok {
+						callees[sel.Sel] = true
+					}
+				case *ast.FuncLit:
+					if !callees[n] {
+						vals[n] = true
+					}
+				case *ast.SelectorExpr:
+					if !callees[n] {
+						if fn, ok := info.Uses[n.Sel].(*types.Func); ok {
+							vals[fn.Origin()] = true
+						}
+						callees[n.Sel] = true // the Sel ident is visited next
+					}
+				case *ast.Ident:
+					if !callees[n] {
+						if fn, ok := info.Uses[n].(*types.Func); ok {
+							vals[fn.Origin()] = true
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+	return vals
+}
+
 func (p *Program) unitBlocks(u *unit, units []*unit) bool {
 	if u.blocking {
 		return true
@@ -208,7 +264,7 @@ func (p *Program) unitBlocks(u *unit, units []*unit) bool {
 	}
 	for _, s := range u.dynSigs {
 		for _, o := range units {
-			if p.async[o.key] && o.sig != nil && sigMatch(s, o.sig) {
+			if p.async[o.key] && p.funcValues[o.key] && o.sig != nil && sigMatch(s, o.sig) {
 				return true
 			}
 		}
@@ -431,8 +487,13 @@ func (p *Program) LitAsync(lit *ast.FuncLit) bool { return p.async[lit] }
 func (p *Program) IsAsync(fn *types.Func) bool { return p.async[fn.Origin()] }
 
 // SortedDiags returns diagnostics in position order.
-func (p *Program) SortedDiags() []Diagnostic {
-	d := append([]Diagnostic(nil), p.Diags...)
+func (p *Program) SortedDiags() []Diagnostic { return sortDiags(p.Diags) }
+
+// SortedWarns returns warnings in position order.
+func (p *Program) SortedWarns() []Diagnostic { return sortDiags(p.Warns) }
+
+func sortDiags(diags []Diagnostic) []Diagnostic {
+	d := append([]Diagnostic(nil), diags...)
 	sort.SliceStable(d, func(i, j int) bool {
 		a, b := d[i].Pos, d[j].Pos
 		if a.Filename != b.Filename {

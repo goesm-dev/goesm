@@ -1,7 +1,7 @@
 // Command goesm builds Go packages into ES modules.
 //
-//	goesm build [-o dist] [-split] [-minify] [-keep-ts dir] ./main
-//	goesm emit-ts [-o dir] ./main
+//	goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-v] ./main
+//	goesm emit-ts [-o dir] [-v] ./main
 //
 // Arguments are ordinary Go package patterns resolved by the go command.
 package main
@@ -18,8 +18,8 @@ import (
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  goesm build [-o dist] [-split] [-minify] [-keep-ts dir] <package>
-  goesm emit-ts [-o dir] <package>`)
+  goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-v] <package>
+  goesm emit-ts [-o dir] [-v] <package>`)
 	os.Exit(2)
 }
 
@@ -35,6 +35,7 @@ func main() {
 		split := fs.Bool("split", false, "emit one ES module per Go package")
 		minify := fs.Bool("minify", false, "minify output")
 		keep := fs.String("keep-ts", "", "write generated TypeScript to this directory")
+		verbose := fs.Bool("v", false, "list standard library functions that are not supported yet")
 		fs.Parse(os.Args[2:])
 		if fs.NArg() == 0 {
 			usage()
@@ -43,6 +44,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
+		warn(res.Warnings, *verbose)
 		for _, o := range res.Outputs {
 			rel, _ := filepath.Rel(cwd, o)
 			fmt.Println(rel)
@@ -50,23 +52,42 @@ func main() {
 	case "emit-ts":
 		fs := flag.NewFlagSet("emit-ts", flag.ExitOnError)
 		out := fs.String("o", "goesm-ts", "output directory for TypeScript")
+		verbose := fs.Bool("v", false, "list standard library functions that are not supported yet")
 		fs.Parse(os.Args[2:])
 		if fs.NArg() == 0 {
 			usage()
 		}
-		mods, _, err := build.Lower(cwd, fs.Args())
+		l, err := build.Lower(cwd, fs.Args())
 		if err != nil {
 			fail(err)
 		}
-		if err := build.WriteTS(*out, mods); err != nil {
+		warn(l.Warnings, *verbose)
+		if err := build.WriteTS(*out, l.Mods); err != nil {
 			fail(err)
 		}
-		for _, m := range mods {
+		for _, m := range l.Mods {
 			fmt.Printf("%s/go/%s.ts\n", *out, m.Path)
 		}
 	default:
 		usage()
 	}
+}
+
+// warn summarises the standard library functions that panic if called.
+func warn(warnings []string, verbose bool) {
+	if len(warnings) == 0 {
+		return
+	}
+	if verbose {
+		for _, w := range warnings {
+			fmt.Fprintln(os.Stderr, w)
+		}
+	}
+	fmt.Fprintf(os.Stderr, "goesm: %d standard library functions are not supported yet and panic if called", len(warnings))
+	if !verbose {
+		fmt.Fprint(os.Stderr, " (-v lists them)")
+	}
+	fmt.Fprintln(os.Stderr)
 }
 
 func fail(err error) {

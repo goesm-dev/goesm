@@ -13,17 +13,21 @@ import (
 )
 
 // TestStdlibStatus reports how far each standard library package (with its
-// dependencies) gets through lowering. It documents status; it only fails
-// if a package listed as working regresses.
+// dependencies) gets through lowering, and how many standard library
+// functions became stubs that panic if called. It documents status; it only
+// fails if a package listed as working regresses.
 func TestStdlibStatus(t *testing.T) {
 	working := map[string]bool{}
+	for _, p := range []string{"errors", "maps", "math_bits", "slices", "sort", "strconv", "strings", "unicode", "unicode_utf8"} {
+		working["probe_"+p] = true
+	}
 	dirs, _ := filepath.Glob(testdata("stdlib", "probe_*"))
 	for _, d := range dirs {
 		name := filepath.Base(d)
-		_, _, err := build.Lower(testdata("stdlib"), []string{"./" + name})
+		l, err := build.Lower(testdata("stdlib"), []string{"./" + name})
 		var de *build.DiagError
 		if err == nil {
-			t.Logf("%-28s lowers cleanly", name)
+			t.Logf("%-28s lowers (%d std functions are stubs)", name, len(l.Warnings))
 			continue
 		}
 		if !errors.As(err, &de) {
