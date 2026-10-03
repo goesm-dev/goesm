@@ -166,7 +166,7 @@ func (rw *RWMutex) rLockSlow() {
 
 // TryRLock tries to lock rw for reading and reports whether it succeeded.
 func (rw *RWMutex) TryRLock() bool {
-	if rw.writer {
+	if rw.writer || rw.writersWaiting > 0 {
 		return false
 	}
 	rw.readers++

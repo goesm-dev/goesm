@@ -820,6 +820,14 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 	var callee string
 	switch f := fun.(type) {
 	case *ast.SelectorExpr:
+		if sel, ok := fe.info.Selections[f]; ok && sel.Kind() == types.MethodExpr {
+			if slow, locker := fe.pe.prog.WaitLock(e); slow != nil { // (*sync.Mutex).Lock(&mu)
+				if locker {
+					return fe.awaitIf(e, fe.mark(e)+fe.pe.methodFuncName(slow)+"(null, "+args+")")
+				}
+				return fe.awaitIf(e, fe.mark(e)+fe.pe.methodFuncName(slow)+"("+args+")")
+			}
+		}
 		if sel, ok := fe.info.Selections[f]; ok && sel.Kind() == types.MethodVal {
 			if bound, ok := fe.override[f]; ok { // a method value evaluated earlier (defer)
 				return fe.awaitIf(e, fe.mark(e)+"("+bound+" as any)("+args+")")
@@ -827,7 +835,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 			prefix, recv, iface := fe.methodTarget(f, sel)
 			fn := sel.Obj().(*types.Func)
 			if slow, locker := fe.pe.prog.WaitLock(e); locker {
-				return fe.awaitIf(e, fe.mark(e)+fe.pe.methodFuncName(slow)+"(null, "+fe.expr(f.X)+")")
+				// A type parameter constrained by Locker is boxed as one.
+				l := fe.convert(fe.expr(f.X), fe.info.TypeOf(f.X), fn.Signature().Recv().Type())
+				return fe.awaitIf(e, fe.mark(e)+fe.pe.methodFuncName(slow)+"(null, "+l+")")
 			} else if slow != nil {
 				prefix = fe.pe.methodFuncName(slow) + "("
 			}
@@ -1173,14 +1183,14 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 				t := fe.tmp()
 				var parts []string
 				for i := 0; i < tt.Len(); i++ {
-					parts = append(parts, printArg(tt.At(i).Type(), fmt.Sprintf("%s[%d]", t, i)))
+					parts = append(parts, fe.printArg(tt.At(i).Type(), fmt.Sprintf("%s[%d]", t, i)))
 				}
 				return fmt.Sprintf("%s$rt.%s(...((%s: any) => [%s])(%s))", m, name, t, strings.Join(parts, ", "), arg(0))
 			}
 		}
 		var vals []string
 		for i, a := range e.Args {
-			vals = append(vals, printArg(fe.info.TypeOf(a), arg(i)))
+			vals = append(vals, fe.printArg(fe.info.TypeOf(a), arg(i)))
 		}
 		return m + "$rt." + name + "(" + strings.Join(vals, ", ") + ")"
 	case "close":
@@ -1321,9 +1331,9 @@ func (fe *funcEmitter) unsafeCall(e *ast.CallExpr, name string) string {
 
 // printArg formats an operand of the print builtins as the Go runtime does
 // where JS's String() differs.
-func printArg(t types.Type, v string) string {
+func (fe *funcEmitter) printArg(t types.Type, v string) string {
 	if _, ok := types.Unalias(t).(*types.TypeParam); ok {
-		return v // the format depends on the type argument
+		return "$rt.printTyped(" + fe.desc(t) + ", " + v + ")" // the format depends on the type argument
 	}
 	t = types.Default(t)
 	if b, ok := t.(*types.Basic); ok && b.Kind() == types.UntypedNil {
