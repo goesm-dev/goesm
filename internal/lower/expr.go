@@ -99,7 +99,7 @@ func (fe *funcEmitter) typeArgList(targs *types.TypeList) []string {
 }
 
 func (fe *funcEmitter) genericFuncValue(fn string, targs *types.TypeList) string {
-	return fmt.Sprintf("((...a: any[]) => %s(%s, ...a))", fn, strings.Join(fe.typeArgList(targs), ", "))
+	return fmt.Sprintf("((...a: any[]) => (%s as any)(%s, ...a))", fn, strings.Join(fe.typeArgList(targs), ", "))
 }
 
 func (fe *funcEmitter) funcInstance(e ast.Expr, x ast.Expr) string {
@@ -212,6 +212,9 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 		if fnT := sel.Obj().(*types.Func); !isPtrRecv(fnT) {
 			recv = fe.pe.copyExpr(recv, fnT.Signature().Recv().Type(), fe.tp)
 		}
+		// fn is "F(" plus dictionaries; the call spreads the arguments, so F
+		// is called untyped.
+		fn = "(" + strings.Replace(fn, "(", " as any)(", 1)
 		return fmt.Sprintf("((%s: any) => (...a: any[]) => %s%s, ...a))(%s)", r, fn, r, recv)
 	case types.MethodExpr:
 		fn := sel.Obj().(*types.Func)
@@ -227,7 +230,7 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 				recv += ".v"
 			}
 		}
-		return fmt.Sprintf("((r: any, ...a: any[]) => %s(%s%s, ...a))", fe.pe.methodFuncName(fn), fe.pe.recvTypeArgs(base, fe.tp), recv)
+		return fmt.Sprintf("((r: any, ...a: any[]) => (%s as any)(%s%s, ...a))", fe.pe.methodFuncName(fn), fe.pe.recvTypeArgs(base, fe.tp), recv)
 	}
 	return "undefined"
 }
@@ -337,7 +340,7 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 		if isAggregate(t) {
 			return fe.compositeLit(x)
 		}
-		return "$rt.cell(" + fe.compositeLit(x) + ")"
+		return "$rt.cell<" + fe.ts(t) + ">(" + fe.compositeLit(x) + ")"
 	}
 	fe.errorf(e.Pos(), "unsupported address-of operand %T", e)
 	return "undefined"
@@ -438,7 +441,7 @@ func (fe *funcEmitter) compositeLit(e *ast.CompositeLit) string {
 		return wrapPre(pre, m+"["+strings.Join(vals, ", ")+"]")
 	case *types.Slice:
 		pre, vals := fe.indexedElems(e, u.Elem(), -1)
-		return wrapPre(pre, m+"$rt.sliceLit(["+strings.Join(vals, ", ")+"])")
+		return wrapPre(pre, m+"$rt.sliceLit<"+fe.ts(u.Elem())+">(["+strings.Join(vals, ", ")+"])")
 	case *types.Map:
 		var kvs []string
 		for _, el := range e.Elts {
@@ -857,6 +860,10 @@ func (fe *funcEmitter) args(e *ast.CallExpr, sig *types.Signature) string {
 		}
 		return params.At(i).Type()
 	}
+	var variadicElemTS string
+	if sig.Variadic() {
+		variadicElemTS = fe.ts(params.At(n - 1).Type().(*types.Slice).Elem())
+	}
 	var vals []string
 	if len(e.Args) == 1 && n > 1 {
 		if tt, ok := fe.info.TypeOf(e.Args[0]).(*types.Tuple); ok {
@@ -868,7 +875,7 @@ func (fe *funcEmitter) args(e *ast.CallExpr, sig *types.Signature) string {
 			if sig.Variadic() {
 				fixed := parts[:n-1]
 				rest := parts[n-1:]
-				parts = append(fixed, "$rt.sliceLit(["+strings.Join(rest, ", ")+"])")
+				parts = append(fixed, "$rt.sliceLit<"+variadicElemTS+">(["+strings.Join(rest, ", ")+"])")
 			}
 			return fmt.Sprintf("...((%s: any) => [%s])(%s)", t, strings.Join(parts, ", "), fe.expr(e.Args[0]))
 		}
@@ -885,7 +892,7 @@ func (fe *funcEmitter) args(e *ast.CallExpr, sig *types.Signature) string {
 		if len(rest) == 0 {
 			vals = append(fixed, "null")
 		} else {
-			vals = append(fixed, "$rt.sliceLit(["+strings.Join(rest, ", ")+"])")
+			vals = append(fixed, "$rt.sliceLit<"+variadicElemTS+">(["+strings.Join(rest, ", ")+"])")
 		}
 	}
 	return strings.Join(vals, ", ")
@@ -1017,13 +1024,13 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			if b, ok := under(fe.info.TypeOf(e.Args[1])).(*types.Basic); ok && b.Info()&types.IsString != 0 {
 				src = "$rt.stringToBytes(" + src + ")"
 			}
-			return fmt.Sprintf("%s$rt.append(%s, $rt.toArray(%s), %s%s)", m, arg(0), src, fe.zeroFn(elem), fe.elemTypeArg(elem))
+			return fmt.Sprintf("%s$rt.append<%s>(%s, $rt.toArray(%s), %s%s)", m, fe.ts(elem), arg(0), src, fe.zeroFn(elem), fe.elemTypeArg(elem))
 		}
 		var vals []string
 		for _, a := range e.Args[1:] {
 			vals = append(vals, fe.valueOf(a, elem))
 		}
-		return fmt.Sprintf("%s$rt.append(%s, [%s], %s%s)", m, arg(0), strings.Join(vals, ", "), fe.zeroFn(elem), fe.elemTypeArg(elem))
+		return fmt.Sprintf("%s$rt.append<%s>(%s, [%s], %s%s)", m, fe.ts(elem), arg(0), strings.Join(vals, ", "), fe.zeroFn(elem), fe.elemTypeArg(elem))
 	case "copy":
 		et := ""
 		if sl, ok := under(fe.info.TypeOf(e.Args[0])).(*types.Slice); ok {
@@ -1044,7 +1051,7 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			return fmt.Sprintf("%s$rt.makeSlice(%s, %s, %s)", m, l, c, fe.zeroFn(u.Elem()))
 		case *types.Map:
 			if len(e.Args) > 1 { // the size hint is evaluated, then unused
-				return fmt.Sprintf("%s(%s, $rt.makeMap(%s))", m, arg(1), fe.desc(u.Key()))
+				return fmt.Sprintf("%s$rt.makeMap(%s, %s)", m, fe.desc(u.Key()), arg(1))
 			}
 			return fmt.Sprintf("%s$rt.makeMap(%s)", m, fe.desc(u.Key()))
 		case *types.Chan:
@@ -1062,7 +1069,7 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		if isAggregate(t) {
 			return fe.zero(t)
 		}
-		return "$rt.cell(" + fe.zero(t) + ")"
+		return "$rt.cell<" + fe.ts(t) + ">(" + fe.zero(t) + ")"
 	case "panic":
 		return fmt.Sprintf("%s$rt.panic(%s)", m, fe.valueOf(e.Args[0], types.Universe.Lookup("any").Type()))
 	case "recover":

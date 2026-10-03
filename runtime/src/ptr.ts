@@ -12,26 +12,39 @@
 // derived pointer objects. A pointer is not an integer here; unsafe.Pointer
 // arithmetic would need the planned ArrayBuffer-backed memory model.
 
-import { plainPanic, runtimePanic } from "./panic";
-import { Slice } from "./slice";
-import { Type, isAggregate } from "./types";
+import { plainPanic, runtimePanic } from "./panic.ts";
+import { Slice } from "./slice.ts";
+import { Type, isAggregate } from "./types.ts";
 
 export class Cell<T> {
-  constructor(public v: T) {}
+  v: T;
+  constructor(v: T) {
+    this.v = v;
+  }
 }
 
-export function cell<T>(v: T): Cell<T> {
+export function cell<T = any>(v: T): Cell<T> {
   return new Cell(v);
 }
 
 class FieldPtr {
-  constructor(private o: any, private k: string) {}
+  private o: any;
+  private k: string;
+  constructor(o: any, k: string) {
+    this.o = o;
+    this.k = k;
+  }
   get v(): any { return this.o[this.k]; }
   set v(x: any) { this.o[this.k] = x; }
 }
 
 class IndexPtr {
-  constructor(private a: any[], private i: number) {}
+  private a: any[];
+  private i: number;
+  constructor(a: any[], i: number) {
+    this.a = a;
+    this.i = i;
+  }
   get v(): any { return this.a[this.i]; }
   set v(x: any) { this.a[this.i] = x; }
 }
@@ -96,7 +109,7 @@ export function assign(t: Type, dst: any, src: any): void {
 
 // deref is the implicit dereference of a *struct / *array, which is the
 // aggregate object itself: it only checks for nil.
-export function deref<T>(p: T | null): T {
+export function deref<T = any>(p: T | null): T {
   if (p === null) runtimePanic("invalid memory address or nil pointer dereference");
   return p;
 }
@@ -104,7 +117,7 @@ export function deref<T>(p: T | null): T {
 // derefMethod is the receiver dereference of a value method called through a
 // method expression or method table with a *T receiver; a nil pointer panics
 // like Go's panicwrap.
-export function derefMethod<T>(p: T | null, msg: string): T {
+export function derefMethod<T = any>(p: T | null, msg: string): T {
   if (p === null) plainPanic(msg);
   return p;
 }

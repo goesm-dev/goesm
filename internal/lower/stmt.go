@@ -250,7 +250,7 @@ func (fe *funcEmitter) defineVar(m string, v *types.Var, init string) {
 	}
 	n := fe.declare(v)
 	if fe.boxed(v) {
-		fe.w.ln("%slet %s = $rt.cell(%s);", m, n, init)
+		fe.w.ln("%slet %s: $rt.Cell<%s> = $rt.cell(%s);", m, n, fe.ts(v.Type()), init)
 		return
 	}
 	fe.w.ln("%slet %s: %s = %s;", m, n, fe.ts(v.Type()), init)
@@ -609,7 +609,7 @@ func (fe *funcEmitter) forStmt(s *ast.ForStmt, label string) {
 			val := fe.valueOf(as.Rhs[i], v.Type())
 			n := fe.declare(v)
 			if fe.boxed(v) {
-				decls = append(decls, fmt.Sprintf("%s = $rt.cell(%s)", n, val))
+				decls = append(decls, fmt.Sprintf("%s: $rt.Cell<%s> = $rt.cell(%s)", n, fe.ts(v.Type()), val))
 				renew = append(renew, fmt.Sprintf("%s = $rt.cell(%s.v)", n, n))
 			} else {
 				decls = append(decls, fmt.Sprintf("%s: %s = %s", n, fe.ts(v.Type()), val))
@@ -824,7 +824,11 @@ func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Sign
 	} else {
 		w.ln("%slet %s = 0, %s = 0;", fe.mark(s), rf.ret, rf.state)
 	}
-	call := fmt.Sprintf("%s((%s) => {", fe.expr(s.X), strings.Join(params, ", "))
+	var decls []string
+	for i, p := range params {
+		decls = append(decls, p+": "+fe.ts(ptypes[i]))
+	}
+	call := fmt.Sprintf("%s((%s): boolean => {", fe.expr(s.X), strings.Join(decls, ", "))
 	if fe.pe.prog.RangeBlocks(fe.info, s) {
 		call = "await " + call
 	}

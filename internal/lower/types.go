@@ -87,6 +87,9 @@ func formatFloat(f float64) string {
 type tpScope struct {
 	names  map[*types.TypeParam]string
 	inline bool
+	// ts are type parameters declared as TypeScript type parameters of
+	// the enclosing class (they have no dictionary variable).
+	ts map[*types.TypeParam]bool
 }
 
 func (s tpScope) with(tp *types.TypeParam, name string) tpScope {
@@ -95,7 +98,7 @@ func (s tpScope) with(tp *types.TypeParam, name string) tpScope {
 		m[k] = v
 	}
 	m[tp] = name
-	return tpScope{names: m, inline: s.inline}
+	return tpScope{names: m, inline: s.inline, ts: s.ts}
 }
 
 var basicDesc = map[types.BasicKind]string{
@@ -323,7 +326,17 @@ func (pe *pkgEmitter) tsType(t types.Type, tp tpScope) string {
 	t = types.Unalias(t)
 	switch u := t.(type) {
 	case *types.TypeParam:
-		return jsName(u.Obj().Name())
+		// Under erasure a type parameter is typed by what its constraint
+		// allows: its core type, number or string for a numeric or string
+		// union, else the TypeScript type parameter declared with the same
+		// name (any outside its function or class, e.g. in a local type).
+		if c := tsConstraint(pe, u, tp); c != "" {
+			return c
+		}
+		if _, ok := tp.names[u]; ok || tp.ts[u] {
+			return jsName(u.Obj().Name())
+		}
+		return "any"
 	case *types.Named:
 		if _, ok := u.Underlying().(*types.Struct); ok && u.TypeArgs().Len() == 0 {
 			return pe.structClass(u)
@@ -351,6 +364,44 @@ func (pe *pkgEmitter) tsType(t types.Type, tp tpScope) string {
 		return pe.tsType(u.Elem(), tp) + "[]"
 	}
 	return "any"
+}
+
+// tsConstraint is the TypeScript type of values of type parameter p: its
+// core type, or number / string for a union of only numeric / only string
+// types; "" if there is none.
+func tsConstraint(pe *pkgEmitter, p *types.TypeParam, tp tpScope) string {
+	if c := under(p); c != p.Underlying() {
+		if t := pe.tsType(c, tp); t != "any" {
+			return t
+		}
+		return ""
+	}
+	iface, _ := p.Constraint().Underlying().(*types.Interface)
+	kinds := map[string]bool{}
+	for i := 0; iface != nil && i < iface.NumEmbeddeds(); i++ {
+		var terms []types.Type
+		switch e := iface.EmbeddedType(i).(type) {
+		case *types.Union:
+			for j := 0; j < e.Len(); j++ {
+				terms = append(terms, e.Term(j).Type())
+			}
+		default:
+			terms = append(terms, e)
+		}
+		for _, term := range terms {
+			b, ok := term.Underlying().(*types.Basic)
+			if !ok {
+				return ""
+			}
+			kinds[pe.tsType(b, tp)] = true
+		}
+	}
+	if len(kinds) == 1 && (kinds["number"] || kinds["string"]) {
+		for k := range kinds {
+			return k
+		}
+	}
+	return ""
 }
 
 // isIface reports whether t is an interface type proper. go/types reports
