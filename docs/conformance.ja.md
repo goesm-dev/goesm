@@ -30,6 +30,8 @@ GOTOOLCHAIN=go1.27.0 GOESM_CONFORMANCE=1 GOESM_GOROOT_TEST=/tmp/go/test \
 | `GOESM_CONFORMANCE_OUT` | テストごとの結果を TSV で書き出す（状態、import、Node での実行時間、理由） |
 | `GOESM_CONFORMANCE_UPDATE=1` | baseline を書き直す |
 
+タイムアウトしたテスト（Node で 20 秒、ビルドで 2 分）は、並列実行のあとに単独でもう一度実行します。CI ランナーが混んでいて起動が遅れただけのものを失敗にしないためで、単独でもタイムアウトすれば失敗です。
+
 各テストは 1 パッケージだけのモジュール（`go` ディレクティブは実行中の toolchain のもの）にコピーされ、`goesm build` でビルドされます。実行は小さなドライバが bundle を import し、Go のプログラムと同じく `main` が返った時点で終了します。回復されない panic では終了コード 2 になります。
 
 対象はレシピが `// run` だけのテストです。引数や go コマンドのフラグつき（`// run -gcflags=...`）、複数ファイルの `rundir`、コンパイラ専用のレシピ（`errorcheck`、`compile`、`asmcheck`）は対象外です。ビルド制約で `js/wasm`（goesm のターゲット）が除外されるテストは skip として数えます。
