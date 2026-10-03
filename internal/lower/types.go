@@ -334,7 +334,7 @@ func (pe *pkgEmitter) copyExpr(s string, t types.Type, tp tpScope) string {
 	}
 	switch t.Underlying().(type) {
 	case *types.Struct:
-		if named, ok := t.(*types.Named); ok && named.TypeArgs().Len() > 0 {
+		if isGenericType(t) {
 			return s + ".$clone(" + pe.typeDesc(t, tp) + ")"
 		}
 		return s + ".$clone()"

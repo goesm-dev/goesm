@@ -478,7 +478,7 @@ type lvalue struct {
 func (fe *funcEmitter) aggregateSet(dst string, t types.Type, rhs string) string {
 	switch t.Underlying().(type) {
 	case *types.Struct:
-		if n, ok := types.Unalias(t).(*types.Named); ok && n.TypeArgs().Len() > 0 {
+		if isGenericType(t) {
 			return fmt.Sprintf("%s.$set(%s, %s)", dst, rhs, fe.desc(t))
 		}
 		return fmt.Sprintf("%s.$set(%s)", dst, rhs)
