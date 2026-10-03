@@ -207,12 +207,12 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 
 ## 11. 実装済み / 未実装 / native Go との差分
 
-**実装済み (native Go との golden テストで確認)**: package import、関数、多値返却、named result、closure、struct (値 copy、method、pointer method、embedding と promotion、比較)、array、slice (aliasing、append、copy、re-slice、nil)、map (struct / interface key、comma-ok、delete、nil map、range)、pointer (変数・field・要素・`new`、identity)、defer (評価順・named result の変更・LIFO)、panic / recover (runtime error、re-panic)、interface (dispatch、type assertion、type switch、比較、nil interface と nil pointer の区別)、generics (generic 関数、制約、generic type、Go 1.27 generic methods、型 identity)、method value / method expression、switch / fallthrough / label 付き break・continue、前方への `goto`、range over int、range-over-func (break / continue / return)、Go 1.22 の per-iteration loop 変数、8/16/32-bit 整数の wrap、整数 0 除算 panic、UTF-8 string と rune、goroutine、unbuffered / buffered channel、close、channel の range、select (default 含む)、`runtime.Goexit` / `Gosched`、package 変数の init order と `init()`、§9 に挙げた stdlib package。
+**実装済み (native Go との golden テストで確認)**: package import、関数、多値返却、named result、closure、struct (値 copy、method、pointer method、embedding と promotion、比較)、array、slice (aliasing、append、copy、re-slice、nil)、map (struct / interface key、comma-ok、delete、nil map、range)、pointer (変数・field・要素・`new`、identity)、defer (評価順・named result の変更・LIFO)、panic / recover (runtime error、re-panic)、interface (dispatch、type assertion、type switch、比較、nil interface と nil pointer の区別)、generics (generic 関数、制約と制約の method、interface 経由も含む generic type、型引数に従う演算子と変換、Go 1.27 generic methods、型 identity)、method value / method expression、switch / fallthrough / label 付き break・continue、前方への `goto`、range over int、range-over-func (入れ子の文からの break / continue / return、label 付き branch、yield を誤用する iterator に対する Go と同じ panic)、Go 1.22 の per-iteration loop 変数、8/16/32-bit 整数の wrap、整数 0 除算 panic、UTF-8 string と rune、goroutine、unbuffered / buffered channel、close、channel の range、select (default 含む)、`runtime.Goexit` / `Gosched`、package 変数の init order と `init()`、§9 に挙げた stdlib package。
 
 **未実装** (goesm 診断になるか、動作しないもの):
 * 64-bit 整数の正確な表現 (BigInt または hi/lo)、complex64/128
 * `reflect`、`fmt`、`time`、`encoding/json`、`iter.Pull` (coroutine)、§7 を超える `unsafe`
-* 後方への `goto`、range-over-func の body 内での blocking / defer / label 付き branch、型 parameter 型の変数の address、型 parameter に依存する local type、slice から配列 pointer への変換 (`(*[N]T)(s)`)
+* 後方への `goto`、range-over-func の body 内での blocking 操作 / select / defer / goto (診断として報告)、型 parameter 型の変数の address、型 parameter に依存する local type、slice から配列 pointer への変換 (`(*[N]T)(s)`)
 * deadlock 検出 ("all goroutines are asleep")、goroutine の preemption、goroutine-local な recover 状態
 * JS からの呼び出し ABI (Go の値 ⇔ JS 値の自動変換)、DOM / `syscall/js` binding
 * `go 1.22` 未満の file における共有 loop 変数の range 意味論
