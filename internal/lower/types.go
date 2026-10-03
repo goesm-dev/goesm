@@ -105,7 +105,8 @@ var basicDesc = map[types.BasicKind]string{
 	types.Bool: "bool", types.Int: "int", types.Int8: "int8", types.Int16: "int16", types.Int32: "int32",
 	types.Int64: "int64", types.Uint: "uint", types.Uint8: "uint8", types.Uint16: "uint16",
 	types.Uint32: "uint32", types.Uint64: "uint64", types.Uintptr: "uintptr", types.Float32: "float32",
-	types.Float64: "float64", types.String: "string", types.UnsafePointer: "unsafePointer",
+	types.Float64: "float64", types.Complex64: "complex64", types.Complex128: "complex128",
+	types.String: "string", types.UnsafePointer: "unsafePointer", types.UntypedComplex: "complex128",
 	types.UntypedBool: "bool", types.UntypedInt: "int", types.UntypedRune: "int32",
 	types.UntypedFloat: "float64", types.UntypedString: "string",
 }
@@ -131,7 +132,11 @@ func (pe *pkgEmitter) typeDesc(t types.Type, tp tpScope) string {
 		return pe.namedDesc(named)
 	}
 	if tp.inline || hasTypeParam(t) {
-		return pe.buildDesc(t, tp)
+		d := pe.buildDesc(t, tp)
+		if promotedMethods(t) {
+			d = "$rt.withMethods(" + d + ", {" + strings.Join(pe.methodEntries(t, nil, tp), ", ") + "})"
+		}
+		return d
 	}
 	if name, ok := pe.typeConsts.At(t).(string); ok {
 		return name
@@ -140,6 +145,11 @@ func (pe *pkgEmitter) typeDesc(t types.Type, tp tpScope) string {
 	name := pe.fresh("t")
 	pe.typeConsts.Set(t, name)
 	pe.consts.ln("const %s = %s;", name, expr)
+	if promotedMethods(t) {
+		// After the const, so method signatures may refer to t itself.
+		entries := pe.methodEntries(t, nil, tp)
+		pe.consts.ln("$rt.addMethods(%s, {%s});", name, strings.Join(entries, ", "))
+	}
 	return name
 }
 
@@ -210,7 +220,17 @@ func methodPkgPath(f *types.Func) string {
 	if f.Exported() || f.Pkg() == nil {
 		return ""
 	}
-	return f.Pkg().Path()
+	return goPkgPath(f.Pkg())
+}
+
+// goPkgPath is the package path the gc runtime reports (reflect's PkgPath,
+// unexported method and field keys, panic messages): a main package is
+// "main" whatever its import path.
+func goPkgPath(p *types.Package) string {
+	if p.Name() == "main" {
+		return "main"
+	}
+	return p.Path()
 }
 
 func methodKey(f *types.Func) string {
@@ -226,7 +246,7 @@ func (pe *pkgEmitter) structDesc(s *types.Struct, ctor string, tp tpScope) strin
 		f := s.Field(i)
 		pkgPath := ""
 		if !f.Exported() && f.Pkg() != nil {
-			pkgPath = f.Pkg().Path()
+			pkgPath = goPkgPath(f.Pkg())
 		}
 		fs = append(fs, fmt.Sprintf("{ name: %s, pkgPath: %s, type: %s, embedded: %v, tag: %s, prop: %s }",
 			jsString(f.Name()), jsString(pkgPath), pe.typeDesc(f.Type(), tp), f.Embedded(), jsString(s.Tag(i)), jsString(fieldProp(s, i))))
@@ -259,6 +279,8 @@ func (pe *pkgEmitter) zeroOf(t types.Type, tp tpScope) string {
 			return "false"
 		case u.Info()&types.IsString != 0:
 			return `""`
+		case u.Info()&types.IsComplex != 0:
+			return "$rt.complexZero"
 		case u.Info()&types.IsNumeric != 0:
 			return "0"
 		}
@@ -323,7 +345,26 @@ func (pe *pkgEmitter) copyExpr(s string, t types.Type, tp tpScope) string {
 // tsType renders a TypeScript annotation. Annotations document the IR for
 // readers and debuggers; they are erased by esbuild and never checked.
 func (pe *pkgEmitter) tsType(t types.Type, tp tpScope) string {
+	return pe.tsTypeIn(t, tp, nil)
+}
+
+// tsTypeIn renders t; in holds the named types being rendered, so a type
+// defined in terms of itself (type S []S) is any at the recursion.
+func (pe *pkgEmitter) tsTypeIn(t types.Type, tp tpScope, in map[string]bool) string {
 	t = types.Unalias(t)
+	if n, ok := t.(*types.Named); ok {
+		if _, isStruct := n.Underlying().(*types.Struct); !isStruct {
+			key := types.TypeString(n, nil)
+			if in[key] {
+				return "any"
+			}
+			m := map[string]bool{key: true}
+			for k := range in {
+				m[k] = true
+			}
+			in = m
+		}
+	}
 	switch u := t.(type) {
 	case *types.TypeParam:
 		// Under erasure a type parameter is typed by what its constraint
@@ -349,19 +390,21 @@ func (pe *pkgEmitter) tsType(t types.Type, tp tpScope) string {
 			return "boolean"
 		case u.Info()&types.IsString != 0:
 			return "string"
+		case u.Info()&types.IsComplex != 0:
+			return "$rt.Complex"
 		case u.Info()&types.IsNumeric != 0:
 			return "number"
 		}
 	case *types.Slice:
-		return "$rt.S<" + pe.tsType(u.Elem(), tp) + ">"
+		return "$rt.S<" + pe.tsTypeIn(u.Elem(), tp, in) + ">"
 	case *types.Map:
-		return "$rt.M<" + pe.tsType(u.Key(), tp) + ", " + pe.tsType(u.Elem(), tp) + ">"
+		return "$rt.M<" + pe.tsTypeIn(u.Key(), tp, in) + ", " + pe.tsTypeIn(u.Elem(), tp, in) + ">"
 	case *types.Chan:
-		return "$rt.Chan<" + pe.tsType(u.Elem(), tp) + "> | null"
+		return "$rt.Chan<" + pe.tsTypeIn(u.Elem(), tp, in) + "> | null"
 	case *types.Interface:
 		return "$rt.Iface | null"
 	case *types.Array:
-		return pe.tsType(u.Elem(), tp) + "[]"
+		return pe.tsTypeIn(u.Elem(), tp, in) + "[]"
 	}
 	return "any"
 }

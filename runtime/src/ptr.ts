@@ -86,6 +86,11 @@ export function newPtr(t: Type): any {
   return isAggregate(t) ? t.zero() : new Cell(t.zero());
 }
 
+// newPtrOf is new(v) for a value v of type t (already copied).
+export function newPtrOf(t: Type, v: any): any {
+  return isAggregate(t) ? v : new Cell(v);
+}
+
 export function load(t: Type, p: any): any {
   if (p === null) runtimePanic("invalid memory address or nil pointer dereference");
   return isAggregate(t) ? p : p.v;
@@ -126,4 +131,11 @@ export function derefMethod<T = any>(p: T | null, msg: string): T {
 // nil dereference panic (after the arguments were evaluated, as in Go).
 export function nilFunc(): never {
   runtimePanic("invalid memory address or nil pointer dereference");
+}
+
+// zeroSizePtrEq compares pointers to zero-size values (struct{}, [0]int).
+// Like gc, which gives them all the address runtime.zerobase, two non-nil
+// pointers are equal.
+export function zeroSizePtrEq(a: unknown, b: unknown): boolean {
+  return a === null ? b === null : b !== null;
 }

@@ -302,7 +302,7 @@ func (pe *pkgEmitter) emit() *Module {
 	// constants folded by go/types.
 	for _, name := range scope.Names() {
 		if c, ok := scope.Lookup(name).(*types.Const); ok && c.Exported() {
-			if b, ok := c.Type().Underlying().(*types.Basic); ok && b.Kind() != types.UntypedNil && b.Info()&types.IsComplex == 0 {
+			if b, ok := c.Type().Underlying().(*types.Basic); ok && b.Kind() != types.UntypedNil {
 				local := jsName(name)
 				pe.vars.ln("const %s = %s;", local, constLit(c.Val(), c.Type()))
 				pe.export(local, name)
@@ -470,6 +470,19 @@ func (pe *pkgEmitter) varTSType(v *types.Var) string {
 
 // constLit renders a Go constant of type t as a JS literal.
 func constLit(v constant.Value, t types.Type) string {
+	if isComplex(t) {
+		re, _ := constant.Float64Val(constant.ToFloat(constant.Real(v)))
+		im, _ := constant.Float64Val(constant.ToFloat(constant.Imag(v)))
+		if isComplex64(t) {
+			re32, _ := constant.Float32Val(constant.ToFloat(constant.Real(v)))
+			im32, _ := constant.Float32Val(constant.ToFloat(constant.Imag(v)))
+			re, im = float64(re32), float64(im32)
+		}
+		return "$rt.complex(" + formatFloat(re) + ", " + formatFloat(im) + ")"
+	}
+	if v.Kind() == constant.Complex { // a complex constant with a real type
+		v = constant.Real(v)
+	}
 	switch v.Kind() {
 	case constant.Bool:
 		return fmt.Sprint(constant.BoolVal(v))
