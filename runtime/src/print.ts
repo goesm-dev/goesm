@@ -5,6 +5,7 @@
 
 import type { Complex } from "./complex.ts";
 import { writeStd } from "./host.ts";
+import { Kind, type Type } from "./types.ts";
 
 // Strings are Go (byte) strings and written as they are.
 function str(a: any): string {
@@ -81,4 +82,20 @@ export function printIface(i: any): string {
 
 export function printSlice(s: any): string {
   return s === null ? "[0/0]0x0" : "[" + s.$length + "/" + s.$capacity + "]0xc000010000";
+}
+
+// printTyped formats an operand whose static type is a type parameter, by
+// the kind of its type argument t.
+export function printTyped(t: Type, v: any): any {
+  switch (t.kind) {
+    case Kind.Float32: return printFloat(v, 32);
+    case Kind.Float64: return printFloat(v);
+    case Kind.Complex64: return printComplex(v, 32);
+    case Kind.Complex128: return printComplex(v);
+    case Kind.Interface: return printIface(v);
+    case Kind.Slice: return printSlice(v);
+    case Kind.Pointer: case Kind.Map: case Kind.Chan: case Kind.Func: case Kind.UnsafePointer:
+      return printPointer(v);
+  }
+  return v;
 }

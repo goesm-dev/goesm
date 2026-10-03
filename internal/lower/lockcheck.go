@@ -88,21 +88,28 @@ func mutexMethod(info *types.Info, call *ast.CallExpr) (mutexCall, bool) {
 		return mutexCall{}, false
 	}
 	s, ok := info.Selections[sel]
-	if !ok || s.Kind() != types.MethodVal {
+	if !ok || (s.Kind() != types.MethodVal && s.Kind() != types.MethodExpr) {
 		return mutexCall{}, false
 	}
 	fn := s.Obj().(*types.Func)
 	if fn.Pkg() == nil || fn.Pkg().Path() != "sync" {
 		return mutexCall{}, false
 	}
-	mc := mutexCall{call: call, method: fn.Name(), expr: types.ExprString(sel.X)}
-	recv := fn.Signature().Recv().Type()
-	if named, ok := types.Unalias(recv).(*types.Named); ok && named.Obj().Name() == "Locker" {
-		// Only a Locker's own methods: a type parameter constrained by
-		// Locker is not handled.
-		if _, isTP := types.Unalias(s.Recv()).(*types.TypeParam); isTP {
+	x := sel.X
+	if s.Kind() == types.MethodExpr {
+		// (*sync.Mutex).Lock(&mu) locks what mu.Lock() does. A method
+		// promoted from an embedded mutex is left out.
+		if len(call.Args) == 0 || len(s.Index()) > 1 {
 			return mutexCall{}, false
 		}
+		x = call.Args[0]
+		if u, ok := unparen(x).(*ast.UnaryExpr); ok && u.Op == token.AND {
+			x = u.X
+		}
+	}
+	mc := mutexCall{call: call, method: fn.Name(), expr: types.ExprString(x)}
+	recv := fn.Signature().Recv().Type()
+	if named, ok := types.Unalias(recv).(*types.Named); ok && named.Obj().Name() == "Locker" {
 		mc.locker = true
 		if mc.method == "Lock" {
 			if w := fn.Pkg().Scope().Lookup("waiter"); w != nil {
@@ -131,7 +138,7 @@ func mutexMethod(info *types.Info, call *ast.CallExpr) (mutexCall, bool) {
 		}
 		return mc, true
 	}
-	mc.key = mutexKey(info, sel.X)
+	mc.key = mutexKey(info, x)
 	return mc, true
 }
 

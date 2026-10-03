@@ -29,6 +29,7 @@ func main() {
 	var e error
 	var s []int
 	println(p, m, e, s)
+	printTyped(math.Inf(1), float32(0.1), complex(1.5, -2), p, m, e, s)
 	os.Stdout.WriteString("done\n")
 }
 
@@ -38,3 +39,8 @@ func init() {
 }
 
 func results() (int, bool, float64) { return 3, true, 1.5 }
+
+// printTyped prints operands whose static type is a type parameter.
+func printTyped[F, F32, C, P, M, E, S any](f F, f32 F32, c C, p P, m M, e E, s S) {
+	println(f, f32, c, p, m, e, s)
+}

@@ -239,31 +239,46 @@ function crash(e: unknown): void {
 // Hosts without a process (browsers) keep running whatever is left.
 export function runMain(main: () => void | Promise<void>): void {
   const proc = (globalThis as any).process;
-  const done = () => {
-    if (typeof proc?.exit === "function") exitProcess(0);
-  };
-  let r: void | Promise<void>;
-  try {
-    r = main();
-  } catch (e) {
-    crash(e);
-    return;
-  }
-  if (!(r instanceof Promise)) {
-    done();
-    return;
-  }
+  let goexit = false;
   // beforeExit fires only when the event loop has run dry: not for an exit
   // the program or a JavaScript callback asked for, nor for an uncaught
   // JavaScript exception.
   const deadlock = () => {
     if (exiting) return;
-    writeStd(2, "fatal error: all goroutines are asleep - deadlock!\n\ngoroutine 1 [running]:\nmain.main()\n");
+    writeStd(2, goexit && goroutines === 0
+      ? "fatal error: no goroutines (main called runtime.Goexit) - deadlock!\n"
+      : "fatal error: all goroutines are asleep - deadlock!\n\ngoroutine 1 [running]:\nmain.main()\n");
     exitProcess(2);
   };
   if (typeof proc?.once === "function") proc.once("beforeExit", deadlock);
-  r.then(() => {
+  const done = () => {
     proc?.off?.("beforeExit", deadlock);
-    done();
-  }, crash);
+    if (typeof proc?.exit === "function") exitProcess(0);
+  };
+  // runtime.Goexit in main ends the main goroutine; the others go on.
+  const fail = (e: unknown) => {
+    if (e instanceof Goexit) {
+      goexit = true;
+      goroutines--;
+      return;
+    }
+    proc?.off?.("beforeExit", deadlock);
+    crash(e);
+  };
+  let r: void | Promise<void>;
+  try {
+    r = main();
+  } catch (e) {
+    fail(e);
+    return;
+  }
+  if (r instanceof Promise) r.then(done, fail);
+  else done();
+}
+
+// crashOnUncaught makes an exception nothing caught end the program like an
+// unrecovered panic (program.ts).
+export function crashOnUncaught(): void {
+  const proc = (globalThis as any).process;
+  if (typeof proc?.on === "function") proc.on("uncaughtException", crash);
 }
