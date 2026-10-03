@@ -1,7 +1,7 @@
 // Command goesm builds Go packages into ES modules.
 //
-//	goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-v] ./main
-//	goesm emit-ts [-o dir] [-v] ./main
+//	goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-overlay file] [-v] ./main
+//	goesm emit-ts [-o dir] [-overlay file] [-v] ./main
 //	goesm version
 //
 // Arguments are ordinary Go package patterns resolved by the go command.
@@ -21,8 +21,8 @@ import (
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-v] <package>
-  goesm emit-ts [-o dir] [-v] <package>
+  goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-overlay file] [-v] <package>
+  goesm emit-ts [-o dir] [-overlay file] [-v] <package>
   goesm version`)
 	os.Exit(2)
 }
@@ -39,12 +39,13 @@ func main() {
 		split := fs.Bool("split", false, "emit one ES module per Go package")
 		minify := fs.Bool("minify", false, "minify output")
 		keep := fs.String("keep-ts", "", "write generated TypeScript to this directory")
+		ov := fs.String("overlay", "", "read file replacements from this JSON file (go build -overlay format)")
 		verbose := fs.Bool("v", false, "list standard library functions that are not supported yet")
 		fs.Parse(os.Args[2:])
 		if fs.NArg() == 0 {
 			usage()
 		}
-		res, err := build.Build(build.Options{Dir: cwd, Patterns: fs.Args(), OutDir: *out, Split: *split, Minify: *minify, TSDir: *keep})
+		res, err := build.Build(build.Options{Dir: cwd, Patterns: fs.Args(), OutDir: *out, Split: *split, Minify: *minify, TSDir: *keep, Overlay: readOverlay(*ov)})
 		if err != nil {
 			fail(err)
 		}
@@ -56,12 +57,13 @@ func main() {
 	case "emit-ts":
 		fs := flag.NewFlagSet("emit-ts", flag.ExitOnError)
 		out := fs.String("o", "goesm-ts", "output directory for TypeScript")
+		ov := fs.String("overlay", "", "read file replacements from this JSON file (go build -overlay format)")
 		verbose := fs.Bool("v", false, "list standard library functions that are not supported yet")
 		fs.Parse(os.Args[2:])
 		if fs.NArg() == 0 {
 			usage()
 		}
-		l, err := build.Lower(cwd, fs.Args())
+		l, err := build.LowerOverlay(cwd, readOverlay(*ov), fs.Args())
 		if err != nil {
 			fail(err)
 		}
@@ -93,6 +95,17 @@ func goesmVersion() string {
 	}
 	v += " " + info.GoVersion
 	return v
+}
+
+func readOverlay(file string) map[string][]byte {
+	if file == "" {
+		return nil
+	}
+	m, err := build.ReadOverlay(file)
+	if err != nil {
+		fail(err)
+	}
+	return m
 }
 
 // warn summarises the standard library functions that panic if called.

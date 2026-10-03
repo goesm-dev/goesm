@@ -55,6 +55,7 @@ docs/                 GopherJS 比較、生成物の実例
 
 * `golang.org/x/tools/go/packages` で `NeedSyntax|NeedTypes|NeedTypesInfo|NeedDeps` を読み込みます。module 解決・`go.work`・`GOPROXY`・`go.sum` 検証はすべて go command の仕事で、goesm は一切再実装していません。
 * 入力は Go の package pattern (`./main`, `example.com/app/...`)。`import "./foo.go"` のような独自 import はありません。
+* `-overlay file` (`build` / `emit-ts`) は go command 自身の overlay 形式 (`go build -overlay`, `packages.Config.Overlay`) を受け取ります。絶対パスでディスク上のファイルを置き換え・追加でき、存在しないディレクトリにも置けます。Go を別のファイルに埋め込むホスト (Vue SFC 向けの gosfc) は `//line` directive 付きの Go ファイルを生成してこの経路で渡します。位置は常に `//line` を反映する `token.FileSet.Position` 経由で取るため、go/types の診断と goesm の source map はホストのファイル (`Summary.vue:17:21`) を指します。
 * target の build constraints は `GOOS=js GOARCH=wasm` (既存 port のうち JS host に最も近いもの)。`int` は 64-bit として型検査されます。
 * **Go version を固定しない**: go/parser と go/types は goesm binary にリンクされるため、goesm が理解できる最新 syntax は「goesm を build した toolchain」の syntax です。そこで goesm は `go tool goesm` (go.mod の `tool` directive) や `go run` で、その module が選ぶ toolchain により都度 build される前提にしています。toolchain の方が新しい場合は `loader.VersionHint` がそれを診断します。この PoC 自体 Go 1.27 で build し、Go 1.27 の generic methods を fixture で通しています (`testdata/semantics/generics`)。
 
