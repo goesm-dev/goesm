@@ -102,7 +102,12 @@ func (fe *funcEmitter) nameOf(obj types.Object) string {
 		return n
 	}
 	if obj.Pkg() != nil && obj.Parent() == obj.Pkg().Scope() {
-		return fe.pe.qualify(obj.Pkg(), jsName(obj.Name()))
+		if obj.Pkg() != fe.pe.pkg.Types {
+			// Exported under its Go name (math.NaN), which is a valid
+			// property name even where it is not a valid identifier.
+			return fe.pe.qualify(obj.Pkg(), obj.Name())
+		}
+		return jsName(obj.Name())
 	}
 	return fe.declare(obj)
 }

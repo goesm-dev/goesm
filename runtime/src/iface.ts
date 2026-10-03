@@ -7,7 +7,8 @@
 // method dispatch goes through the type's method table instead of relying on
 // JS structural typing.
 
-import { Kind, Type, implementsIface, isAggregate } from "./types.ts";
+import { Kind, Type, implementsIface, isAggregate, types } from "./types.ts";
+import { ceq } from "./complex.ts";
 import { GoPanic, runtimePanic, typeAssertionErrorType } from "./panic.ts";
 
 export class Iface {
@@ -95,6 +96,8 @@ export function equal(t: Type, a: any, b: any): boolean {
       return true;
     case Kind.Interface:
       return ifaceEq(a, b);
+    case Kind.Complex64: case Kind.Complex128:
+      return ceq(a, b);
     case Kind.Slice: case Kind.Map: case Kind.Func:
       if (a !== null && b !== null) runtimePanic(`comparing uncomparable type ${t.str}`);
       return a === b;
@@ -129,6 +132,8 @@ export function hashKey(t: Type, v: any): any {
   switch (t.kind) {
     case Kind.Float32: case Kind.Float64:
       return v !== v ? Symbol("NaN") : v;
+    case Kind.Complex64: case Kind.Complex128:
+      return v.re !== v.re || v.im !== v.im ? Symbol("NaN") : "\u0000" + serialize(t, v);
     case Kind.Struct: case Kind.Array: case Kind.Interface:
       return "\u0000" + serialize(t, v);
     case Kind.Slice: case Kind.Map: case Kind.Func:
@@ -154,6 +159,10 @@ function serialize(t: Type, v: any): string {
     case Kind.Float32: case Kind.Float64:
       if (v !== v) return "NaN#" + nextObjID++; // NaN != NaN: every such key is distinct
       return String(v === 0 ? 0 : v);
+    case Kind.Complex64: case Kind.Complex128: {
+      const f = t.kind === Kind.Complex64 ? types.float32 : types.float64;
+      return "(" + serialize(f, v.re) + "," + serialize(f, v.im) + ")";
+    }
     case Kind.Pointer: case Kind.Chan: case Kind.UnsafePointer:
       return objID(v);
   }
