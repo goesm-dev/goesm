@@ -8,14 +8,19 @@ package loader
 import (
 	"bytes"
 	"fmt"
+	"go/ast"
+	"go/parser"
 	"go/token"
 	"go/version"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
+	"github.com/goesm-dev/goesm/internal/natives"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -31,6 +36,8 @@ type Program struct {
 	Roots []*packages.Package
 	// All packages in dependency order (dependencies first).
 	All []*packages.Package
+	// Std is the set of standard library packages (sources in GOROOT).
+	Std map[*packages.Package]bool
 }
 
 // Diagnostic is a frontend error reported at its original .go position.
@@ -65,24 +72,29 @@ func (e *Error) Error() string {
 // such as ./main or example.com/app/...) relative to dir.
 func Load(dir string, patterns ...string) (*Program, error) {
 	fset := token.NewFileSet()
+	root := goroot(dir)
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedDeps | packages.NeedTypes |
 			packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedTypesSizes |
 			packages.NeedModule,
-		Dir:  dir,
-		Env:  append(os.Environ(), TargetEnv...),
-		Fset: fset,
+		Dir:       dir,
+		Env:       append(os.Environ(), TargetEnv...),
+		Fset:      fset,
+		ParseFile: replacingParser(root),
 	}
 	roots, err := packages.Load(cfg, patterns...)
 	if err != nil {
 		return nil, err
 	}
 
-	var diags []Diagnostic
 	var all []*packages.Package
 	packages.Visit(roots, nil, func(p *packages.Package) {
 		all = append(all, p) // post-order: dependencies first
+	})
+	all = reachable(roots, all)
+	var diags []Diagnostic
+	for _, p := range all {
 		for _, e := range p.Errors {
 			layer := "go list"
 			switch e.Kind {
@@ -93,7 +105,7 @@ func Load(dir string, patterns ...string) (*Program, error) {
 			}
 			diags = append(diags, Diagnostic{Layer: layer, Pos: e.Pos, Msg: e.Msg})
 		}
-	})
+	}
 	if len(diags) > 0 {
 		sort.SliceStable(diags, func(i, j int) bool { return diags[i].Pos < diags[j].Pos })
 		if hint := VersionHint(dir); hint != "" {
@@ -101,7 +113,89 @@ func Load(dir string, patterns ...string) (*Program, error) {
 		}
 		return nil, &Error{Diags: diags}
 	}
-	return &Program{Fset: fset, Roots: roots, All: all}, nil
+	std := map[*packages.Package]bool{}
+	for _, p := range all {
+		if root != "" && p.Module == nil && len(p.GoFiles) > 0 && strings.HasPrefix(p.GoFiles[0], filepath.Join(root, "src")+string(filepath.Separator)) {
+			std[p] = true
+		}
+	}
+	return &Program{Fset: fset, Roots: roots, All: all, Std: std}, nil
+}
+
+func goroot(dir string) string {
+	cmd := exec.Command("go", "env", "GOROOT")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), TargetEnv...)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// replacingParser parses Go files as go/packages would, except for the
+// standard library packages that goesm replaces (internal/natives): the
+// first file of such a package to be parsed becomes the replacement, the
+// others become empty files (only their package clause is kept).
+func replacingParser(goroot string) func(*token.FileSet, string, []byte) (*ast.File, error) {
+	src := filepath.Join(goroot, "src") + string(filepath.Separator)
+	var mu sync.Mutex
+	replaced := map[string]bool{} // package dirs whose replacement was handed out
+	return func(fset *token.FileSet, filename string, data []byte) (*ast.File, error) {
+		const mode = parser.AllErrors | parser.ParseComments | parser.SkipObjectResolution
+		if goroot == "" || !strings.HasPrefix(filename, src) {
+			return parser.ParseFile(fset, filename, data, mode)
+		}
+		pkgDir := filepath.Dir(filename)
+		repl, ok := natives.Replacement(filepath.ToSlash(strings.TrimPrefix(pkgDir, src)))
+		if !ok {
+			return parser.ParseFile(fset, filename, data, mode)
+		}
+		mu.Lock()
+		first := !replaced[pkgDir]
+		replaced[pkgDir] = true
+		mu.Unlock()
+		if first {
+			return parser.ParseFile(fset, repl.Name, repl.Src, mode)
+		}
+		f, err := parser.ParseFile(fset, filename, data, parser.PackageClauseOnly)
+		if err != nil {
+			return nil, err
+		}
+		return &ast.File{Package: f.Package, Name: f.Name, FileStart: f.FileStart, FileEnd: f.FileEnd}, nil
+	}
+}
+
+// reachable keeps the packages actually imported (by their syntax, after
+// replacements) from the roots: a replaced package's original imports, such
+// as the gc runtime's internals, are loaded by the go command but not built.
+func reachable(roots, all []*packages.Package) []*packages.Package {
+	keep := map[*packages.Package]bool{}
+	var visit func(p *packages.Package)
+	visit = func(p *packages.Package) {
+		if keep[p] {
+			return
+		}
+		keep[p] = true
+		if p.Types == nil {
+			return
+		}
+		for _, ip := range p.Types.Imports() {
+			if dep := p.Imports[ip.Path()]; dep != nil {
+				visit(dep)
+			}
+		}
+	}
+	for _, r := range roots {
+		visit(r)
+	}
+	var out []*packages.Package
+	for _, p := range all {
+		if keep[p] {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // VersionHint explains a frontend/toolchain skew. go/types is linked into the

@@ -111,16 +111,22 @@ export function toPanic(e: unknown): GoPanic {
 // accepts any call made synchronously during that deferred call.
 let current: Defers | null = null;
 
+// Goexit is thrown by runtime.Goexit: deferred calls run, recover() does
+// not stop it, and the goroutine ends without crashing the program.
+export class Goexit {}
+
 export class Defers {
   private list: Array<() => any> = [];
   panicking: GoPanic | null = null;
+  exiting: Goexit | null = null;
 
   defer(fn: () => any): void {
     this.list.push(fn);
   }
 
   fail(e: unknown): void {
-    this.panicking = toPanic(e);
+    if (e instanceof Goexit) this.exiting = e;
+    else this.panicking = toPanic(e);
   }
 
   run(): void {
@@ -131,12 +137,13 @@ export class Defers {
       try {
         fn();
       } catch (e) {
-        this.panicking = toPanic(e);
+        this.fail(e);
       } finally {
         current = prev;
       }
     }
     if (this.panicking) throw this.panicking;
+    if (this.exiting) throw this.exiting;
   }
 
   async runAsync(): Promise<void> {
@@ -148,7 +155,7 @@ export class Defers {
       try {
         r = fn();
       } catch (e) {
-        this.panicking = toPanic(e);
+        this.fail(e);
       } finally {
         current = prev;
       }
@@ -156,11 +163,12 @@ export class Defers {
         try {
           await r;
         } catch (e) {
-          this.panicking = toPanic(e);
+          this.fail(e);
         }
       }
     }
     if (this.panicking) throw this.panicking;
+    if (this.exiting) throw this.exiting;
   }
 }
 

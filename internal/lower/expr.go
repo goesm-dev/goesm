@@ -722,8 +722,7 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 	}
 	if se, ok := fun.(*ast.SelectorExpr); ok {
 		if b, ok := fe.info.Uses[se.Sel].(*types.Builtin); ok { // unsafe.X
-			fe.errorf(e.Pos(), "unsafe.%s is not supported yet", b.Name())
-			return "undefined"
+			return fe.unsafeCall(e, b.Name())
 		}
 	}
 	sig := under(fe.info.TypeOf(e.Fun)).(*types.Signature)
@@ -854,6 +853,9 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 		return fe.convert(s, from, to)
 	}
 	tu, fu := under(to), under(from)
+	if isUnsafePointer(tu) || isUnsafePointer(fu) {
+		return fe.unsafeConversion(e, to, from, s)
+	}
 	if tb, ok := tu.(*types.Basic); ok {
 		fb, _ := fu.(*types.Basic)
 		switch {
@@ -881,9 +883,6 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 			return "$rt.fround(" + s + ")"
 		case tb.Info()&types.IsFloat != 0:
 			return s
-		case tb.Kind() == types.UnsafePointer:
-			fe.errorf(e.Pos(), "conversion to unsafe.Pointer is not supported yet")
-			return s
 		}
 	}
 	if sl, ok := tu.(*types.Slice); ok {
@@ -907,9 +906,6 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 				return s
 			}
 		}
-	}
-	if fb, ok := fu.(*types.Basic); ok && fb.Kind() == types.UnsafePointer {
-		fe.errorf(e.Pos(), "conversion from unsafe.Pointer is not supported yet")
 	}
 	if st, ok := tu.(*types.Struct); ok && !types.Identical(to, from) && !isGenericType(to) && !isGenericType(from) {
 		// Another struct type: build an instance of its class so the value
@@ -1052,4 +1048,97 @@ func (fe *funcEmitter) elemTypeArg(elem types.Type) string {
 		return ", " + fe.desc(elem)
 	}
 	return ""
+}
+
+// ---- unsafe ----
+//
+// An unsafe.Pointer holds the pointer object itself (see runtime/src/ptr.ts):
+// converting a pointer to unsafe.Pointer and back to the same pointer type is
+// the identity. There is no address space, so reinterpreting memory as
+// another type, pointer arithmetic and conversions to and from uintptr are
+// diagnosed. unsafe.String and unsafe.Slice are supported where their pointer
+// operand is an element of a slice or array (&x[i], unsafe.SliceData(x)).
+
+func isUnsafePointer(t types.Type) bool {
+	b, ok := t.(*types.Basic)
+	return ok && b.Kind() == types.UnsafePointer
+}
+
+func (fe *funcEmitter) unsafeConversion(e *ast.CallExpr, to, from types.Type, s string) string {
+	tu, fu := under(to), under(from)
+	if isUnsafePointer(tu) && isUnsafePointer(fu) {
+		return s
+	}
+	if isUnsafePointer(tu) {
+		if _, ok := fu.(*types.Pointer); ok {
+			return s
+		}
+		fe.errorf(e.Pos(), "conversion from %s to unsafe.Pointer is not supported (goesm has no address space)", from)
+		return s
+	}
+	tp, ok := tu.(*types.Pointer)
+	if !ok {
+		fe.errorf(e.Pos(), "conversion from unsafe.Pointer to %s is not supported (goesm has no address space)", to)
+		return s
+	}
+	// (*T)(unsafe.Pointer(p)) with p of type *U reinterprets U's memory as T.
+	if inner, ok := unparen(e.Args[0]).(*ast.CallExpr); ok && len(inner.Args) == 1 {
+		if tv, ok := fe.info.Types[inner.Fun]; ok && tv.IsType() && isUnsafePointer(under(tv.Type)) {
+			if up, ok := under(fe.info.TypeOf(inner.Args[0])).(*types.Pointer); ok && !types.Identical(under(up.Elem()), under(tp.Elem())) {
+				fe.errorf(e.Pos(), "reinterpreting %s as %s through unsafe.Pointer is not supported", up, to)
+			}
+		}
+	}
+	return s
+}
+
+// unsafeElem matches a pointer operand that addresses an element of a slice
+// or array: &x[i] or unsafe.SliceData(x). It returns the slice or array
+// expression and the index; checked reports whether x[i] must be in range.
+func (fe *funcEmitter) unsafeElem(ptr ast.Expr) (base, idx string, checked, ok bool) {
+	switch p := unparen(ptr).(type) {
+	case *ast.UnaryExpr:
+		if ix, isIdx := unparen(p.X).(*ast.IndexExpr); p.Op == token.AND && isIdx {
+			switch under(fe.info.TypeOf(ix.X)).(type) {
+			case *types.Slice, *types.Array, *types.Pointer:
+				return fe.expr(ix.X), fe.expr(ix.Index), true, true
+			}
+		}
+	case *ast.CallExpr:
+		if se, isSel := unparen(p.Fun).(*ast.SelectorExpr); isSel {
+			if b, isB := fe.info.Uses[se.Sel].(*types.Builtin); isB && b.Name() == "SliceData" {
+				return fe.expr(p.Args[0]), "0", false, true
+			}
+		}
+	}
+	return "", "", false, false
+}
+
+func (fe *funcEmitter) unsafeCall(e *ast.CallExpr, name string) string {
+	m := fe.mark(e)
+	switch name {
+	case "String":
+		if base, idx, checked, ok := fe.unsafeElem(e.Args[0]); ok {
+			return fmt.Sprintf("%s$rt.bytesToString($rt.unsafeSlice(%s, %s, %s, %v))", m, base, idx, fe.expr(e.Args[1]), checked)
+		}
+	case "Slice":
+		if base, idx, checked, ok := fe.unsafeElem(e.Args[0]); ok {
+			return fmt.Sprintf("%s$rt.unsafeSlice(%s, %s, %s, %v)", m, base, idx, fe.expr(e.Args[1]), checked)
+		}
+		if c, ok := unparen(e.Args[0]).(*ast.CallExpr); ok {
+			if se, ok := unparen(c.Fun).(*ast.SelectorExpr); ok {
+				if b, ok := fe.info.Uses[se.Sel].(*types.Builtin); ok && b.Name() == "StringData" {
+					// The bytes of a string are immutable, so a copy is
+					// indistinguishable from an alias.
+					return fmt.Sprintf("%s$rt.stringToBytes($rt.substr(%s, 0, %s))", m, fe.expr(c.Args[0]), fe.expr(e.Args[1]))
+				}
+			}
+		}
+	case "Sizeof", "Alignof": // not constant: the operand's type involves a type parameter
+		return fmt.Sprintf("%s$rt.%sOf(%s)", m, strings.ToLower(name[:len(name)-2]), fe.desc(fe.info.TypeOf(e.Args[0])))
+	case "SliceData":
+		return fmt.Sprintf("%s$rt.sliceData(%s, %v)", m, fe.expr(e.Args[0]), isAggregate(under(fe.info.TypeOf(e.Args[0])).(*types.Slice).Elem()))
+	}
+	fe.errorf(e.Pos(), "unsafe.%s is not supported in this form (goesm has no address space)", name)
+	return "undefined"
 }

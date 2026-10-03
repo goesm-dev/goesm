@@ -851,3 +851,39 @@ func NilArrayPointerIndex() string {
 	var p *[3]int
 	return recoverMsg(func() { _ = p[1] })
 }
+
+// ---- goto (forward) ----
+
+func GotoForward() []int {
+	var out []int
+	for i := 0; i < 10; i++ {
+		if i == 3 {
+			goto done
+		}
+		out = append(out, i)
+	}
+	out = append(out, 100)
+done:
+	out = append(out, -1)
+	return out
+}
+
+func gotoSearch(target int) string {
+	s := ""
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 3; j++ {
+			if i*j == target {
+				goto found
+			}
+		}
+	}
+	s += "none"
+	goto end
+found:
+	s += "found"
+end:
+	n := len(s)
+	return s + "!" + string(rune('0'+n))
+}
+
+func GotoLabels() []string { return []string{gotoSearch(2), gotoSearch(5)} }

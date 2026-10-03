@@ -295,3 +295,38 @@ export function isAggregate(t: Type): boolean {
 // The predeclared error interface.
 export const errorType: Type = named("", "error");
 setUnderlying(errorType, interfaceOf([{ name: "Error", pkgPath: "", type: funcOf([], [types.string], false) }]));
+
+// sizeOf and alignOf are unsafe.Sizeof / unsafe.Alignof under GOARCH=wasm
+// (go/types' sizes for the target), for operands whose type is a type
+// parameter; other operands are constants folded by go/types.
+export function sizeOf(t: Type): number {
+  switch (t.kind) {
+    case Kind.Bool: case Kind.Int8: case Kind.Uint8: return 1;
+    case Kind.Int16: case Kind.Uint16: return 2;
+    case Kind.Int32: case Kind.Uint32: case Kind.Float32: return 4;
+    case Kind.String: case Kind.Interface: case Kind.Complex128: return 16;
+    case Kind.Slice: return 24;
+    case Kind.Array: return t.len * sizeOf(t.elem!);
+    case Kind.Struct: {
+      let off = 0, max = 1;
+      for (const f of t.fields) {
+        const a = alignOf(f.type);
+        max = Math.max(max, a);
+        off = Math.ceil(off / a) * a + sizeOf(f.type);
+      }
+      return Math.ceil(off / max) * max;
+    }
+  }
+  return 8;
+}
+
+export function alignOf(t: Type): number {
+  switch (t.kind) {
+    case Kind.Array: return alignOf(t.elem!);
+    case Kind.Struct: return t.fields.reduce((m, f) => Math.max(m, alignOf(f.type)), 1);
+    case Kind.String: case Kind.Interface: case Kind.Slice: return 8;
+    case Kind.Complex64: return 4;
+    case Kind.Complex128: return 8;
+  }
+  return Math.min(sizeOf(t), 8);
+}

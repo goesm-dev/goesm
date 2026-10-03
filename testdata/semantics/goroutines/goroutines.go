@@ -2,6 +2,8 @@
 // are lowered to async JS functions; from JavaScript they return Promises.
 package goroutines
 
+import "runtime"
+
 func Worker(ch chan int) {
 	ch <- 42
 }
@@ -163,4 +165,36 @@ func BlockingIterator() []int {
 		out = append(out, v*10)
 	}
 	return out
+}
+
+type mailbox struct {
+	ch  chan int
+	got int
+}
+
+func (m *mailbox) take() { m.got = <-m.ch }
+
+// A blocking method used as a func value is awaited where it is called.
+func BlockingMethodValue() int {
+	m := &mailbox{ch: make(chan int)}
+	go func() { m.ch <- 7 }()
+	f := m.take
+	f()
+	return m.got
+}
+
+// Goexit runs the goroutine's deferred calls; recover does not stop it.
+func GoexitRunsDefers() []any {
+	var log []any
+	done := make(chan bool)
+	go func() {
+		defer func() { done <- true }()
+		defer func() { log = append(log, "deferred", recover() == nil) }()
+		log = append(log, "worker")
+		runtime.Goexit()
+		log = append(log, "unreachable")
+	}()
+	<-done
+	runtime.Gosched()
+	return log
 }

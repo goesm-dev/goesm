@@ -8,8 +8,75 @@ import (
 	"strings"
 )
 
+// stmts lowers a statement list. A forward goto to a label of this list
+// becomes a break out of a JS labelled block that ends right before the
+// labelled statement: Go forbids jumping into blocks and over variable
+// declarations, so the block only wraps statements that declare nothing
+// visible at the label.
 func (fe *funcEmitter) stmts(list []ast.Stmt) {
-	for _, s := range list {
+	type span struct {
+		start, end int // wrap list[start:end]; list[end] is the label
+		name       string
+	}
+	var spans []*span
+	for k, s := range list {
+		ls, ok := s.(*ast.LabeledStmt)
+		if !ok {
+			continue
+		}
+		label := fe.info.Defs[ls.Label]
+		var gotos []*ast.BranchStmt
+		start := -1
+		for i := 0; i < k; i++ {
+			ast.Inspect(list[i], func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.FuncLit:
+					return false
+				case *ast.BranchStmt:
+					if n.Tok == token.GOTO && fe.info.Uses[n.Label] == label {
+						gotos = append(gotos, n)
+						if start < 0 {
+							start = i
+						}
+					}
+				}
+				return true
+			})
+		}
+		if start < 0 {
+			continue
+		}
+		if fe.gotos == nil {
+			fe.gotos = map[*ast.BranchStmt]bool{}
+		}
+		for _, g := range gotos {
+			fe.gotos[g] = true
+		}
+		sp := &span{start, k, "G$" + ls.Label.Name}
+		// Spans must nest: one that starts inside an earlier label's span
+		// is extended to that span's start.
+		for _, o := range spans {
+			if sp.start > o.start && sp.start < o.end {
+				sp.start = o.start
+			}
+		}
+		spans = append(spans, sp)
+	}
+	var open []*span
+	for i, s := range list {
+		for len(open) > 0 && open[len(open)-1].end == i {
+			fe.w.indent--
+			fe.w.ln("}")
+			open = open[:len(open)-1]
+		}
+		// Open the spans starting here, outermost (latest label) first.
+		for j := len(spans) - 1; j >= 0; j-- {
+			if sp := spans[j]; sp.start == i {
+				fe.w.ln("%s: {", sp.name)
+				fe.w.indent++
+				open = append(open, sp)
+			}
+		}
 		fe.stmt(s, "")
 	}
 }
@@ -56,9 +123,9 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 		case *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt, *ast.BlockStmt:
 			fe.stmt(s.Stmt, name)
 		default:
-			w.ln("%s: {", name)
-			fe.block([]ast.Stmt{s.Stmt})
-			w.ln("}")
+			// Only goto can target this label (lowered by stmts), and a
+			// JS block would scope a declaration in s.Stmt.
+			fe.stmt(s.Stmt, "")
 		}
 	case *ast.IfStmt:
 		fe.ifStmt(s, label)
@@ -89,7 +156,10 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 		case token.FALLTHROUGH:
 			// handled by switchStmt: the JS case is emitted without break
 		case token.GOTO:
-			fe.errorf(s.Pos(), "goto is not supported yet")
+			if !fe.gotos[s] {
+				fe.errorf(s.Pos(), "backward goto is not supported yet")
+			}
+			w.ln("%sbreak G$%s;", m, s.Label.Name)
 		}
 	case *ast.GoStmt:
 		closure := fe.deferredCall(s.Call)

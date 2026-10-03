@@ -13,7 +13,7 @@
 // close and (later) deadlock detection are built on; it is not delegated to
 // the JS event loop's own semantics.
 
-import { plainPanic, runtimePanic, toPanic } from "./panic";
+import { Goexit, plainPanic, runtimePanic, toPanic } from "./panic";
 
 interface Waiter {
   sel: { done: boolean } | null;
@@ -165,17 +165,31 @@ export function select(cases: SelectCase[], hasDefault: boolean): SelectResult |
 // go starts fn(...args) as a new goroutine. An unrecovered panic in a
 // goroutine terminates a Go program; here it is reported as an uncaught
 // error on the host (process exit in Node, console error in browsers).
+// runtime.Goexit ends the goroutine quietly.
+let goroutines = 1; // the main goroutine (the host's own execution)
+
+export function numGoroutine(): number {
+  return goroutines;
+}
+
 export function go(fn: (...args: any[]) => any, args: any[] = []): void {
+  goroutines++;
   queueMicrotask(() => {
     let r: any;
     try {
       r = fn(...args);
     } catch (e) {
-      crash(e);
+      exit(e);
       return;
     }
-    if (r instanceof Promise) r.catch(crash);
+    if (r instanceof Promise) r.then(() => exit(undefined), exit);
+    else exit(undefined);
   });
+}
+
+function exit(e: unknown): void {
+  goroutines--;
+  if (e !== undefined && !(e instanceof Goexit)) crash(e);
 }
 
 function crash(e: unknown): void {

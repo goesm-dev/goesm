@@ -8,7 +8,7 @@
 
 import { copy } from "./iface";
 import { runtimePanic } from "./panic";
-import { assign } from "./ptr";
+import { arrayElemPtr, assign } from "./ptr";
 import { isAggregate, Type } from "./types";
 
 export class Slice<T> {
@@ -205,4 +205,33 @@ export function sliceAny(x: any, lo?: number, hi?: number): any {
     return x.substring(l, h);
   }
   return slice(x, lo, hi);
+}
+
+// unsafeSlice implements unsafe.Slice(&x[i], n) (and, through bytesToString,
+// unsafe.String) for x a slice or array: a slice of length and capacity n
+// over x's backing array starting at element i. checked: the operand was
+// &x[i], which panics like x[i] when i is out of range.
+export function unsafeSlice<T>(x: S<T> | T[] | null, i: number, n: number, checked: boolean): S<T> {
+  if (n < 0) runtimePanic("unsafe.Slice: len out of range");
+  let arr: T[], off: number, len: number, c: number;
+  if (x === null) {
+    if (checked) indexPanic(i, 0);
+    if (n !== 0) runtimePanic("unsafe.Slice: ptr is nil and len is not zero");
+    return null;
+  } else if (x instanceof Slice) {
+    [arr, off, len, c] = [x.$array, x.$offset, x.$length, x.$capacity];
+  } else {
+    [arr, off, len, c] = [x, 0, x.length, x.length];
+  }
+  if (checked && (i < 0 || i >= len)) indexPanic(i, len);
+  if (i + n > c) runtimePanic("unsafe.Slice: len out of range (beyond the underlying array)");
+  return new Slice(arr, off + i, n, n);
+}
+
+// sliceData implements unsafe.SliceData: a pointer to the first element of
+// the backing array (the element object itself for aggregates).
+export function sliceData<T>(s: S<T>, aggregate: boolean): any {
+  if (s === null || s.$capacity === 0) return null;
+  if (aggregate) return s.$array[s.$offset];
+  return arrayElemPtr(s.$array, s.$offset);
 }
