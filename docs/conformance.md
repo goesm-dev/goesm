@@ -1,0 +1,90 @@
+# Go conformance suite
+
+[日本語](conformance.ja.md)
+
+Go is the authority on Go semantics, so goesm is judged by Go's own tests. `TestGoConformance` (`test/conformance_test.go`) takes the `// run` tests from the Go distribution's `test/` directory, builds each one with goesm, runs the ES module in Node.js and checks it the way Go's own test runner (`cmd/internal/testdir`) checks gc: the program must exit successfully, and its combined stdout and stderr must equal the `.out` file next to the test, or be empty when there is none. GopherJS validates itself the same way.
+
+Node, Bun or browser test suites are not used: they test the JS engine, not goesm. The JS engine is only where the generated ESM runs.
+
+## Running it
+
+```sh
+GOESM_CONFORMANCE=1 go test ./test -run TestGoConformance -v
+```
+
+It needs Node.js 22+ and the `test/` directory of a full Go distribution (the one from go.dev/dl or `actions/setup-go`). Toolchains downloaded through `GOTOOLCHAIN` ship without it; then point `GOESM_GOROOT_TEST` at one:
+
+```sh
+curl -sSL https://go.dev/dl/go1.27.0.linux-amd64.tar.gz | tar xz -C /tmp
+GOTOOLCHAIN=go1.27.0 GOESM_CONFORMANCE=1 GOESM_GOROOT_TEST=/tmp/go/test \
+  go test ./test -run TestGoConformance -v
+```
+
+| variable | meaning |
+|---|---|
+| `GOESM_CONFORMANCE=1` | enables the suite (it builds about 1000 programs, about 5 minutes on 4 cores) |
+| `GOESM_GOROOT_TEST` | the test directory (default `$(go env GOROOT)/test`) |
+| `GOESM_CONFORMANCE_DIRS` | comma-separated subdirectories (default `.,ken,chan,interface,typeparam,fixedbugs`) |
+| `GOESM_CONFORMANCE_RUN` | regexp on test names, e.g. `^ken/` or `typeswitch` |
+| `GOESM_CONFORMANCE_NATIVE=1` | also runs every test with native `go run` and leaves out tests whose native output differs from the `.out` file (a check on the harness itself) |
+| `GOESM_CONFORMANCE_OUT` | writes per-test results as TSV (status, imports, Node run time, reason) |
+| `GOESM_CONFORMANCE_UPDATE=1` | rewrites the baseline |
+
+A test that times out (20 s in Node, 2 min for the build) is run again on its own after the parallel run, so a busy CI runner does not turn a slow start into a failure; it fails if it still times out alone.
+
+Each test is copied into its own one-package module (`go` directive = the running toolchain), built with `goesm build`, and run by a small driver that imports the bundle and exits as soon as `main` returns, like a Go program, with status 2 on an unrecovered panic.
+
+Only tests whose recipe is a bare `// run` are selected. Tests with arguments or go command flags (`// run -gcflags=...`), multi-file `rundir` tests and compiler-only recipes (`errorcheck`, `compile`, `asmcheck`) are not. Tests whose build constraints exclude `js/wasm` (goesm's target) are reported as skipped.
+
+## Baseline
+
+`test/conformance/passing.txt` lists the tests that pass. A listed test that fails is a regression and fails the suite; a test that passes but is not listed is reported so the list can be updated with `GOESM_CONFORMANCE_UPDATE=1`. CI runs the suite as a separate `conformance` job.
+
+## Results
+
+Go 1.27.0 `test/` directory, Node.js 22, goesm at main of 2026-10-03 (after #5, which added complex numbers and fixed most of the bugs this suite found first):
+
+| directory | pass rate | skipped |
+|---|---|---|
+| `test/` | 46.3% (63/136) | 9 |
+| `chan/` | 58.8% (10/17) | 0 |
+| `fixedbugs/` | 60.6% (373/616) | 30 |
+| `interface/` | 72.7% (8/11) | 0 |
+| `ken/` | 82.5% (33/40) | 0 |
+| `typeparam/` | 50.4% (71/141) | 0 |
+| **total** | **58.1% (558/961)** | 39 |
+| tests without imports | 94.7% (485/512) | |
+
+With `GOESM_CONFORMANCE_NATIVE=1`, native `go run` reproduces the `.out` file for every selected test except 11 that shell out to the go command (`os/exec`), which goesm cannot build anyway.
+
+Tests that import a standard library package, by package (a test counts once for each package it imports):
+
+| package | pass rate |
+|---|---|
+| `fmt` | 0.0% (0/209) |
+| `runtime` | 26.4% (29/110) |
+| `reflect` | 0.0% (0/68) |
+| `os` | 0.0% (0/58) |
+| `unsafe` | 23.6% (13/55) |
+| `strings` | 26.2% (11/42) |
+| `math` | 20.7% (6/29) |
+| `time` | 0.0% (0/19) |
+| `strconv` | 18.8% (3/16) |
+| `sync` | 20.0% (3/15) |
+
+The suite prints this table for every run. The two biggest blockers are:
+
+* **reflection in `fmt`**: `fmt` now compiles, but every `fmt` test panics at run time with "internal/abi.TypeOf is not supported yet" (246 tests): `fmt` formats through `reflect`, which needs goesm's type descriptors behind `internal/abi`.
+* **`os` output**: on `js/wasm`, `os.Stdout` writes through `syscall/js`, so 50 tests panic with "syscall/js.valueGet is not supported yet".
+
+Among the 512 tests without imports, the 27 failures fall into these groups:
+
+| group | tests |
+|---|---|
+| not supported yet: backward `goto` | `ken/label`, `fixedbugs/bug005`, `bug178`, `issue40367`, `issue75569` |
+| not supported yet: other | `convert4` (slice to array pointer), `range4` and `fixedbugs/issue71675` (`defer` in a range-over-func body), `typeparam/issue54537` (address of a type-parameter variable) |
+| 64-bit integers (known difference) | `intcvt`, `printbig`, `divmod` (times out), `fixedbugs/issue2615`, `issue4448`, `issue43480`, `issue50854`, `issue70481`, `issue23305` |
+| indirect `recover` (known difference) | `fixedbugs/issue73916`, `issue73916b`, `issue73917`, `issue73920` |
+| complex numbers | `fixedbugs/issue79812` (`T(0 + 0i)` for a float type parameter yields a complex value), `issue5793` (internal error lowering a multi-value complex call) |
+| generics | `typeparam/typeswitch3` (`reading 'methods'`) |
+| resources | `fixedbugs/issue34395` (a 100 MiB array literal: goesm needs over 4 GB to build it), `issue13169` (100k channel sends, no exit within 20 s) |

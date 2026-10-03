@@ -269,6 +269,7 @@ go test ./...          # Go 1.27 以上と Node.js 22 以上が必要、Bun は�
 - `TestOxlint` は fixture から build した ESM (bundle と split) を oxlint の correctness ルールで検査し、指摘が 1 件でもあれば失敗します。生成コードのために無効にしている 4 ルールとその理由は `test/lint_test.go` にあります。
 - `TestStdlibStatus -v` は標準 library のどの package が lowering でき、そのうち何個の関数が stub かを報告します。
 - `TestTSC` は出力した TypeScript (fixture、examples、runtime) を strict mode の tsc で型検査します。あわせて、exported な Go API が TypeScript から Go の型で見えることを consumer で確認します。`TestOxlint` と同じく `npm ci --prefix test` が必要で、CI では必須です。native Go との結果比較は引き続き意味論の gate です。
+- `TestGoConformance`（`GOESM_CONFORMANCE=1` で有効）は Go 本体の `test/` ディレクトリにある `// run` テストを goesm で実行し、native Go が出すべき出力と照合します。[docs/conformance.ja.md](docs/conformance.ja.md) を参照してください。
 
 ## ライセンス
 
