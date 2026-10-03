@@ -13,7 +13,7 @@
 // close and (later) deadlock detection are built on; it is not delegated to
 // the JS event loop's own semantics.
 
-import { Goexit, plainPanic, runtimePanic, toPanic } from "./panic";
+import { Goexit, plainPanic, runtimePanic, toPanic } from "./panic.ts";
 
 interface Waiter {
   sel: { done: boolean } | null;
@@ -28,7 +28,12 @@ export class Chan<T> {
   closed = false;
   recvq: Waiter[] = [];
   sendq: Waiter[] = [];
-  constructor(public capacity: number, public zero: () => T) {}
+  capacity: number;
+  zero: () => T;
+  constructor(capacity: number, zero: () => T) {
+    this.capacity = capacity;
+    this.zero = zero;
+  }
 }
 
 export function makeChan<T>(capacity: number, zero: () => T): Chan<T> {

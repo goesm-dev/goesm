@@ -11,9 +11,9 @@
 // deferred call can recover() and the function then returns its (possibly
 // modified) named results, exactly like Go.
 
-import { Iface } from "./iface";
-import { Kind, Type, addMethods, funcOf, named, setUnderlying, types } from "./types";
-import { toJSString } from "./string";
+import { Iface } from "./iface.ts";
+import { Kind, Type, addMethods, funcOf, named, setUnderlying, types } from "./types.ts";
+import { toJSString } from "./string.ts";
 
 // runtime.Error values. Their dynamic type implements error and runtime.Error
 // so user code can recover() them and call Error().
@@ -53,8 +53,10 @@ addMethods(panicNilErrorType, {
 });
 
 export class GoPanic extends Error {
-  constructor(public value: Iface) {
+  value: Iface;
+  constructor(value: Iface) {
     super("panic: " + formatPanicValue(value));
+    this.value = value;
     this.name = "GoPanic";
   }
 }
