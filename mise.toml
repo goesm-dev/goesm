@@ -1,0 +1,6 @@
+# Development tools, pinned. CI installs the same versions (jdx/mise-action).
+# Run `mise install` once; go test then finds go, node and bun on PATH.
+[tools]
+go = "1.27.1"
+node = "26.10.0"
+bun = "1.4.2"

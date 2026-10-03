@@ -2,6 +2,7 @@
 //
 //	goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-overlay file] [-v] ./main
 //	goesm emit-ts [-o dir] [-overlay file] [-v] ./main
+//	goesm version
 //
 // Arguments are ordinary Go package patterns resolved by the go command.
 package main
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	"github.com/goesm-dev/goesm/internal/build"
 	"github.com/goesm-dev/goesm/internal/lower"
@@ -20,7 +22,8 @@ import (
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
   goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-overlay file] [-v] <package>
-  goesm emit-ts [-o dir] [-overlay file] [-v] <package>`)
+  goesm emit-ts [-o dir] [-overlay file] [-v] <package>
+  goesm version`)
 	os.Exit(2)
 }
 
@@ -71,9 +74,27 @@ func main() {
 		for _, m := range l.Mods {
 			fmt.Println(filepath.Join(*out, filepath.FromSlash(lower.ModuleFile(m.Path))))
 		}
+	case "version", "-version", "--version":
+		fmt.Println("goesm", goesmVersion())
 	default:
 		usage()
 	}
+}
+
+// goesmVersion reports the module version recorded by go install / go get
+// -tool, followed by the Go toolchain goesm was built with (its go/types
+// decides which Go it accepts).
+func goesmVersion() string {
+	v := "(devel)"
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return v
+	}
+	if info.Main.Version != "" {
+		v = info.Main.Version
+	}
+	v += " " + info.GoVersion
+	return v
 }
 
 func readOverlay(file string) map[string][]byte {

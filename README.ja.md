@@ -182,6 +182,29 @@ total := cart.Total(items)
 
 この repository の PoC は go/packages + go/types で package を読み込み、Go package ごとに 1 つの、ESM としてそのまま build できる TypeScript file の tree と、TypeScript で書かれた小さな runtime (`@goesm/runtime`) に lowering します。この tree は任意の bundler (Vite、Rolldown、esbuild) や TypeScript を扱える runtime (Bun、type stripping を使う Node.js) がそのまま読み込めます。`goesm build` は同じ tree を esbuild の Go API で bundle する便宜的な command です。設計と実装済み・未実装の範囲は [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md)、GopherJS との違いは [docs/gopherjs-comparison.ja.md](docs/gopherjs-comparison.ja.md)、生成される TypeScript / JavaScript は [docs/example-output.ja.md](docs/example-output.ja.md) を参照してください。
 
+### インストール
+
+goesm は Go toolchain (package の読み込みに `go list` を使います) の Go 1.27 以上が必要です。古い `go` でも `GOTOOLCHAIN` により 1.27 が自動でダウンロードされます。Node.js や npm は不要です。runtime (`@goesm/runtime`) は binary に embed され、出力に書き出される (`emit-ts` では `<dir>/@goesm/runtime/`、`build` では bundle) ので、npm package をインストールする必要はありません。
+
+おすすめは module の tool として追加する方法です。コードと同じ toolchain で goesm が build されます。
+
+```sh
+go get -tool github.com/goesm-dev/goesm/cmd/goesm@latest
+go tool goesm emit-ts ./cart     # goesm-ts/<cart の import path>.ts と goesm-ts/@goesm/runtime/
+go tool goesm build ./cart       # bundle した dist/cart.js が欲しい場合
+```
+
+`PATH` にインストールする場合:
+
+```sh
+go install github.com/goesm-dev/goesm/cmd/goesm@latest
+goesm emit-ts ./cart
+```
+
+build 済み binary は配布していません。goesm はどのみち `go` を実行しますし、自分の toolchain で build すれば goesm の go/types が module の Go とずれません。`goesm version` は goesm の version と、build に使った Go を表示します。release notes は [GitHub Releases](https://github.com/goesm-dev/goesm/releases) にあります。
+
+goesm が実験段階のあいだ、release は `v0.0.1-beta.N` という名前の prerelease です。`@latest` は最新のものに解決され、`@v0.0.1-beta.1` のように固定もできます。
+
 ### 使い方
 
 入力は普通の Go module の中の、普通の Go package pattern です。`goesm emit-ts` が TypeScript の tree を書き出します。
@@ -231,9 +254,12 @@ goesm は自身を build した toolchain の go/types を使うので、module 
 
 ### テスト
 
+開発環境の構築、方針、pull request に必要なことは [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) を参照してください。
+
 ```sh
+mise install           # mise.toml で pin した Go、Node.js、Bun を入れる (CI も同じ version)
 npm ci --prefix test   # TestTSC / TestOxlint 用の tsc と oxlint (手元では任意、CI では必須)
-go test ./...          # Go 1.27 以上と Node.js 22 以上が必要
+go test ./...          # Go 1.27 以上と Node.js 22 以上が必要、Bun は任意
 ```
 
 - `TestGolden` は fixture の引数なし exported 関数をすべて native Go と goesm が生成した ESM (Node) の両方で実行し、結果の一致を要求します。
@@ -243,3 +269,7 @@ go test ./...          # Go 1.27 以上と Node.js 22 以上が必要
 - `TestOxlint` は fixture から build した ESM (bundle と split) を oxlint の correctness ルールで検査し、指摘が 1 件でもあれば失敗します。生成コードのために無効にしている 4 ルールとその理由は `test/lint_test.go` にあります。
 - `TestStdlibStatus -v` は標準 library のどの package が lowering でき、そのうち何個の関数が stub かを報告します。
 - `TestTSC` は出力した TypeScript (fixture、examples、runtime) を strict mode の tsc で型検査します。あわせて、exported な Go API が TypeScript から Go の型で見えることを consumer で確認します。`TestOxlint` と同じく `npm ci --prefix test` が必要で、CI では必須です。native Go との結果比較は引き続き意味論の gate です。
+
+## ライセンス
+
+goesm は [BSD 3-Clause License](LICENSE) で公開しています。`emit-ts` と `build` の出力には、コードが使う Go 標準 library の package が Go の source から compile されて含まれます。それらは [Go 自身の BSD 系ライセンス](https://go.dev/LICENSE) に従います。
