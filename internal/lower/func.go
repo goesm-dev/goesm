@@ -316,7 +316,11 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 		return
 	}
 	w.ln("const $d = new $rt.Defers();")
-	w.ln("$body: try {")
+	if containsReturn(body) {
+		w.ln("$body: try {") // returns break out to run the deferred calls
+	} else {
+		w.ln("try {")
+	}
 	w.indent++
 	fe.stmts(body.List)
 	w.indent--
@@ -359,6 +363,9 @@ func (fe *funcEmitter) setResults(m string, vals []string) {
 		}
 	}
 	for i, v := range vals {
+		if stripMarks(v) == fe.results[i] {
+			continue // return of the named result itself
+		}
 		if fe.named && isAggregate(fe.resultTs[i]) {
 			fe.w.ln("%s%s;", m, fe.aggregateSet(fe.results[i], fe.resultTs[i], v))
 		} else {

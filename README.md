@@ -205,10 +205,12 @@ goesm uses go/types from the toolchain it was built with, so build it with the t
 ### Tests
 
 ```sh
-go test ./...   # needs Go 1.27+ and Node.js 22+
+npm ci --prefix test   # oxlint for TestOxlint (optional locally; required in CI)
+go test ./...          # needs Go 1.27+ and Node.js 22+
 ```
 
 - `TestGolden` runs every parameterless exported function of the fixtures under native Go and in the goesm-built ESM (Node) and requires equal results.
 - `TestJS` runs `test/js/*.test.mjs` (node:test) against built bundles.
 - `TestKnownGaps` pins the documented differences from native Go.
+- `TestOxlint` lints the ESM built from the fixtures (bundle and split) with oxlint's correctness rules and fails on any finding; `test/lint_test.go` lists the four rules turned off for generated code and why.
 - `TestStdlibStatus -v` reports which standard library packages lower and how many of their functions are stubs.
