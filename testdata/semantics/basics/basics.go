@@ -596,3 +596,76 @@ func PackageVars() []int { return []int{counter, len(table)} }
 func init() {
 	table["c"] = 3
 }
+
+// ---- assignment order ----
+
+func ParallelAssignIndex() []any {
+	a := []int{0, 0, 0}
+	i := 0
+	i, a[i] = 1, 2
+	return []any{i, a}
+}
+
+func TupleAssignTargets() []any {
+	var order []string
+	a := []int{0, 0, 0}
+	f := func() int { order = append(order, "f"); return 0 }
+	g := func() int { order = append(order, "g"); return 1 }
+	pair := func() (int, int) { order = append(order, "pair"); return 7, 8 }
+	a[f()], a[g()] = pair()
+	return []any{a, order}
+}
+
+// ---- implicit dereference of aggregate pointer receivers ----
+
+type Empty struct{ X int }
+
+func (Empty) Hello() string { return "hello" }
+
+func NilAggregateReceiver() (out string) {
+	defer func() {
+		if r := recover(); r != nil {
+			out = "panic"
+		}
+	}()
+	var p *Empty
+	return p.Hello()
+}
+
+// ---- map range keys are copies ----
+
+type Key struct{ A int }
+
+func MapRangeKeyCopy() []int {
+	m := map[Key]int{{1}: 10}
+	for k := range m {
+		k.A = 99
+	}
+	var out []int
+	for k, v := range m {
+		out = append(out, k.A, v)
+	}
+	return out
+}
+
+// ---- conversions between named aggregates copy ----
+
+type ArrA [2]int
+type ArrB [2]int
+type StA struct{ N int }
+type StB struct{ N int }
+
+func NamedAggregateConversion() []any {
+	a := ArrA{1, 1}
+	b := ArrB(a)
+	b[0] = 2
+	s := StA{1}
+	t := StB(s)
+	t.N = 2
+	var x any = t
+	_, isB := x.(StB)
+	p := &a
+	c := ArrB(*p)
+	c[1] = 3
+	return []any{a, b, c, s, t, isB, StA(t) == s}
+}

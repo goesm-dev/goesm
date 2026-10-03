@@ -93,3 +93,10 @@ export function assign(t: Type, dst: any, src: any): void {
     else dst[i] = src[i];
   }
 }
+
+// deref is the implicit dereference of a *struct / *array, which is the
+// aggregate object itself: it only checks for nil.
+export function deref<T>(p: T | null): T {
+  if (p === null) runtimePanic("invalid memory address or nil pointer dereference");
+  return p;
+}
