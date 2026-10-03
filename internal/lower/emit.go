@@ -493,6 +493,13 @@ func constLit(v constant.Value, t types.Type) string {
 	case constant.String:
 		return jsString(constant.StringVal(v))
 	case constant.Int, constant.Float:
+		if isBig(t) {
+			s := constant.ToInt(v).ExactString() + "n"
+			if strings.HasPrefix(s, "-") {
+				return "(" + s + ")"
+			}
+			return s
+		}
 		isFloat := false
 		if b, ok := t.Underlying().(*types.Basic); ok && b.Info()&types.IsFloat != 0 {
 			isFloat = true

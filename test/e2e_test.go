@@ -1,7 +1,7 @@
 // Package test holds goesm's end-to-end tests. Every test builds real Go
 // packages through the full pipeline (go/packages -> lowering -> esbuild) and
-// executes the resulting ES modules in Node.js. Nothing is judged by looking
-// at generated TypeScript.
+// executes the resulting ES modules in Node.js, and the emitted TypeScript
+// as is in Bun. Nothing is judged by looking at generated TypeScript.
 package test
 
 import (
@@ -94,19 +94,28 @@ func TestJS(t *testing.T) {
 // Both sides are rendered as encoding/json-shaped values.
 func TestGolden(t *testing.T) {
 	requireNode(t)
-	for _, pkg := range []string{"basics", "complexnum", "conformance", "generics", "goroutines", "panics", "stdlibuse"} {
+	bun := hasBun(t)
+	for _, pkg := range []string{"basics", "complexnum", "conformance", "generics", "goroutines", "int64s", "panics", "stdlibuse"} {
 		t.Run(pkg, func(t *testing.T) {
 			dir := testdata("semantics")
 			pkgPath := "example.com/sem/" + pkg
 			funcs := goldenFuncs(t, dir, pkgPath)
 			native := nativeResults(t, dir, pkgPath, funcs)
-			esm := esmResults(t, buildPkg(t, dir, "./"+pkg))
-			for _, f := range funcs {
-				n, e := native[f.name], esm[f.name]
-				if !reflect.DeepEqual(n, e) {
-					nj, _ := json.Marshal(n)
-					ej, _ := json.Marshal(e)
-					t.Errorf("%s.%s:\n  native Go: %s\n  goesm ESM: %s", pkg, f.name, nj, ej)
+			bundle := buildPkg(t, dir, "./"+pkg)
+			runs := []struct{ name, runtime, module string }{{"goesm ESM", "node", bundle}}
+			if bun {
+				// Bun runs the per-package TypeScript as emitted.
+				runs = append(runs, struct{ name, runtime, module string }{"goesm TS (Bun)", "bun", tsEntry(t, bundle, pkgPath)})
+			}
+			for _, r := range runs {
+				esm := esmResults(t, r.runtime, r.module)
+				for _, f := range funcs {
+					n, e := native[f.name], esm[f.name]
+					if !reflect.DeepEqual(n, e) {
+						nj, _ := json.Marshal(n)
+						ej, _ := json.Marshal(e)
+						t.Errorf("%s.%s:\n  native Go: %s\n  %s: %s", pkg, f.name, nj, r.name, ej)
+					}
 				}
 			}
 			t.Logf("%d functions compared", len(funcs))
@@ -176,7 +185,7 @@ func nativeResults(t *testing.T, dir, pkgPath string, funcs []goldenFunc) map[st
 }
 
 const esmDriver = `
-const m = await import(process.argv[1]);
+const m = await import(process.argv[process.argv.length - 1]);
 const rt = m.$runtime;
 const out = {};
 for (const [name, f] of Object.entries(m.$goesm.funcs)) {
@@ -186,12 +195,55 @@ for (const [name, f] of Object.entries(m.$goesm.funcs)) {
   const rs = f.type.results;
   out[name] = rs.length === 1 ? rt.toJS(rs[0], r) : rs.map((t, i) => rt.toJS(t, r[i]));
 }
-console.log(JSON.stringify(out));
+// int64 and uint64 are BigInts: print them as exact JSON numbers.
+const big = "\u0000big:";
+console.log(JSON.stringify(out, (_, v) => typeof v === "bigint" ? big + v : v).replace(/"\\u0000big:(-?[0-9]+)"/g, "$1"));
 `
 
-func esmResults(t *testing.T, bundle string) map[string]any {
-	out := runNode(t, "--enable-source-maps", "--input-type=module", "-e", esmDriver, bundle)
+// esmResults runs the exported functions of module under runtime (node or
+// bun) and returns their results.
+func esmResults(t *testing.T, runtime, module string) map[string]any {
+	t.Helper()
+	driver := filepath.Join(t.TempDir(), "driver.mjs")
+	if err := os.WriteFile(driver, []byte(esmDriver), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{driver, module}
+	if runtime == "node" {
+		args = append([]string{"--enable-source-maps"}, args...)
+	}
+	cmd := exec.Command(runtime, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("%s %v: %v\n%s", runtime, args, err, stderr.String())
+	}
 	return decodeJSON(t, out)
+}
+
+// hasBun reports whether bun is installed; GOESM_REQUIRE_TOOLS makes it
+// required.
+func hasBun(t *testing.T) bool {
+	t.Helper()
+	if _, err := exec.LookPath("bun"); err == nil {
+		return true
+	}
+	if os.Getenv("GOESM_REQUIRE_TOOLS") != "" {
+		t.Fatal("bun not found in PATH (GOESM_REQUIRE_TOOLS is set)")
+	}
+	return false
+}
+
+// tsEntry returns the emitted TypeScript module of package pkgPath next to
+// a bundle built by buildPkg.
+func tsEntry(t *testing.T, bundle, pkgPath string) string {
+	t.Helper()
+	p := filepath.Join(filepath.Dir(bundle), "ts", filepath.FromSlash(pkgPath)+".ts")
+	if _, err := os.Stat(p); err != nil {
+		t.Fatalf("no TypeScript output for %s: %v", pkgPath, err)
+	}
+	return p
 }
 
 // TestKnownGaps asserts that the documented semantic gaps (ARCHITECTURE.md,
@@ -202,7 +254,7 @@ func TestKnownGaps(t *testing.T) {
 	pkgPath := "example.com/sem/gaps"
 	funcs := goldenFuncs(t, dir, pkgPath)
 	native := nativeResults(t, dir, pkgPath, funcs)
-	esm := esmResults(t, buildPkg(t, dir, "./gaps"))
+	esm := esmResults(t, "node", buildPkg(t, dir, "./gaps"))
 	for _, f := range funcs {
 		n, e := native[f.name], esm[f.name]
 		nj, _ := json.Marshal(n)

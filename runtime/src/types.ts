@@ -78,18 +78,19 @@ function basic(kind: number, str: string, zero: () => any): Type {
 }
 
 const zeroNum = () => 0;
+const zeroBig = () => 0n;
 export const types = {
   bool: basic(Kind.Bool, "bool", () => false),
   int: basic(Kind.Int, "int", zeroNum),
   int8: basic(Kind.Int8, "int8", zeroNum),
   int16: basic(Kind.Int16, "int16", zeroNum),
   int32: basic(Kind.Int32, "int32", zeroNum),
-  int64: basic(Kind.Int64, "int64", zeroNum),
+  int64: basic(Kind.Int64, "int64", zeroBig),
   uint: basic(Kind.Uint, "uint", zeroNum),
   uint8: basic(Kind.Uint8, "uint8", zeroNum),
   uint16: basic(Kind.Uint16, "uint16", zeroNum),
   uint32: basic(Kind.Uint32, "uint32", zeroNum),
-  uint64: basic(Kind.Uint64, "uint64", zeroNum),
+  uint64: basic(Kind.Uint64, "uint64", zeroBig),
   uintptr: basic(Kind.Uintptr, "uintptr", zeroNum),
   float32: basic(Kind.Float32, "float32", zeroNum),
   float64: basic(Kind.Float64, "float64", zeroNum),
