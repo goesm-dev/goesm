@@ -669,3 +669,59 @@ func NamedAggregateConversion() []any {
 	c[1] = 3
 	return []any{a, b, c, s, t, isB, StA(t) == s}
 }
+
+// ---- append / copy copy aggregate elements ----
+
+func AppendCopiesAggregates() []any {
+	s := []Key{{1}}
+	t := append(s, Key{2}) // reallocates
+	t[0].A = 100
+	u := append([]Key(nil), s...)
+	u[0].A = 200
+	v := make([]Key, 1)
+	copy(v, s)
+	v[0].A = 300
+	arrs := [][1]int{{1}}
+	w := append(arrs, [1]int{2})
+	w[0][0] = 400
+	return []any{s, t, u, v, arrs, w}
+}
+
+// ---- nil *struct in an interface, value method ----
+
+type Greeter interface{ Hello() string }
+
+func NilAggregateInInterface() (out string) {
+	defer func() {
+		if r := recover(); r != nil {
+			out = "panic"
+		}
+	}()
+	var g Greeter = (*Empty)(nil)
+	return g.Hello()
+}
+
+// ---- make inside a larger expression ----
+
+func MakeEvalOrder() []string {
+	var order []string
+	f := func() int { order = append(order, "f"); return 1 }
+	g := func() int { order = append(order, "g"); return 2 }
+	use := func(a int, s []int) int { return a + len(s) }
+	_ = use(f(), make([]int, g()))
+	return order
+}
+
+// ---- slice to array conversion checks the length ----
+
+func SliceToArrayShort() (out string) {
+	defer func() {
+		if r := recover(); r != nil {
+			out = "panic"
+		}
+	}()
+	a := [2]int(make([]int, 0, 2))
+	return fmt2(a[0])
+}
+
+func fmt2(i int) string { return string(rune('0' + i)) }

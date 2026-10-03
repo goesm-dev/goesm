@@ -6,7 +6,10 @@
 // private to this module, which leaves room for TypedArray/ArrayBuffer backed
 // slices (needed for unsafe and efficient []byte) later.
 
+import { copy } from "./iface";
 import { runtimePanic } from "./panic";
+import { assign } from "./ptr";
+import { isAggregate, Type } from "./types";
 
 export class Slice<T> {
   constructor(
@@ -23,8 +26,10 @@ export function sliceLit<T>(arr: T[]): Slice<T> {
   return new Slice(arr, 0, arr.length, arr.length);
 }
 
-export function makeSlice<T>(len: number, cap: number, zero: () => T): Slice<T> {
+// makeSlice implements make([]T, len, cap); cap is undefined for make([]T, len).
+export function makeSlice<T>(len: number, cap: number | undefined, zero: () => T): Slice<T> {
   if (len < 0 || !Number.isInteger(len)) runtimePanic("makeslice: len out of range");
+  cap = cap ?? len;
   if (cap < len) runtimePanic("makeslice: cap out of range");
   const arr = new Array<T>(cap);
   for (let i = 0; i < cap; i++) arr[i] = zero();
@@ -99,21 +104,39 @@ function grow(oldCap: number, needed: number): number {
   return c;
 }
 
-export function append<T>(s: S<T>, vals: T[], zero: () => T): S<T> {
+// append implements the append builtin. et, the element type, is passed
+// when elements may be aggregates (structs / arrays are objects): they are
+// then copied, since a slice element is a value.
+export function append<T>(s: S<T>, vals: T[], zero: () => T, et?: Type): S<T> {
   if (vals.length === 0) return s;
+  const agg = et !== undefined && isAggregate(et);
   const n = s === null ? 0 : s.$length;
   const c = s === null ? 0 : s.$capacity;
   const newLen = n + vals.length;
   if (s !== null && newLen <= c) {
-    for (let i = 0; i < vals.length; i++) s.$array[s.$offset + n + i] = vals[i];
+    for (let i = 0; i < vals.length; i++) {
+      const j = s.$offset + n + i;
+      if (agg) assign(et!, s.$array[j], vals[i]);
+      else s.$array[j] = vals[i];
+    }
     return new Slice(s.$array, s.$offset, newLen, c);
   }
   const newCap = grow(c, newLen);
   const arr = new Array<T>(newCap);
-  for (let i = 0; i < n; i++) arr[i] = s!.$array[s!.$offset + i];
-  for (let i = 0; i < vals.length; i++) arr[n + i] = vals[i];
+  for (let i = 0; i < n; i++) {
+    const v = s!.$array[s!.$offset + i];
+    arr[i] = agg ? copy(et!, v) : v;
+  }
+  for (let i = 0; i < vals.length; i++) arr[n + i] = agg ? copy(et!, vals[i]) : vals[i];
   for (let i = newLen; i < newCap; i++) arr[i] = zero();
   return new Slice(arr, 0, newLen, newCap);
+}
+
+// sliceToArray implements the conversion [n]T(s), which needs len(s) >= n.
+export function sliceToArray<T>(s: S<T>, n: number): T[] {
+  const l = s === null ? 0 : s.$length;
+  if (l < n) runtimePanic(`cannot convert slice with length ${l} to array or pointer to array with length ${n}`);
+  return toArray(slice(s, 0, n));
 }
 
 export function toArray<T>(s: S<T>): T[] {
@@ -122,7 +145,7 @@ export function toArray<T>(s: S<T>): T[] {
 }
 
 // copy implements the copy builtin. src may be a string (copy([]byte, string)).
-export function sliceCopy<T>(dst: S<T>, src: S<T> | string): number {
+export function sliceCopy<T>(dst: S<T>, src: S<T> | string, et?: Type): number {
   if (dst === null || src === null) return 0;
   if (typeof src === "string") {
     const n = Math.min(dst.$length, src.length);
@@ -130,10 +153,16 @@ export function sliceCopy<T>(dst: S<T>, src: S<T> | string): number {
     return n;
   }
   const n = Math.min(dst.$length, src.$length);
+  const agg = et !== undefined && isAggregate(et);
+  const set = (i: number) => {
+    const v = src.$array[src.$offset + i];
+    if (agg) assign(et!, dst.$array[dst.$offset + i], v); // in place: &dst[i] stays valid
+    else dst.$array[dst.$offset + i] = v;
+  };
   if (dst.$array === src.$array && dst.$offset > src.$offset) {
-    for (let i = n - 1; i >= 0; i--) dst.$array[dst.$offset + i] = src.$array[src.$offset + i];
+    for (let i = n - 1; i >= 0; i--) set(i);
   } else {
-    for (let i = 0; i < n; i++) dst.$array[dst.$offset + i] = src.$array[src.$offset + i];
+    for (let i = 0; i < n; i++) set(i);
   }
   return n;
 }

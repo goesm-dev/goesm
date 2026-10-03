@@ -892,7 +892,7 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 	if _, ok := tu.(*types.Array); ok {
 		if _, ok := fu.(*types.Slice); ok {
 			n := tu.(*types.Array).Len()
-			return fmt.Sprintf("$rt.toArray($rt.slice(%s, 0, %d))", s, n)
+			return fmt.Sprintf("$rt.sliceToArray(%s, %d)", s, n)
 		}
 	}
 	if fb, ok := fu.(*types.Basic); ok && fb.Kind() == types.UnsafePointer {
@@ -944,15 +944,19 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			if b, ok := under(fe.info.TypeOf(e.Args[1])).(*types.Basic); ok && b.Info()&types.IsString != 0 {
 				src = "$rt.stringToBytes(" + src + ")"
 			}
-			return fmt.Sprintf("%s$rt.append(%s, $rt.toArray(%s), %s)", m, arg(0), src, fe.zeroFn(elem))
+			return fmt.Sprintf("%s$rt.append(%s, $rt.toArray(%s), %s%s)", m, arg(0), src, fe.zeroFn(elem), fe.elemTypeArg(elem))
 		}
 		var vals []string
 		for _, a := range e.Args[1:] {
 			vals = append(vals, fe.valueOf(a, elem))
 		}
-		return fmt.Sprintf("%s$rt.append(%s, [%s], %s)", m, arg(0), strings.Join(vals, ", "), fe.zeroFn(elem))
+		return fmt.Sprintf("%s$rt.append(%s, [%s], %s%s)", m, arg(0), strings.Join(vals, ", "), fe.zeroFn(elem), fe.elemTypeArg(elem))
 	case "copy":
-		return fmt.Sprintf("%s$rt.sliceCopy(%s, %s)", m, arg(0), arg(1))
+		et := ""
+		if sl, ok := under(fe.info.TypeOf(e.Args[0])).(*types.Slice); ok {
+			et = fe.elemTypeArg(sl.Elem())
+		}
+		return fmt.Sprintf("%s$rt.sliceCopy(%s, %s%s)", m, arg(0), arg(1), et)
 	case "delete":
 		mt := under(fe.info.TypeOf(e.Args[0])).(*types.Map)
 		return fmt.Sprintf("%s$rt.mapDelete(%s, %s)", m, arg(0), fe.valueOf(e.Args[1], mt.Key()))
@@ -960,13 +964,9 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		t := fe.info.TypeOf(e.Args[0])
 		switch u := under(t).(type) {
 		case *types.Slice:
-			l := arg(1)
-			c := l
+			l, c := arg(1), "undefined"
 			if len(e.Args) > 2 {
 				c = arg(2)
-			} else {
-				l = fe.stable(l)
-				c = l
 			}
 			return fmt.Sprintf("%s$rt.makeSlice(%s, %s, %s)", m, l, c, fe.zeroFn(u.Elem()))
 		case *types.Map:
@@ -1023,4 +1023,13 @@ func isGenericType(t types.Type) bool {
 		return true
 	}
 	return hasTypeParam(t)
+}
+
+// elemTypeArg is the trailing element-type argument of $rt.append and
+// $rt.sliceCopy, passed when elements may be aggregates that must be copied.
+func (fe *funcEmitter) elemTypeArg(elem types.Type) string {
+	if _, isTP := types.Unalias(elem).(*types.TypeParam); isTP || isAggregate(elem) {
+		return ", " + fe.desc(elem)
+	}
+	return ""
 }

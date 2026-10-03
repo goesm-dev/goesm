@@ -141,7 +141,9 @@ func (pe *pkgEmitter) methodWrapper(T types.Type, sel *types.Selection, tp tpSco
 			recv = fmt.Sprintf("$rt.fieldPtr(%s, %s)", parent, jsString(parentProp))
 		}
 	case !wantPtr && havePtr:
-		if !isAggregate(base) {
+		if isAggregate(base) {
+			recv = "$rt.deref(" + recv + ")" // the object is the pointer
+		} else {
 			recv += ".v"
 		}
 	}
