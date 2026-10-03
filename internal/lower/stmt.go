@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"regexp"
 	"strings"
 )
 
@@ -100,6 +101,11 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 	switch s := s.(type) {
 	case *ast.EmptyStmt:
 	case *ast.ExprStmt:
+		if u, ok := unparen(s.X).(*ast.UnaryExpr); ok && u.Op == token.ARROW {
+			// A receive statement: the value is discarded.
+			w.ln("%s%sawait $rt.recv(%s);", m, fe.mark(u), fe.expr(u.X))
+			return
+		}
 		w.ln("%s%s;", m, fe.expr(s.X))
 	case *ast.DeclStmt:
 		fe.declStmt(s)
@@ -239,7 +245,7 @@ func (fe *funcEmitter) declStmt(s *ast.DeclStmt) {
 // defineVar declares a new local variable with an initial value.
 func (fe *funcEmitter) defineVar(m string, v *types.Var, init string) {
 	if v == nil || v.Name() == "_" {
-		fe.w.ln("%s%s;", m, init)
+		fe.discard(m, init)
 		return
 	}
 	n := fe.declare(v)
@@ -316,6 +322,9 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 		}
 		tmp := fe.forceTmp(m + src)
 		for i, l := range s.Lhs {
+			if isBlank(l) {
+				continue
+			}
 			val := fe.convertCopy(fmt.Sprintf("%s[%d]", tmp, i), tupleAt(tt, i), fe.lhsType(l, tupleAt(tt, i)))
 			if lvs[i] != nil {
 				w.ln("%s;", lvs[i].set(val))
@@ -354,7 +363,9 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 			fe.assignOne(s.Tok, t.e, vals[i], "")
 			continue
 		}
-		w.ln("%s;", t.lv.set(vals[i]))
+		if !isBlank(t.e) {
+			w.ln("%s;", t.lv.set(vals[i]))
+		}
 	}
 }
 
@@ -380,7 +391,7 @@ func (fe *funcEmitter) lhsType(l ast.Expr, fallback types.Type) types.Type {
 func (fe *funcEmitter) assignOne(tok token.Token, l ast.Expr, val, m string) {
 	if id, ok := unparen(l).(*ast.Ident); ok {
 		if id.Name == "_" {
-			fe.w.ln("%s%s;", m, val)
+			fe.discard(m, val)
 			return
 		}
 		if tok == token.DEFINE {
@@ -392,6 +403,51 @@ func (fe *funcEmitter) assignOne(tok token.Token, l ast.Expr, val, m string) {
 	}
 	lv := fe.lvalue(l, false)
 	fe.w.ln("%s%s;", m, lv.set(val))
+}
+
+// tupleIndex matches a lowered read of one element of a tuple value.
+var tupleIndex = regexp.MustCompile(`^(.*)\[\d+\]$`)
+
+// discard evaluates a lowered value assigned to the blank identifier. Reads
+// without effects (a variable, a literal, an element of a tuple held in a
+// temporary) are dropped; for `_ = (call)[i]` only the call is kept.
+func (fe *funcEmitter) discard(m, val string) {
+	v := stripMarks(val)
+	if g := tupleIndex.FindStringSubmatch(v); g != nil {
+		if jsIdent.MatchString(g[1]) {
+			return
+		}
+		if inner, ok := parenthesized(g[1]); ok {
+			fe.w.ln("%s%s;", m, inner)
+			return
+		}
+	}
+	if jsIdent.MatchString(v) || jsLiteral.MatchString(v) {
+		return
+	}
+	fe.w.ln("%s%s;", m, val)
+}
+
+var jsIdent = regexp.MustCompile(`^[A-Za-z_$][\w$]*$`)
+
+// parenthesized returns s without its enclosing parentheses if they match.
+func parenthesized(s string) (string, bool) {
+	if !strings.HasPrefix(s, "(") || !strings.HasSuffix(s, ")") {
+		return "", false
+	}
+	depth := 0
+	for i, c := range s {
+		switch c {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 && i != len(s)-1 {
+				return "", false
+			}
+		}
+	}
+	return s[1 : len(s)-1], true
 }
 
 // lvalue describes an assignable location.
@@ -717,6 +773,21 @@ func (fe *funcEmitter) rangeStmt(s *ast.RangeStmt, label string) {
 	}
 }
 
+// terminates reports whether a statement list ends in a statement that is
+// lowered to a JS jump (return, break, continue), so no break follows it.
+func terminates(list []ast.Stmt) bool {
+	if len(list) == 0 {
+		return false
+	}
+	switch s := list[len(list)-1].(type) {
+	case *ast.ReturnStmt:
+		return true
+	case *ast.BranchStmt:
+		return s.Tok != token.FALLTHROUGH
+	}
+	return false
+}
+
 func isBlank(e ast.Expr) bool {
 	id, ok := e.(*ast.Ident)
 	return ok && id.Name == "_"
@@ -747,7 +818,12 @@ func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Sign
 	for i, b := range exits {
 		rf.exits[b] = i + 2
 	}
-	w.ln("%slet %s = 0, %s: any, %s = 0;", fe.mark(s), rf.ret, rf.retv, rf.state)
+	returns := containsReturn(s.Body)
+	if returns {
+		w.ln("%slet %s = 0, %s: any, %s = 0;", fe.mark(s), rf.ret, rf.retv, rf.state)
+	} else {
+		w.ln("%slet %s = 0, %s = 0;", fe.mark(s), rf.ret, rf.state)
+	}
 	call := fmt.Sprintf("%s((%s) => {", fe.expr(s.X), strings.Join(params, ", "))
 	if fe.pe.prog.RangeBlocks(fe.info, s) {
 		call = "await " + call
@@ -771,13 +847,15 @@ func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Sign
 	fe.rangeFn = rf
 	fe.stmts(s.Body.List)
 	fe.rangeFn = outer
-	w.ln("%s", rf.next(true))
+	if !terminates(s.Body.List) {
+		w.ln("%s", rf.next(true))
+	}
 	w.indent--
 	w.ln("});")
 	w.ln("if (%s === 3) $rt.rangeError(4);", rf.state)
 	w.ln("%s = 2;", rf.state)
 	switch {
-	case fe.sig == nil:
+	case fe.sig == nil || !returns:
 	case outer != nil:
 		// A return in a range-over-func body nested in another one.
 		w.ln("if (%s === 1) { %s = 1; %s = %s; %s }", rf.ret, outer.ret, outer.retv, rf.retv, outer.next(false))
@@ -1023,7 +1101,7 @@ func (fe *funcEmitter) caseBodies(pos token.Pos, c, label string, clauses []ast.
 				fall = true
 			}
 		}
-		if fall {
+		if fall || terminates(body) {
 			w.ln("}")
 		} else {
 			w.ln("} break;")
@@ -1165,7 +1243,11 @@ func (fe *funcEmitter) selectStmt(s *ast.SelectStmt, label string) {
 		}
 		fe.stmts(cc.Body)
 		w.indent--
-		w.ln("} break;")
+		if terminates(cc.Body) {
+			w.ln("}")
+		} else {
+			w.ln("} break;")
+		}
 	}
 	w.indent--
 	w.ln("}")
@@ -1308,6 +1390,22 @@ func hasCallOrRecv(e ast.Expr) bool {
 			}
 		case *ast.FuncLit:
 			return false
+		}
+		return !found
+	})
+	return found
+}
+
+// containsReturn reports whether s has a return statement outside nested
+// function literals.
+func containsReturn(s ast.Node) bool {
+	found := false
+	ast.Inspect(s, func(n ast.Node) bool {
+		if _, ok := n.(*ast.FuncLit); ok {
+			return false
+		}
+		if _, ok := n.(*ast.ReturnStmt); ok {
+			found = true
 		}
 		return !found
 	})

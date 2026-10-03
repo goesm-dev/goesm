@@ -205,10 +205,12 @@ goesm は自身を build した toolchain の go/types を使うので、module 
 ### テスト
 
 ```sh
-go test ./...   # Go 1.27 以上と Node.js 22 以上が必要
+npm ci --prefix test   # TestOxlint 用の oxlint (手元では任意、CI では必須)
+go test ./...          # Go 1.27 以上と Node.js 22 以上が必要
 ```
 
 - `TestGolden` は fixture の引数なし exported 関数をすべて native Go と goesm が生成した ESM (Node) の両方で実行し、結果の一致を要求します。
 - `TestJS` は build した bundle に対して `test/js/*.test.mjs` (node:test) を実行します。
 - `TestKnownGaps` は文書化した native Go との差分がまだ存在することを固定します。
+- `TestOxlint` は fixture から build した ESM (bundle と split) を oxlint の correctness ルールで検査し、指摘が 1 件でもあれば失敗します。生成コードのために無効にしている 4 ルールとその理由は `test/lint_test.go` にあります。
 - `TestStdlibStatus -v` は標準 library のどの package が lowering でき、そのうち何個の関数が stub かを報告します。
