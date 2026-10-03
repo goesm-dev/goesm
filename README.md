@@ -200,7 +200,7 @@ go install github.com/goesm-dev/goesm/cmd/goesm@latest
 goesm build ./cart
 ```
 
-Prebuilt binaries for Linux, macOS and Windows (amd64 and arm64) are attached to each [GitHub release](https://github.com/goesm-dev/goesm/releases). They are built with Go 1.27; if your module uses a newer Go, prefer `go get -tool`. `goesm version` prints the goesm version and the Go it was built with.
+There are no prebuilt binaries: goesm runs `go` anyway, and building it with your own toolchain keeps its go/types in step with the Go your module uses. `goesm version` prints the goesm version and the Go it was built with. Release notes are on [GitHub Releases](https://github.com/goesm-dev/goesm/releases).
 
 While goesm is experimental, releases are prereleases named `v0.0.1-beta.N`; `@latest` resolves to the newest one, and `@v0.0.1-beta.1` pins one.
 

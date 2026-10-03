@@ -200,7 +200,7 @@ go install github.com/goesm-dev/goesm/cmd/goesm@latest
 goesm build ./cart
 ```
 
-Linux / macOS / Windows (amd64 と arm64) の build 済み binary を各 [GitHub release](https://github.com/goesm-dev/goesm/releases) に添付しています。これらは Go 1.27 で build しているので、module がより新しい Go を使う場合は `go get -tool` を使ってください。`goesm version` は goesm の version と、build に使った Go を表示します。
+build 済み binary は配布していません。goesm はどのみち `go` を実行しますし、自分の toolchain で build すれば goesm の go/types が module の Go とずれません。`goesm version` は goesm の version と、build に使った Go を表示します。release notes は [GitHub Releases](https://github.com/goesm-dev/goesm/releases) にあります。
 
 goesm が実験段階のあいだ、release は `v0.0.1-beta.N` という名前の prerelease です。`@latest` は最新のものに解決され、`@v0.0.1-beta.1` のように固定もできます。
 

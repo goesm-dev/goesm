@@ -78,24 +78,19 @@ func main() {
 	}
 }
 
-// version is set by release builds (-ldflags "-X main.version=...").
-var version string
-
-// goesmVersion reports the release version, or the module version recorded
-// by go install / go get -tool, followed by the Go toolchain goesm was built
-// with (its go/types decides which Go it accepts).
+// goesmVersion reports the module version recorded by go install / go get
+// -tool, followed by the Go toolchain goesm was built with (its go/types
+// decides which Go it accepts).
 func goesmVersion() string {
-	v := version
+	v := "(devel)"
 	info, ok := debug.ReadBuildInfo()
-	if v == "" && ok && info.Main.Version != "" {
+	if !ok {
+		return v
+	}
+	if info.Main.Version != "" {
 		v = info.Main.Version
 	}
-	if v == "" {
-		v = "(devel)"
-	}
-	if ok {
-		v += " " + info.GoVersion
-	}
+	v += " " + info.GoVersion
 	return v
 }
 

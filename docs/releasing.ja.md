@@ -21,7 +21,7 @@ semver が prerelease の識別子を数値として比べるのは数字だけ�
    git push origin v0.0.1-beta.1
    ```
 
-3. `.github/workflows/release.yml` がテストをもう一度実行し、[GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) が linux / darwin / windows × amd64 / arm64 の `goesm` を version 入り (`goesm version`) で build して、archive、`checksums.txt`、changelog 付きの GitHub release を prerelease として作ります。
+3. `.github/workflows/release.yml` がテストをもう一度実行し、その tag の GitHub release を、merge された PR から生成した notes 付きの **draft** として作ります。version に `-` の接尾辞があれば prerelease になります。notes を編集して publish してください。binary は添付しません。利用者は `go install` / `go get -tool` でインストールします。
 4. Go module proxy は、誰かが最初にその version を要求したときに取得します。すぐ使えるようにするには:
 
    ```sh
@@ -32,11 +32,3 @@ semver が prerelease の識別子を数値として比べるのは数字だけ�
 
 * Go module proxy と checksum database は、tag を消しても version を永久に保持します。一度 push した tag を付け替えたり push し直したりせず、次の `N` をリリースしてください。
 * 壊れた version は、後の release の `go.mod` に `retract` directive を書くことで `@latest` から外せます。
-
-## 手元での確認
-
-```sh
-go install github.com/goreleaser/goreleaser/v2@latest
-goreleaser check
-goreleaser release --snapshot --clean   # dist/ に build するだけで何も公開しません
-```
