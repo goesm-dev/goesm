@@ -276,6 +276,13 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 		}
 	}
 	w := pe.funcs
+	defer func() {
+		// A lowering bug must surface as a diagnostic at the Go position,
+		// not crash the compiler.
+		if r := recover(); r != nil {
+			pe.errorf(fd.Pos(), "internal error lowering %s: %v", fn.FullName(), r)
+		}
+	}()
 	if fd.Body == nil {
 		pe.errorf(fd.Pos(), "function %s has no Go body (assembly or linkname); it needs a target-specific Go replacement, which is not implemented yet", fn.FullName())
 		w.ln("%sfunction %s(...a: any[]): any { $rt.runtimePanic(%s); }", pe.tab.mark(fd.Pos()), name, jsString("goesm: "+fn.FullName()+" has no Go body"))

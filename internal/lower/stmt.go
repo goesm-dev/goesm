@@ -99,7 +99,7 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 		w.ln("%s$d.defer(%s);", m, closure)
 	case *ast.SendStmt:
 		ch := fe.expr(s.Chan)
-		elem := fe.info.TypeOf(s.Chan).Underlying().(*types.Chan).Elem()
+		elem := under(fe.info.TypeOf(s.Chan)).(*types.Chan).Elem()
 		w.ln("%sawait $rt.send(%s, %s);", m, ch, fe.valueOf(s.Value, elem))
 	default:
 		fe.errorf(s.Pos(), "unsupported statement %T", s)
@@ -174,7 +174,7 @@ func tupleAt(t types.Type, i int) types.Type {
 func (fe *funcEmitter) commaOk(e ast.Expr) (string, types.Type, bool) {
 	switch x := unparen(e).(type) {
 	case *ast.IndexExpr:
-		if mt, ok := fe.info.TypeOf(x.X).Underlying().(*types.Map); ok {
+		if mt, ok := under(fe.info.TypeOf(x.X)).(*types.Map); ok {
 			return fmt.Sprintf("%s$rt.mapLookup(%s, %s, %s)", fe.mark(x), fe.expr(x.X), fe.valueOf(x.Index, mt.Key()), fe.zeroFn(mt.Elem())),
 				types.NewTuple(types.NewVar(0, nil, "", mt.Elem()), types.NewVar(0, nil, "", types.Typ[types.Bool])), true
 		}
@@ -184,7 +184,7 @@ func (fe *funcEmitter) commaOk(e ast.Expr) (string, types.Type, bool) {
 			types.NewTuple(types.NewVar(0, nil, "", t), types.NewVar(0, nil, "", types.Typ[types.Bool])), true
 	case *ast.UnaryExpr:
 		if x.Op == token.ARROW {
-			elem := fe.info.TypeOf(x.X).Underlying().(*types.Chan).Elem()
+			elem := under(fe.info.TypeOf(x.X)).(*types.Chan).Elem()
 			return fmt.Sprintf("%s(await $rt.recv(%s))", fe.mark(x), fe.expr(x.X)),
 				types.NewTuple(types.NewVar(0, nil, "", elem), types.NewVar(0, nil, "", types.Typ[types.Bool])), true
 		}
@@ -344,7 +344,7 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 		return fe.simpleLvalue(stab(obj)+"."+prop, t)
 	case *ast.IndexExpr:
 		xt := fe.info.TypeOf(x.X)
-		switch u := xt.Underlying().(type) {
+		switch u := under(xt).(type) {
 		case *types.Map:
 			mp := stab(fe.expr(x.X))
 			k := stab(fe.valueOf(x.Index, u.Key()))
@@ -520,11 +520,11 @@ func (fe *funcEmitter) rangeStmt(s *ast.RangeStmt, label string) {
 	if !fe.goVersionAtLeast("go1.22") && s.Tok == token.DEFINE {
 		fe.errorf(s.Pos(), "range loops in files with go < 1.22 (shared loop variables) are not supported yet")
 	}
-	under := xt.Underlying()
-	if p, ok := under.(*types.Pointer); ok {
-		under = p.Elem().Underlying() // *array
+	ut := under(xt)
+	if p, ok := ut.(*types.Pointer); ok {
+		ut = p.Elem().Underlying() // *array
 	}
-	switch u := under.(type) {
+	switch u := ut.(type) {
 	case *types.Basic:
 		if u.Info()&types.IsString != 0 {
 			str, i, r, wd := fe.tmp(), fe.tmp(), fe.tmp(), fe.tmp()
@@ -984,7 +984,7 @@ func (fe *funcEmitter) selectStmt(s *ast.SelectStmt, label string) {
 			hasDefault = true
 			cases = append(cases, "")
 		case *ast.SendStmt:
-			elem := fe.info.TypeOf(comm.Chan).Underlying().(*types.Chan).Elem()
+			elem := under(fe.info.TypeOf(comm.Chan)).(*types.Chan).Elem()
 			cases = append(cases, fmt.Sprintf("[%s, true, %s]", fe.expr(comm.Chan), fe.valueOf(comm.Value, elem)))
 		default:
 			var recv ast.Expr
@@ -1026,7 +1026,7 @@ func (fe *funcEmitter) selectStmt(s *ast.SelectStmt, label string) {
 		w.indent++
 		if as, ok := cc.Comm.(*ast.AssignStmt); ok {
 			ch := unparen(as.Rhs[0]).(*ast.UnaryExpr).X
-			elem := fe.info.TypeOf(ch).Underlying().(*types.Chan).Elem()
+			elem := under(fe.info.TypeOf(ch)).(*types.Chan).Elem()
 			vals := []string{sel + "[1]", sel + "[2]"}
 			vts := []types.Type{elem, types.Typ[types.Bool]}
 			for i, l := range as.Lhs {
@@ -1143,7 +1143,7 @@ func (fe *funcEmitter) deferredCall(call *ast.CallExpr) string {
 		case *ast.FuncLit:
 			set(f, fe.funcLit(f))
 		default:
-			if _, ok := fe.info.TypeOf(fun).Underlying().(*types.Signature); ok {
+			if _, ok := under(fe.info.TypeOf(fun)).(*types.Signature); ok {
 				if _, isInst := fe.info.Instances[identOf(fun)]; !isInst {
 					set(fun, fe.expr(fun))
 				}

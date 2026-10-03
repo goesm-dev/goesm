@@ -58,7 +58,12 @@ func (fe *funcEmitter) errorf(pos token.Pos, format string, args ...any) {
 	fe.pe.errorf(pos, format, args...)
 }
 
-func (fe *funcEmitter) mark(n ast.Node) string { return fe.pe.tab.mark(n.Pos()) }
+func (fe *funcEmitter) mark(n ast.Node) string {
+	if n.Pos().IsValid() {
+		fe.pe.lastPos = n.Pos()
+	}
+	return fe.pe.tab.mark(n.Pos())
+}
 
 func (fe *funcEmitter) tmp() string {
 	*fe.tmpN++
@@ -200,12 +205,12 @@ func (fe *funcEmitter) mutatesVar(body *ast.BlockStmt, v *types.Var) bool {
 				if _, ok := fe.info.Selections[x]; !ok {
 					return false
 				}
-				if _, isPtr := fe.info.TypeOf(x.X).Underlying().(*types.Pointer); isPtr {
+				if _, isPtr := under(fe.info.TypeOf(x.X)).(*types.Pointer); isPtr {
 					return false
 				}
 				e = x.X
 			case *ast.IndexExpr:
-				if _, ok := fe.info.TypeOf(x.X).Underlying().(*types.Array); !ok {
+				if _, ok := under(fe.info.TypeOf(x.X)).(*types.Array); !ok {
 					return false
 				}
 				e = x.X

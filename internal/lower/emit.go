@@ -72,6 +72,8 @@ type pkgEmitter struct {
 	exports                                      [][2]string // local, exported
 	exportSet                                    map[string]bool
 
+	lastPos token.Pos
+
 	inits    []string
 	initObjs []any
 }
@@ -103,6 +105,9 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 }
 
 func (pe *pkgEmitter) errorf(pos token.Pos, format string, args ...any) {
+	if !pos.IsValid() {
+		pos = pe.lastPos // best known location for position-less constructs
+	}
 	pe.prog.errorf(pos, format, args...)
 }
 
