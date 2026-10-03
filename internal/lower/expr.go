@@ -1162,11 +1162,49 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 	case "recover":
 		return m + "$rt.recover()"
 	case "print", "println":
-		var vals []string
-		for i := range e.Args {
-			vals = append(vals, arg(i))
+		// Floats are formatted here: at run time a JS number does not say
+		// whether it was a Go float.
+		printArg := func(v string, t types.Type) string {
+			if _, isTP := types.Unalias(t).(*types.TypeParam); isTP {
+				return v // the format depends on the type argument
+			}
+			if b, ok := under(t).(*types.Basic); ok && b.Info()&types.IsFloat != 0 {
+				bits := 64
+				if b.Kind() == types.Float32 {
+					bits = 32
+				}
+				return fmt.Sprintf("$rt.fmtFloat(%s, %d)", v, bits)
+			}
+			if b, ok := under(t).(*types.Basic); ok && b.Info()&types.IsComplex != 0 {
+				bits := 64
+				if b.Kind() == types.Complex64 {
+					bits = 32
+				}
+				return fmt.Sprintf("$rt.fmtComplex(%s, %d)", v, bits)
+			}
+			switch under(t).(type) {
+			case *types.Slice:
+				return "$rt.fmtSlice(" + v + ")"
+			case *types.Interface:
+				return "$rt.fmtIface(" + v + ")"
+			}
+			return v
 		}
-		return m + "$rt.println(" + strings.Join(vals, ", ") + ")"
+		if len(e.Args) == 1 {
+			if tt, ok := fe.info.TypeOf(e.Args[0]).(*types.Tuple); ok { // println(f())
+				t := fe.tmp()
+				var parts []string
+				for i := 0; i < tt.Len(); i++ {
+					parts = append(parts, printArg(fmt.Sprintf("%s[%d]", t, i), tt.At(i).Type()))
+				}
+				return fmt.Sprintf("%s$rt.%s(...((%s: any) => [%s])(%s))", m, name, t, strings.Join(parts, ", "), arg(0))
+			}
+		}
+		var vals []string
+		for i, a := range e.Args {
+			vals = append(vals, printArg(arg(i), fe.info.TypeOf(a)))
+		}
+		return m + "$rt." + name + "(" + strings.Join(vals, ", ") + ")"
 	case "close":
 		return m + "$rt.close(" + arg(0) + ")"
 	case "clear":
