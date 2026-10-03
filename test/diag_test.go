@@ -41,7 +41,12 @@ func TestTypeErrorsReportedAtGoPositions(t *testing.T) {
 func TestUnsupportedReportedAsLoweringDiagnostics(t *testing.T) {
 	de := buildErr(t, "./unsupported")
 	out := de.Error()
-	if de.Layer != "goesm" || !strings.Contains(out, "unsupported.go:8:3: backward goto is not supported yet [goesm lowering]") {
-		t.Errorf("unexpected diagnostics (layer %s):\n%s", de.Layer, out)
+	for _, want := range []string{
+		"unsupported.go:8:3: backward goto is not supported yet [goesm lowering]",
+		"unsupported.go:26:12: call of a function that may block in a range-over-func body is not supported yet [goesm lowering]",
+	} {
+		if de.Layer != "goesm" || !strings.Contains(out, want) {
+			t.Errorf("diagnostics missing %q (layer %s):\n%s", want, de.Layer, out)
+		}
 	}
 }

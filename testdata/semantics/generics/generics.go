@@ -81,8 +81,6 @@ func (s *Stack[T]) Pop() (T, bool) {
 	return v, true
 }
 
-func (s Stack[T]) Len() int { return len(s.items) }
-
 func StackOps() []any {
 	var s Stack[Pair[string, int]]
 	s.Push(Pair[string, int]{"a", 1})
@@ -151,4 +149,106 @@ func GenericMethodOnGenericType() string {
 	s.Push(2)
 	s.Push(3)
 	return s.Fold("", func(acc string, x int) string { return acc + itoa(x) })
+}
+
+// ---- methods of generic types reached through interfaces ----
+
+func (s Stack[T]) Len() int { return len(s.items) }
+
+func (s *Stack[T]) Top() T {
+	var zero T
+	if len(s.items) == 0 {
+		return zero
+	}
+	return s.items[len(s.items)-1]
+}
+
+type Lener interface{ Len() int }
+
+type Topper[T any] interface{ Top() T }
+
+func GenericMethodViaInterface() []any {
+	s := &Stack[string]{}
+	s.Push("a")
+	s.Push("b")
+	var l Lener = *s
+	var t Topper[string] = s
+	var e Topper[float64] = &Stack[float64]{}
+	return []any{l.Len(), t.Top(), e.Top()}
+}
+
+// ---- constraint methods called on type-parameter values ----
+
+type Celsius float64
+
+func (c Celsius) String() string { return "C" + itoa(int(c)) }
+
+type Name struct{ s string }
+
+func (n *Name) String() string { return "N:" + n.s }
+
+type Stringer interface{ String() string }
+
+func Str[T Stringer](xs ...T) string {
+	out := ""
+	for _, x := range xs {
+		out += x.String() + ";"
+	}
+	return out
+}
+
+type Labeled[T Stringer] struct{ v T }
+
+func (l Labeled[T]) Label() string { return "<" + l.v.String() + ">" }
+
+func ConstraintMethodCall() []string {
+	return []string{
+		Str(Celsius(21), Celsius(-3)),
+		Str(&Name{"x"}, &Name{"y"}),
+		Labeled[Celsius]{37}.Label(),
+		Labeled[*Name]{&Name{"z"}}.Label(),
+	}
+}
+
+// ---- operators on type-parameter operands follow the type argument ----
+
+type Num interface {
+	Integer | ~float32 | ~float64
+}
+
+type Integer interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64
+}
+
+func Div[T Num](a, b T) T     { return a / b }
+func Add[T Num](a, b T) T     { return a + b }
+func Mul[T Num](a, b T) T     { return a * b }
+func Neg[T Num](a T) T        { return -a }
+func Rem[T Integer](a, b T) T { return a % b }
+func Shl[T Integer](a T, n int) T {
+	a <<= n
+	return a
+}
+func Not[T Integer](a T) T { return ^a }
+func Inc[T Num](a T) T {
+	a++
+	return a
+}
+func ToInt[T Num](x T) int         { return int(x) }
+func FromFloat[T Num](f float64) T { return T(f) }
+func Concat[T ~string](a, b T) T   { return a + b }
+
+type Small int8
+
+func TypeParamArith() []any {
+	return []any{
+		Div(7, 2), Div(7.0, 2), Div[int32](-7, 2),
+		Add[int8](100, 100), Add[Small](100, 100), Mul[int8](16, 16), Add[int32](2147483647, 1),
+		Add[uint8](200, 100), Neg[uint16](1), Rem[int](-7, 3),
+		Shl[uint8](0x81, 1), Shl[int16](1, 15), Not[uint32](0), Not[int8](5),
+		Inc[int8](127), Inc[float32](0.5),
+		ToInt(2.75), ToInt(-2.75), ToInt[int8](-5),
+		FromFloat[int](2.75), FromFloat[int8](-2.75), float64(FromFloat[float32](0.1)),
+		Concat("go", "esm"),
+	}
 }

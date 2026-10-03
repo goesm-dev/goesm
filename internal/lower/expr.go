@@ -575,6 +575,11 @@ func wrap(s string, ii intInfo) string {
 	return s
 }
 
+func isTypeParam(t types.Type) bool {
+	_, ok := types.Unalias(t).(*types.TypeParam)
+	return ok
+}
+
 func isFloat32(t types.Type) bool {
 	b, ok := t.Underlying().(*types.Basic)
 	return ok && b.Kind() == types.Float32
@@ -583,6 +588,11 @@ func isFloat32(t types.Type) bool {
 // arith lowers a binary arithmetic/bitwise operator on lowered operands of
 // type t.
 func (fe *funcEmitter) arith(op token.Token, a, b string, t types.Type) string {
+	if isTypeParam(t) {
+		// The operand kind (and so wrapping, integer division, string
+		// concatenation) is that of the type argument.
+		return fmt.Sprintf("$rt.arithT(%s, %q, %s, %s)", fe.desc(t), op.String(), a, b)
+	}
 	if ii, ok := intKind(t); ok {
 		switch op {
 		case token.ADD, token.SUB:
@@ -618,6 +628,9 @@ func (fe *funcEmitter) arith(op token.Token, a, b string, t types.Type) string {
 }
 
 func (fe *funcEmitter) shift(op token.Token, a, n string, t types.Type) string {
+	if isTypeParam(t) {
+		return fmt.Sprintf("$rt.shiftT(%s, %v, %s, %s)", fe.desc(t), op == token.SHL, a, n)
+	}
 	ii, _ := intKind(t)
 	if ii.bits == 64 {
 		if op == token.SHL {
@@ -696,6 +709,9 @@ func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
 	case token.ADD:
 		return fe.expr(e.X)
 	case token.SUB:
+		if isTypeParam(t) {
+			return fmt.Sprintf("$rt.negT(%s, %s)", fe.desc(t), fe.expr(e.X))
+		}
 		if ii, ok := intKind(t); ok {
 			return wrap("-"+fe.expr(e.X), ii)
 		}
@@ -704,6 +720,9 @@ func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
 		}
 		return "(-" + fe.expr(e.X) + ")"
 	case token.XOR:
+		if isTypeParam(t) {
+			return fmt.Sprintf("$rt.notT(%s, %s)", fe.desc(t), fe.expr(e.X))
+		}
 		ii, _ := intKind(t)
 		if ii.bits == 64 {
 			return fmt.Sprintf("$rt.not64(%s, %v)", fe.expr(e.X), ii.signed)
@@ -861,6 +880,14 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 	tu, fu := under(to), under(from)
 	if isUnsafePointer(tu) || isUnsafePointer(fu) {
 		return fe.unsafeConversion(e, to, from, s)
+	}
+	if isTypeParam(to) || isTypeParam(from) {
+		// Truncation, wrapping and string conversions depend on the type
+		// arguments.
+		if tv := fe.info.Types[arg]; tv.Value != nil && !isTypeParam(from) {
+			from = types.Default(from)
+		}
+		return fmt.Sprintf("$rt.convertT(%s, %s, %s)", fe.desc(to), fe.desc(from), s)
 	}
 	if tb, ok := tu.(*types.Basic); ok {
 		fb, _ := fu.(*types.Basic)

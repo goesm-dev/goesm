@@ -140,8 +140,22 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 	case *ast.SelectStmt:
 		fe.selectStmt(s, label)
 	case *ast.ReturnStmt:
+		if fe.rangeFn != nil {
+			fe.rangeFuncReturn(s)
+			return
+		}
 		fe.returnStmt(s)
 	case *ast.BranchStmt:
+		if rf := fe.rangeFn; rf != nil {
+			if rf.branches[s] {
+				w.ln("%s%s", m, rf.next(s.Tok == token.CONTINUE))
+				return
+			}
+			if k := rf.exits[s]; k != 0 {
+				w.ln("%s%s = %d; %s", m, rf.ret, k, rf.next(false))
+				return
+			}
+		}
 		switch s.Tok {
 		case token.BREAK, token.CONTINUE:
 			kw := "break"
@@ -709,33 +723,17 @@ func isBlank(e ast.Expr) bool {
 }
 
 // rangeFunc lowers range-over-func (Go 1.23 iterators) to a call with a
-// yield callback. Supported: break/continue of this loop and return; the
-// body must not block.
+// yield callback. break and continue of this loop and return (also from
+// nested loops, switches and labeled statements in the body) become the
+// callback's result; the body must not block.
+//
+// A state variable reproduces Go's checks on misbehaving iterators: calling
+// yield again after the body returned false, after the loop exited or after
+// the body panicked, and returning normally after recovering a body panic.
 func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Signature) {
 	w := fe.w
-	bad := false
-	ast.Inspect(s.Body, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.FuncLit:
-			return false
-		case *ast.BranchStmt:
-			if n.Label != nil || n.Tok == token.GOTO || n.Tok == token.FALLTHROUGH {
-				bad = true
-			}
-		case *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
-			// unlabeled break/continue inside these target them, fine
-			return true
-		case *ast.SendStmt, *ast.DeferStmt:
-			bad = true
-		case *ast.UnaryExpr:
-			if n.Op == token.ARROW {
-				bad = true
-			}
-		}
-		return true
-	})
-	if bad {
-		fe.errorf(s.Pos(), "range-over-func with labeled branches, goto, defer or blocking operations in the body is not supported yet")
+	branches, exits, ok := fe.rangeFuncBranches(s, label)
+	if !ok {
 		return
 	}
 	yield := sig.Params().At(0).Type().Underlying().(*types.Signature)
@@ -745,14 +743,19 @@ func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Sign
 		params = append(params, fe.tmp())
 		ptypes = append(ptypes, yield.Params().At(i).Type())
 	}
-	ret, retv := fe.tmp(), fe.tmp()
-	w.ln("%slet %s = false, %s: any;", fe.mark(s), ret, retv)
+	rf := &rangeFuncCtx{ret: fe.tmp(), retv: fe.tmp(), state: fe.tmp(), branches: branches, exits: map[*ast.BranchStmt]int{}}
+	for i, b := range exits {
+		rf.exits[b] = i + 2
+	}
+	w.ln("%slet %s = 0, %s: any, %s = 0;", fe.mark(s), rf.ret, rf.retv, rf.state)
 	call := fmt.Sprintf("%s((%s) => {", fe.expr(s.X), strings.Join(params, ", "))
 	if fe.pe.prog.RangeBlocks(fe.info, s) {
 		call = "await " + call
 	}
 	w.ln("%s", call)
 	w.indent++
+	w.ln("if (%s !== 0) $rt.rangeError(%s);", rf.state, rf.state)
+	w.ln("%s = 3;", rf.state) // in the body: a panic leaves it at 3
 	k, v := "", ""
 	var kt, vt types.Type
 	if len(params) > 0 {
@@ -764,25 +767,163 @@ func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Sign
 	if k != "" {
 		fe.rangeVars(s, k, v, kt, vt)
 	}
-	// Lower the body with break/continue/return rewritten for the callback.
-	c := *fe
-	c.w = newRawWriter(fe.pe.tab)
-	c.w.indent = w.indent
-	body := &rangeFuncBody{fe: &c, ret: ret, retv: retv}
-	body.stmts(s.Body.List)
-	w.write(c.w.String())
-	w.ln("return true;")
+	outer := fe.rangeFn
+	fe.rangeFn = rf
+	fe.stmts(s.Body.List)
+	fe.rangeFn = outer
+	w.ln("%s", rf.next(true))
 	w.indent--
 	w.ln("});")
-	if fe.sig != nil {
-		if fe.hasDefer {
-			w.ln("if (%s) { %s; break $body; }", ret, fe.assignResults(retv))
-		} else if fe.sig.Results().Len() > 0 {
-			w.ln("if (%s) return %s;", ret, retv)
-		} else {
-			w.ln("if (%s) return;", ret)
+	w.ln("if (%s === 3) $rt.rangeError(4);", rf.state)
+	w.ln("%s = 2;", rf.state)
+	switch {
+	case fe.sig == nil:
+	case outer != nil:
+		// A return in a range-over-func body nested in another one.
+		w.ln("if (%s === 1) { %s = 1; %s = %s; %s }", rf.ret, outer.ret, outer.retv, rf.retv, outer.next(false))
+	case fe.hasDefer:
+		w.ln("if (%s === 1) { %s; break $body; }", rf.ret, fe.assignResults(rf.retv))
+	case fe.sig.Results().Len() > 0:
+		w.ln("if (%s === 1) return %s;", rf.ret, rf.retv)
+	default:
+		w.ln("if (%s === 1) return;", rf.ret)
+	}
+	// Branches to labels outside the loop are taken after the call.
+	for i, b := range exits {
+		w.ln("if (%s === %d) {", rf.ret, i+2)
+		w.indent++
+		fe.stmt(b, "")
+		w.indent--
+		w.ln("}")
+	}
+}
+
+// rangeFuncCtx is the range-over-func body being lowered.
+type rangeFuncCtx struct {
+	ret, retv, state string
+	// branches are the break/continue statements that target the loop;
+	// exits those that target an enclosing statement, by their ret code.
+	branches map[*ast.BranchStmt]bool
+	exits    map[*ast.BranchStmt]int
+}
+
+// next is the callback's return statement continuing (or stopping) the loop.
+func (rf *rangeFuncCtx) next(more bool) string {
+	if more {
+		return fmt.Sprintf("return (%s = 0, true);", rf.state)
+	}
+	return fmt.Sprintf("return (%s = 1, false);", rf.state)
+}
+
+// rangeFuncReturn lowers a return statement in a range-over-func body: the
+// results are stored and the loop stops; rangeFunc returns after the call.
+func (fe *funcEmitter) rangeFuncReturn(s *ast.ReturnStmt) {
+	rf := fe.rangeFn
+	vals := fe.returnValues(s)
+	v := "undefined"
+	switch len(vals) {
+	case 0:
+		if r := fe.resultsExpr(); r != "" {
+			v = r
+		}
+	case 1:
+		v = vals[0]
+	default:
+		v = "[" + strings.Join(vals, ", ") + "]"
+	}
+	fe.w.ln("%s%s = 1; %s = %s; %s", fe.mark(s), rf.ret, rf.retv, v, rf.next(false))
+}
+
+// rangeFuncBranches finds the branch statements in the body of range loop s
+// that target it and those that leave it for an enclosing labeled
+// statement, and reports unsupported forms in the body (those in nested
+// range-over-func bodies are reported when lowering them).
+func (fe *funcEmitter) rangeFuncBranches(s *ast.RangeStmt, label string) (map[*ast.BranchStmt]bool, []*ast.BranchStmt, bool) {
+	ok := true
+	nested := 0
+	bad := func(n ast.Node, format string, args ...any) {
+		if nested == 0 {
+			fe.errorf(n.Pos(), format, args...)
+			ok = false
 		}
 	}
+	var exits []*ast.BranchStmt
+	inner := map[string]bool{} // labels declared in the body
+	ast.Inspect(s.Body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.LabeledStmt:
+			inner[fe.labelName(n.Label)] = true
+		}
+		return true
+	})
+	targets := map[*ast.BranchStmt]bool{}
+	// brk/cont: an unlabeled break/continue at this point targets s.
+	var visit func(root ast.Node, brk, cont bool)
+	visit = func(root ast.Node, brk, cont bool) {
+		ast.Inspect(root, func(n ast.Node) bool {
+			if n == root || n == nil {
+				return true
+			}
+			switch n := n.(type) {
+			case *ast.FuncLit:
+				return false // its own function: may block, defer, return
+			case *ast.ForStmt:
+				visit(n, false, false)
+				return false
+			case *ast.RangeStmt:
+				switch under(fe.info.TypeOf(n.X)).(type) {
+				case *types.Chan:
+					bad(n, "receiving from a channel in a range-over-func body is not supported yet")
+				case *types.Signature:
+					nested++
+					visit(n, false, false)
+					nested--
+					return false
+				}
+				visit(n, false, false)
+				return false
+			case *ast.SwitchStmt, *ast.TypeSwitchStmt:
+				visit(n, false, cont)
+				return false
+			case *ast.SelectStmt:
+				bad(n, "select in a range-over-func body is not supported yet")
+				return false
+			case *ast.DeferStmt:
+				bad(n, "defer in a range-over-func body is not supported yet")
+				return false
+			case *ast.SendStmt:
+				bad(n, "channel send in a range-over-func body is not supported yet")
+			case *ast.UnaryExpr:
+				if n.Op == token.ARROW {
+					bad(n, "channel receive in a range-over-func body is not supported yet")
+				}
+			case *ast.CallExpr:
+				if fe.pe.prog.CallBlocks(fe.info, n) {
+					bad(n, "call of a function that may block in a range-over-func body is not supported yet")
+				}
+			case *ast.BranchStmt:
+				switch {
+				case n.Tok == token.GOTO:
+					bad(n, "goto in a range-over-func body is not supported yet")
+				case n.Tok == token.FALLTHROUGH:
+				case n.Label != nil:
+					switch name := fe.labelName(n.Label); {
+					case name == label:
+						targets[n] = true
+					case !inner[name]:
+						exits = append(exits, n)
+					}
+				case n.Tok == token.BREAK && brk, n.Tok == token.CONTINUE && cont:
+					targets[n] = true
+				}
+			}
+			return true
+		})
+	}
+	visit(s.Body, true, true)
+	return targets, exits, ok
 }
 
 func (fe *funcEmitter) assignResults(tuple string) string {
@@ -797,117 +938,6 @@ func (fe *funcEmitter) assignResults(tuple string) string {
 		parts = append(parts, fmt.Sprintf("%s = %s[%d]", r, tuple, i))
 	}
 	return strings.Join(parts, ", ")
-}
-
-type rangeFuncBody struct {
-	fe        *funcEmitter
-	ret, retv string
-}
-
-// stmts emits the loop body; branch statements that target the range loop
-// itself and returns are rewritten. Nested loops/switches are emitted
-// normally since their own unlabeled break/continue stay local.
-func (b *rangeFuncBody) stmts(list []ast.Stmt) {
-	for _, s := range list {
-		b.stmt(s)
-	}
-}
-
-func (b *rangeFuncBody) stmt(s ast.Stmt) {
-	fe := b.fe
-	w := fe.w
-	switch s := s.(type) {
-	case *ast.BranchStmt:
-		if s.Tok == token.BREAK {
-			w.ln("%sreturn false;", fe.mark(s))
-		} else {
-			w.ln("%sreturn true;", fe.mark(s))
-		}
-	case *ast.ReturnStmt:
-		vals := fe.returnValues(s)
-		v := "undefined"
-		switch len(vals) {
-		case 0:
-			if r := fe.resultsExpr(); r != "" {
-				v = r
-			}
-		case 1:
-			v = vals[0]
-		default:
-			v = "[" + strings.Join(vals, ", ") + "]"
-		}
-		w.ln("%s%s = true; %s = %s; return false;", fe.mark(s), b.ret, b.retv, v)
-	case *ast.BlockStmt:
-		w.ln("{")
-		w.indent++
-		b.stmts(s.List)
-		w.indent--
-		w.ln("}")
-	case *ast.IfStmt:
-		if s.Init != nil {
-			w.ln("{")
-			w.indent++
-			fe.stmt(s.Init, "")
-		}
-		w.ln("%sif (%s) {", fe.mark(s), fe.expr(s.Cond))
-		w.indent++
-		b.stmts(s.Body.List)
-		w.indent--
-		if s.Else != nil {
-			w.ln("} else {")
-			w.indent++
-			b.stmt(s.Else)
-			w.indent--
-		}
-		w.ln("}")
-		if s.Init != nil {
-			w.indent--
-			w.ln("}")
-		}
-	default:
-		if containsBranchOrReturn(s) {
-			fe.errorf(s.Pos(), "this statement form inside a range-over-func body is not supported yet")
-			return
-		}
-		fe.stmt(s, "")
-	}
-}
-
-func containsBranchOrReturn(s ast.Stmt) bool {
-	found := false
-	ast.Inspect(s, func(n ast.Node) bool {
-		switch n.(type) {
-		case *ast.FuncLit, *ast.ForStmt, *ast.RangeStmt:
-			return false
-		case *ast.ReturnStmt:
-			found = true
-		case *ast.BranchStmt:
-			found = true
-		}
-		return !found
-	})
-	if found {
-		// switch statements may contain unlabeled breaks targeting themselves;
-		// those are fine.
-		if _, ok := s.(*ast.SwitchStmt); ok {
-			return containsReturn(s)
-		}
-	}
-	return found
-}
-
-func containsReturn(s ast.Node) bool {
-	found := false
-	ast.Inspect(s, func(n ast.Node) bool {
-		if _, ok := n.(*ast.FuncLit); ok {
-			return false
-		}
-		if _, ok := n.(*ast.ReturnStmt); ok {
-			found = true
-		}
-		return !found
-	})
-	return found
 }
 
 // switchStmt lowers a Go switch to case selection followed by a JS switch on

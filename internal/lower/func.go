@@ -33,6 +33,7 @@ type funcEmitter struct {
 	resultTs []types.Type
 	named    bool                     // results are named Go variables (their address may escape)
 	gotos    map[*ast.BranchStmt]bool // forward gotos, lowered to labelled breaks
+	rangeFn  *rangeFuncCtx            // the range-over-func body being lowered
 }
 
 func (pe *pkgEmitter) newFuncEmitter(w *writer, sig *types.Signature) *funcEmitter {
