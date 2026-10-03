@@ -254,6 +254,8 @@ goesm は自身を build した toolchain の go/types を使うので、module 
 
 ### テスト
 
+開発環境の構築、方針、pull request に必要なことは [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) を参照してください。
+
 ```sh
 mise install           # mise.toml で pin した Go、Node.js、Bun を入れる (CI も同じ version)
 npm ci --prefix test   # TestTSC / TestOxlint 用の tsc と oxlint (手元では任意、CI では必須)
