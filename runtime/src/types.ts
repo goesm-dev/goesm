@@ -9,6 +9,8 @@
 
 // Kind numbering follows reflect.Kind so that a future reflect implementation
 // can expose it directly.
+import { complexZero } from "./complex.ts";
+
 export const Kind = {
   Invalid: 0, Bool: 1, Int: 2, Int8: 3, Int16: 4, Int32: 5, Int64: 6,
   Uint: 7, Uint8: 8, Uint16: 9, Uint32: 10, Uint64: 11, Uintptr: 12,
@@ -91,6 +93,8 @@ export const types = {
   uintptr: basic(Kind.Uintptr, "uintptr", zeroNum),
   float32: basic(Kind.Float32, "float32", zeroNum),
   float64: basic(Kind.Float64, "float64", zeroNum),
+  complex64: basic(Kind.Complex64, "complex64", () => complexZero),
+  complex128: basic(Kind.Complex128, "complex128", () => complexZero),
   string: basic(Kind.String, "string", () => ""),
   unsafePointer: basic(Kind.UnsafePointer, "unsafe.Pointer", () => null),
 };
@@ -213,13 +217,13 @@ function zeroStruct(t: Type): any {
 
 // named creates the descriptor of a defined (named) type. The underlying type
 // is attached later with setUnderlying so that recursive types work.
-export function named(pkgPath: string, name: string, typeArgs: Type[] = []): Type {
+export function named(pkgPath: string, name: string, typeArgs: Type[] = [], pkgName?: string): Type {
   const t = new Type();
   t.named = true;
   t.pkgPath = pkgPath;
   t.name = name;
   t.typeArgs = typeArgs;
-  const short = pkgPath === "" ? "" : pkgPath.slice(pkgPath.lastIndexOf("/") + 1) + ".";
+  const short = pkgPath === "" ? "" : (pkgName ?? pkgPath.slice(pkgPath.lastIndexOf("/") + 1)) + ".";
   t.str = short + name + (typeArgs.length ? `[${typeArgs.map((a) => a.str).join(",")}]` : "");
   return t;
 }
@@ -253,6 +257,13 @@ export function addMethods(t: Type, methods: Record<string, [(recv: any, ...args
   }
 }
 
+// withMethods registers methods promoted into an unnamed struct type (or a
+// pointer to one) and returns the descriptor.
+export function withMethods(t: Type, methods: Record<string, [(recv: any, ...args: any[]) => any, Type]>): Type {
+  addMethods(t, methods);
+  return t;
+}
+
 // generic memoizes instantiations of a generic named type by the identity of
 // its type arguments. The instance is cached before init runs so recursive
 // references (type List[T] struct{ next *List[T] }) resolve to itself.
@@ -260,13 +271,14 @@ export function generic(
   pkgPath: string,
   name: string,
   init: (t: Type, ...targs: Type[]) => void,
+  pkgName?: string,
 ): (...targs: Type[]) => Type {
   const cache = new Map<string, Type>();
   return (...targs: Type[]) => {
     const key = targs.map((t) => t.id).join(",");
     let t = cache.get(key);
     if (!t) {
-      t = named(pkgPath, name, targs);
+      t = named(pkgPath, name, targs, pkgName);
       cache.set(key, t);
       init(t, ...targs);
     }
