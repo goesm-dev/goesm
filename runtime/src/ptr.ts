@@ -1,0 +1,95 @@
+// Pointers.
+//
+// Representation (chosen by the lowering from the pointee's static type):
+//   *Struct, *Array  -> the struct object / JS array itself. Struct and array
+//                       values are mutable JS objects that are copied on Go
+//                       value copies, so the object identity *is* the address.
+//   anything else    -> an object with a `v` accessor: a Cell for variables
+//                       whose address is taken, or a FieldPtr / IndexPtr for
+//                       &s.f / &a[i]. `*p` is `p.v`, `*p = x` is `p.v = x`.
+//
+// Pointer identity is preserved (&x == &x, &s.f == &s.f) by caching the
+// derived pointer objects. A pointer is not an integer here; unsafe.Pointer
+// arithmetic would need the planned ArrayBuffer-backed memory model.
+
+import { runtimePanic } from "./panic";
+import { Slice } from "./slice";
+import { Type, isAggregate } from "./types";
+
+export class Cell<T> {
+  constructor(public v: T) {}
+}
+
+export function cell<T>(v: T): Cell<T> {
+  return new Cell(v);
+}
+
+class FieldPtr {
+  constructor(private o: any, private k: string) {}
+  get v(): any { return this.o[this.k]; }
+  set v(x: any) { this.o[this.k] = x; }
+}
+
+class IndexPtr {
+  constructor(private a: any[], private i: number) {}
+  get v(): any { return this.a[this.i]; }
+  set v(x: any) { this.a[this.i] = x; }
+}
+
+const fieldPtrs = new WeakMap<object, Map<string | number, any>>();
+
+function cached(o: object, k: string | number, make: () => any): any {
+  let m = fieldPtrs.get(o);
+  if (m === undefined) {
+    m = new Map();
+    fieldPtrs.set(o, m);
+  }
+  let p = m.get(k);
+  if (p === undefined) {
+    p = make();
+    m.set(k, p);
+  }
+  return p;
+}
+
+export function fieldPtr(o: any, k: string): any {
+  if (o === null) runtimePanic("invalid memory address or nil pointer dereference");
+  return cached(o, k, () => new FieldPtr(o, k));
+}
+
+export function arrayElemPtr(a: any[], i: number): any {
+  if (i < 0 || i >= a.length) runtimePanic(`index out of range [${i}] with length ${a.length}`);
+  return cached(a, i, () => new IndexPtr(a, i));
+}
+
+export function sliceElemPtr(s: Slice<any> | null, i: number): any {
+  const n = s === null ? 0 : s.$length;
+  if (i < 0 || i >= n) runtimePanic(`index out of range [${i}] with length ${n}`);
+  return arrayElemPtr(s!.$array, s!.$offset + i);
+}
+
+// Generic helpers for code whose pointee type is a type parameter.
+export function newPtr(t: Type): any {
+  return isAggregate(t) ? t.zero() : new Cell(t.zero());
+}
+
+export function load(t: Type, p: any): any {
+  if (p === null) runtimePanic("invalid memory address or nil pointer dereference");
+  return isAggregate(t) ? p : p.v;
+}
+
+export function store(t: Type, p: any, v: any): void {
+  if (p === null) runtimePanic("invalid memory address or nil pointer dereference");
+  if (isAggregate(t)) assign(t, p, v);
+  else p.v = v;
+}
+
+// assign copies aggregate value src into the existing object dst in place, so
+// pointers to dst observe the change.
+export function assign(t: Type, dst: any, src: any): void {
+  if (t.kind === 25 /* Struct */) dst.$set(src, t);
+  else for (let i = 0; i < src.length; i++) {
+    if (isAggregate(t.elem!)) assign(t.elem!, dst[i], src[i]);
+    else dst[i] = src[i];
+  }
+}
