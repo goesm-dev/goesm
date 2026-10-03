@@ -36,7 +36,7 @@ export class Chan<T> {
   }
 }
 
-export function makeChan<T>(capacity: number, zero: () => T): Chan<T> {
+export function makeChan<T = any>(capacity: number, zero: () => T): Chan<T> {
   if (capacity < 0) runtimePanic("makechan: size out of range");
   return new Chan(capacity, zero);
 }
@@ -88,7 +88,7 @@ function tryRecv<T>(ch: Chan<T>): [T, boolean] | null {
 
 const forever = () => new Promise<never>(() => {});
 
-export function send<T>(ch: Chan<T> | null, v: T): void | Promise<void> {
+export function send<T = any>(ch: Chan<T> | null, v: T): void | Promise<void> {
   if (ch === null) return forever();
   if (trySend(ch, v)) return;
   return new Promise<void>((resolve, reject) => {
@@ -96,7 +96,7 @@ export function send<T>(ch: Chan<T> | null, v: T): void | Promise<void> {
   });
 }
 
-export function recv<T>(ch: Chan<T> | null): [T, boolean] | Promise<[T, boolean]> {
+export function recv<T = any>(ch: Chan<T> | null): [T, boolean] | Promise<[T, boolean]> {
   if (ch === null) return forever();
   const r = tryRecv(ch);
   if (r !== null) return r;
@@ -132,6 +132,9 @@ export type SelectCase = [Chan<any> | null, boolean, any];
 // Result: [chosen case index or -1 for default, received value, ok].
 export type SelectResult = [number, any, boolean];
 
+// With a default case select never blocks.
+export function select(cases: SelectCase[], hasDefault: true): SelectResult;
+export function select(cases: SelectCase[], hasDefault: boolean): SelectResult | Promise<SelectResult>;
 export function select(cases: SelectCase[], hasDefault: boolean): SelectResult | Promise<SelectResult> {
   // Go picks uniformly among ready cases.
   const order = cases.map((_, i) => i);
