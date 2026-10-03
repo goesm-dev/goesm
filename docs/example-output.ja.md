@@ -1,12 +1,12 @@
-# Example output
+# 生成物の実例
 
-[日本語](example-output.ja.md)
+[English](example-output.md)
 
-Output of building `testdata/example` (`example.com/app/main` imports `example.com/app/mathx`).
+`testdata/example` (`example.com/app/main` が `example.com/app/mathx` を import) を build した結果です。
 
-Reproduce: `cd testdata/example && go run ../../cmd/goesm emit-ts ./main` / `go run ../../cmd/goesm build -split ./main`
+再現: `cd testdata/example && go run ../../cmd/goesm emit-ts ./main` / `go run ../../cmd/goesm build -split ./main`
 
-## Generated TypeScript (`goesm emit-ts ./main`)
+## 生成 TypeScript (`goesm emit-ts ./main`)
 
 ### go/example.com/app/mathx.ts
 
@@ -40,7 +40,7 @@ const $goesm = { path: "example.com/app/main", funcs: { Result: { fn: Result, ty
 export { Result, $goesm };
 ```
 
-Each module ends with an inline TS→Go source map (`//# sourceMappingURL=data:...`).
+末尾には TS→Go の source map が `//# sourceMappingURL=data:...` として inline で付きます。
 
 ## ESM (`goesm build -split ./main`)
 
@@ -81,16 +81,16 @@ export {
 //# sourceMappingURL=main.js.map
 ```
 
-The `sources` of `dist/example.com/app/main.js.map` point at `mathx.go` / `main.go`, and `sourcesContent` holds the Go source.
+`dist/example.com/app/main.js.map` の `sources` は `mathx.go` / `main.go` を指し、`sourcesContent` に Go source を含みます。
 
-## Using it from JavaScript
+## JavaScript から使う
 
 ```js
 import { Result } from "./dist/example.com/app/main.js";
 Result(); // 3
 ```
 
-## Lowering examples (excerpts from testdata/semantics)
+## 意味論の lowering 例 (testdata/semantics より抜粋)
 
 ```ts
 // pointer: value := 1; Set(&value)
@@ -103,7 +103,7 @@ function PointerExample(): number {
   return value.v;
 }
 
-// defer: the result is fixed at return, then defers run
+// defer: return 時の値を確定してから defer を実行
 function DeferExample(): $rt.S<number> {
   let $r0: $rt.S<number> = null;
   const $d = new $rt.Defers();
@@ -120,7 +120,7 @@ function DeferExample(): $rt.S<number> {
   return $r0;
 }
 
-// map: Go map semantics live in the runtime's GoMap
+// map: Go map semantics は runtime の GoMap
 function Map(): $rt.S<$rt.Iface | null> {
   let m: $rt.M<string, number> = $rt.mapLit($rt.types.string, [["a", 1]]);
   $rt.mapSet(m, "b", 2);
@@ -137,12 +137,12 @@ function Map(): $rt.S<$rt.Iface | null> {
   return $rt.sliceLit([$rt.box($rt.types.int, value), $rt.box($rt.types.bool, ok), $rt.box($rt.types.int, missing), $rt.box($rt.types.bool, ok2), $rt.box($rt.types.bool, ok3), $rt.box($rt.types.int, $rt.mapLen(m)), $rt.box($rt.types.int, $rt.mapGet(m, "b", () => 0))]);
 }
 
-// interface: dispatch through the type descriptor's method table
+// interface: 型 descriptor の method table で dispatch
 function Format(v: $rt.Iface | null): string {
   return $rt.icall(v, "String");
 }
 
-// goroutine/channel: only blocking functions are async
+// goroutine/channel: blocking 関数だけが async
 async function Worker(ch: $rt.Chan<number> | null): Promise<void> {
   await $rt.send(ch, 42);
 }
