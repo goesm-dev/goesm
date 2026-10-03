@@ -64,15 +64,26 @@ func (e *Error) Error() string {
 // Load loads the packages matching patterns (ordinary Go package patterns
 // such as ./main or example.com/app/...) relative to dir.
 func Load(dir string, patterns ...string) (*Program, error) {
+	return LoadOverlay(dir, nil, patterns...)
+}
+
+// LoadOverlay is Load with file contents that replace or add files on disk,
+// keyed by absolute path. It is the go command's own overlay mechanism
+// (go build -overlay, packages.Config.Overlay): the go command still resolves
+// packages and modules, it only reads these files from memory. Hosts that
+// embed Go in other files (such as gosfc for Vue SFCs) use it to hand goesm a
+// generated file without writing it into the user's source tree.
+func LoadOverlay(dir string, overlay map[string][]byte, patterns ...string) (*Program, error) {
 	fset := token.NewFileSet()
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedDeps | packages.NeedTypes |
 			packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedTypesSizes |
 			packages.NeedModule,
-		Dir:  dir,
-		Env:  append(os.Environ(), TargetEnv...),
-		Fset: fset,
+		Dir:     dir,
+		Env:     append(os.Environ(), TargetEnv...),
+		Fset:    fset,
+		Overlay: overlay,
 	}
 	roots, err := packages.Load(cfg, patterns...)
 	if err != nil {
