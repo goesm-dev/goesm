@@ -7,6 +7,7 @@
 package build
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -28,6 +29,9 @@ type Options struct {
 	TSDir    string   // where generated TypeScript is written ("" = temp dir)
 	Split    bool     // one ES module per Go package instead of one bundle
 	Minify   bool
+	// Overlay replaces or adds files by absolute path, as go build -overlay
+	// does. Nil means the files on disk.
+	Overlay map[string][]byte
 }
 
 // Result describes the outputs.
@@ -56,7 +60,12 @@ type Lowered struct {
 
 // Lower runs the Go frontend and the semantic lowering.
 func Lower(dir string, patterns []string) (*Lowered, error) {
-	prog, err := loader.Load(dir, patterns...)
+	return LowerOverlay(dir, nil, patterns)
+}
+
+// LowerOverlay is Lower with an overlay (see Options.Overlay).
+func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) (*Lowered, error) {
+	prog, err := loader.LoadOverlay(dir, overlay, patterns...)
 	if err != nil {
 		if le, ok := err.(*loader.Error); ok {
 			var lines []string
@@ -85,6 +94,40 @@ func Lower(dir string, patterns []string) (*Lowered, error) {
 		l.Warnings = append(l.Warnings, d.String())
 	}
 	return l, nil
+}
+
+// ReadOverlay reads an overlay file in the go command's -overlay format,
+// {"Replace": {"/abs/file.go": "/path/with/contents.go"}}, into file contents
+// keyed by absolute path. Deleting files (an empty replacement) is not
+// supported.
+func ReadOverlay(file string) (map[string][]byte, error) {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	var o struct{ Replace map[string]string }
+	if err := json.Unmarshal(data, &o); err != nil {
+		return nil, fmt.Errorf("overlay %s: %v", file, err)
+	}
+	base := filepath.Dir(file)
+	m := map[string][]byte{}
+	for target, src := range o.Replace {
+		if src == "" {
+			return nil, fmt.Errorf("overlay %s: deleting %s is not supported", file, target)
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(base, target)
+		}
+		if !filepath.IsAbs(src) {
+			src = filepath.Join(base, src)
+		}
+		c, err := os.ReadFile(src)
+		if err != nil {
+			return nil, err
+		}
+		m[target] = c
+	}
+	return m, nil
 }
 
 // tsPath is where the module of a Go package is written below the TS dir.
@@ -151,7 +194,7 @@ func Build(opts Options) (*Result, error) {
 	if opts.OutDir == "" {
 		opts.OutDir = "dist"
 	}
-	l, err := Lower(opts.Dir, opts.Patterns)
+	l, err := LowerOverlay(opts.Dir, opts.Overlay, opts.Patterns)
 	if err != nil {
 		return nil, err
 	}
