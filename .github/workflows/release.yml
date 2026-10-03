@@ -1,0 +1,24 @@
+name: release
+on:
+  push:
+    tags:
+      - "v*"
+permissions:
+  contents: read
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+  # Creates a draft GitHub release with generated notes; edit and publish it
+  # by hand. goesm is installed with go install, so no binaries are attached.
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - run: >-
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+          --verify-tag --draft --generate-notes
+          $(case "$GITHUB_REF_NAME" in *-*) echo --prerelease;; esac)
+        env:
+          GH_TOKEN: ${{ github.token }}
