@@ -210,3 +210,4 @@ go test ./...   # needs Go 1.27+ and Node.js 22+
 - `TestJS` runs `test/js/*.test.mjs` (node:test) against built bundles.
 - `TestKnownGaps` pins the documented differences from native Go.
 - `TestStdlibStatus -v` reports how far standard library packages get.
+- `TestGoConformance` (opt-in, `GOESM_CONFORMANCE=1`) runs the `// run` tests of the Go distribution's own `test/` directory through goesm and checks them against the output native Go must produce. See [docs/conformance.md](docs/conformance.md).

@@ -205,7 +205,7 @@ Those need target-specific replacements, like GopherJS's natives. goesm plans to
 * `recover()` also works when called indirectly from a deferred function (Go requires a direct call); after an await it returns nil.
 * Goroutines switch only at blocking points (cooperative). Blocking exported functions return Promises to JS.
 * Blocking of dynamic calls is decided conservatively by signature / method name, which can add unneeded `await`s (behaviour is unchanged).
-* `println` writes to the console in a format different from Go's (e.g. floats as `+1.000000e+000`).
+* `print` / `println` write to stderr in the Go runtime's format, but pointer, map, channel, func, slice and interface values print a fixed address instead of a real one.
 
 ## 12. Next three items
 
