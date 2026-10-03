@@ -229,8 +229,9 @@ goesm は自身を build した toolchain の go/types を使うので、module 
 ### テスト
 
 ```sh
+mise install           # mise.toml で pin した Go、Node.js、Bun を入れる (CI も同じ version)
 npm ci --prefix test   # TestOxlint 用の oxlint (手元では任意、CI では必須)
-go test ./...          # Go 1.27 以上と Node.js 22 以上が必要
+go test ./...          # Go 1.27 以上と Node.js 22 以上が必要、Bun は任意
 ```
 
 - `TestGolden` は fixture の引数なし exported 関数をすべて native Go と goesm が生成した ESM (Node) の両方で実行し、結果の一致を要求します。
