@@ -50,3 +50,25 @@ func TestUnsupportedReportedAsLoweringDiagnostics(t *testing.T) {
 		}
 	}
 }
+
+// A mutex held across an operation that may block builds. Where goesm
+// cannot make every Lock of that mutex wait (it is reached through a pointer
+// or has no name), it warns at the blocking operation.
+func TestLockAcrossBlockingWarns(t *testing.T) {
+	res, err := build.Build(build.Options{Dir: testdata("diag"), Patterns: []string{"./lockblock"}, OutDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := strings.Join(res.Notes, "\n")
+	for _, want := range []string{
+		"lockblock.go:35:13: warning: mu is locked across an operation that may block; goesm's locks wait only where the mutex is locked as mu",
+		"lockblock.go:57:7: warning: lockOf() is locked across an operation that may block",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("notes missing %q:\n%s", want, out)
+		}
+	}
+	if len(res.Notes) != 2 {
+		t.Errorf("want 2 notes, got:\n%s", out)
+	}
+}

@@ -103,7 +103,11 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 	case *ast.ExprStmt:
 		if u, ok := unparen(s.X).(*ast.UnaryExpr); ok && u.Op == token.ARROW {
 			// A receive statement: the value is discarded.
-			w.ln("%s%sawait $rt.recv(%s);", m, fe.mark(u), fe.expr(u.X))
+			if fe.syncOnly {
+				w.ln("%s%s$rt.recvNow(%s);", m, fe.mark(u), fe.expr(u.X))
+			} else {
+				w.ln("%s%sawait $rt.recv(%s);", m, fe.mark(u), fe.expr(u.X))
+			}
 			return
 		}
 		w.ln("%s%s;", m, fe.expr(s.X))
@@ -194,7 +198,11 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 	case *ast.SendStmt:
 		ch := fe.expr(s.Chan)
 		elem := under(fe.info.TypeOf(s.Chan)).(*types.Chan).Elem()
-		w.ln("%sawait $rt.send(%s, %s);", m, ch, fe.valueOf(s.Value, elem))
+		if fe.syncOnly {
+			w.ln("%s$rt.sendNow(%s, %s);", m, ch, fe.valueOf(s.Value, elem))
+		} else {
+			w.ln("%sawait $rt.send(%s, %s);", m, ch, fe.valueOf(s.Value, elem))
+		}
 	default:
 		fe.errorf(s.Pos(), "unsupported statement %T", s)
 	}
@@ -282,7 +290,7 @@ func (fe *funcEmitter) commaOk(e ast.Expr) (string, types.Type, bool) {
 	case *ast.UnaryExpr:
 		if x.Op == token.ARROW {
 			elem := under(fe.info.TypeOf(x.X)).(*types.Chan).Elem()
-			return fmt.Sprintf("%s(await $rt.recv(%s))", fe.mark(x), fe.expr(x.X)),
+			return fe.mark(x) + fe.recvExpr(fe.expr(x.X)),
 				types.NewTuple(types.NewVar(0, nil, "", elem), types.NewVar(0, nil, "", types.Typ[types.Bool])), true
 		}
 	}

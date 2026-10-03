@@ -13,7 +13,9 @@
 // close and (later) deadlock detection are built on; it is not delegated to
 // the JS event loop's own semantics.
 
+import { ProgramExit, exitProcess, exiting, writeStd } from "./host.ts";
 import { Goexit, plainPanic, runtimePanic, toPanic } from "./panic.ts";
+import { fromJSString } from "./string.ts";
 
 interface Waiter {
   sel: { done: boolean } | null;
@@ -103,6 +105,19 @@ export function recv<T = any>(ch: Chan<T> | null): [T, boolean] | Promise<[T, bo
   return new Promise<[T, boolean]>((resolve, reject) => {
     ch.recvq.push({ sel: null, caseIndex: 0, wake: (v, ok) => resolve([v, ok]), fail: reject });
   });
+}
+
+// sendNow and recvNow are channel operations in functions goesm lowers as
+// synchronous (internal/natives: syncFuncs), where they always complete at
+// once. Blocking there would be a goesm bug, reported as a panic.
+export function sendNow<T = any>(ch: Chan<T> | null, v: T): void {
+  if (ch === null || !trySend(ch, v)) plainPanic("goesm: channel send would block in a synchronous function");
+}
+
+export function recvNow<T = any>(ch: Chan<T> | null): [T, boolean] {
+  const r = ch === null ? null : tryRecv(ch);
+  if (r === null) plainPanic("goesm: channel receive would block in a synchronous function");
+  return r;
 }
 
 export function close(ch: Chan<any> | null): void {
@@ -200,9 +215,55 @@ function exit(e: unknown): void {
   if (e !== undefined && !(e instanceof Goexit)) crash(e);
 }
 
+// crash ends the program on a panic nothing recovered, like Go: the panic
+// goes to standard error and the process exits with status 2. Where there
+// is no process to exit (browsers), the panic is reported as an uncaught
+// error instead.
 function crash(e: unknown): void {
+  if (e instanceof ProgramExit) return;
   const p = toPanic(e);
   const g = globalThis as any;
+  if (typeof g.process?.exit === "function") {
+    const stack = (p.stack ?? "").split("\n").slice(1).join("\n");
+    writeStd(2, fromJSString(p.message + "\n\ngoroutine 1 [running]:\n" + stack + "\n"));
+    exitProcess(2);
+  }
   if (typeof g.reportError === "function") g.reportError(p);
   else setTimeout(() => { throw p; });
+}
+
+// runMain runs the main function of the program's main package. As in Go,
+// the program exits when main returns, even if other goroutines are still
+// running. If the host's event loop runs dry while main is still blocked,
+// nothing can wake it any more: that is Go's deadlock, reported the same way.
+// Hosts without a process (browsers) keep running whatever is left.
+export function runMain(main: () => void | Promise<void>): void {
+  const proc = (globalThis as any).process;
+  const done = () => {
+    if (typeof proc?.exit === "function") exitProcess(0);
+  };
+  let r: void | Promise<void>;
+  try {
+    r = main();
+  } catch (e) {
+    crash(e);
+    return;
+  }
+  if (!(r instanceof Promise)) {
+    done();
+    return;
+  }
+  let finished = false;
+  if (typeof proc?.on === "function") {
+    proc.on("exit", () => {
+      if (!finished && !exiting) {
+        writeStd(2, "fatal error: all goroutines are asleep - deadlock!\n\ngoroutine 1 [running]:\nmain.main()\n");
+        proc.exitCode = 2;
+      }
+    });
+  }
+  r.then(() => {
+    finished = true;
+    done();
+  }, crash);
 }

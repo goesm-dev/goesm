@@ -135,11 +135,13 @@ function F() {
 
 ### goroutine / channel / select
 
-* **blocking 解析** (whole program): channel 操作、default 無しの select、channel の range、blocking 関数の呼び出し/defer、blocking し得る動的呼び出しを含む関数を blocking とし、`async function` に lowering します。blocking 点はすべて `await`。それ以外は同期関数のままです (await のコストを払わない)。動的呼び出しは保守的に解決します。関数値経由の呼び出しは、同じ signature を持ち、どこかで値として使われる関数 (その場で呼ばれない関数 literal、callee 以外の位置で参照される関数や method) に届き得るとみなし、interface method の呼び出しは同名の method すべてに届き得るとみなします。
+* **blocking 解析** (whole program): channel 操作、default 無しの select、channel の range、blocking 関数の呼び出し/defer、blocking し得る動的呼び出しを含む関数を blocking とし、`async function` に lowering します。blocking 点はすべて `await`。それ以外は同期関数のままです (await のコストを払わない)。動的呼び出しは保守的に解決します。関数値経由の呼び出しは、同じ signature を持ち、どこかで値として使われる関数 (その場で呼ばれない関数 literal、callee 以外の位置で参照される関数や method) に届き得るとみなします。interface method の呼び出しは、interface 値に格納され得て、その interface を実装する型の同名 method に届き得るとみなします。格納され得る型とは、どこかで interface 型へ変換される型 (代入、引数、return、composite literal の要素、send、map の key、明示的な変換、`append`、`panic`)、すべての instantiation の型引数、そしてそれらから field・要素・pointer で辿れる型 (reflection 用) です。このため block する `io.PipeWriter.Write` があっても `io.Writer.Write` の呼び出しすべてが async になることはなく、program が pipe を `io.Writer` に格納しない限り `fmt.Println` は同期のままです。
+* **Mutex**: goroutine が `sync.Mutex` を lock 済みで見つけるのは、保持者が block しているときだけです。そこで `Lock` は同期関数で、待ちません。goesm は block し得る critical section (`Lock` 文から同じ block 内の対応する `Unlock` まで、`defer Unlock` なら末尾まで) を見つけ、そこで lock される変数や struct field を「block を跨いで保持される mutex」とします。program 中のその mutex の `Lock` / `RLock` はすべて待機する (async な) `lockSlow` / `rLockSlow` になります。これを blocking 解析と交互に、変化がなくなるまで繰り返します。別名で lock される mutex (pointer 経由、`f().Lock()` のように名前が無いもの) は待たないので、競合した `Lock` は panic します。stdlib 以外のそのような section には、build 時に block する操作の位置へ警告を出します。
 * `go f(x)` は関数値と引数をその場で評価し、`$rt.go(closure)` が microtask として起動します。
 * channel は runtime 内の buffer と送受信 wait queue で表現し、即時完了できる場合は同期的に値を返し、block する場合だけ Promise を返します。unbuffered の handoff、close (待機中 sender への panic を含む)、`select` (ready な case から一様ランダム、default、nil channel は永久 block) を実装しています。
 * つまり「async/await に変換すれば Go と同じ」とは扱っていません。blocking の意味論は wait queue という runtime 側の境界にあり、async/await は「goroutine を中断・再開する手段」に限定しています。`runtime.Goexit` (deferred 呼び出しは実行され、`recover` では止まらない) と `sync` の置換 (§9) はこの境界の上に実装しました。deadlock 検出、goroutine-local な panic 状態、timer も同様に載せます。
 * JS 境界: blocking する exported 関数は Promise を返します (例: `await Example()` は 42)。
+* **プログラム**: main package の module は `$rt.runMain` で `main` を実行します。Go と同じく、`main` が return すると (他の goroutine が動いていても) process は終了し、`os.Exit` は deferred 呼び出しを実行せずにその code で終了し、どこでも recover されない panic は `panic: ...` と `goroutine 1 [running]:`、JS の stack を標準エラーに出して status 2 で終了します。`main` が block したまま host の event loop が空になると、もう goroutine を起こせるものはないので、Go と同じ `fatal error: all goroutines are asleep - deadlock!` を出して status 2 で終了します。process の無い browser では、recover されない panic は `reportError` で報告し、block した `main` はそのまま block し続けます。
 
 ## 6. runtime 構成 (`runtime/src`、`<dir>/@goesm/runtime/*.ts` として出力)
 
@@ -153,7 +155,10 @@ function F() {
 | `string.ts` | byte string ⇔ UTF-8 / rune、JS 境界変換 |
 | `int.ts` | 整数除算・剰余 (0 除算 panic)、shift、64-bit bit 演算、min / max |
 | `panic.ts` | GoPanic、runtime error 型、Defers、recover |
-| `chan.ts` | channel、select、goroutine の起動と数 |
+| `chan.ts` | channel、select、goroutine の起動と数、`main` の実行 (終了 status、crash 出力、deadlock) |
+| `complex.ts` | 複素数 |
+| `host.ts` | 標準出力・標準エラー (Node / Bun / Deno の `fs` への write、browser では console)、process の終了 |
+| `print.ts` | `print` / `println` builtin (Go runtime の書式) |
 | `natives.ts` | Go の body を持たない stdlib 関数の実装 (§9)。それを必要とする stdlib の module だけが import する独立した module で、関数ごとに 1 export なので使われないものは tree shaking で落ちる |
 | `interop.ts` | 型 descriptor に従う Go 値 → JSON 形 JS 値 (golden テスト・将来の JS ABI) |
 
@@ -187,7 +192,8 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 |---|---|
 | `runtime` | 他の package が使う exported API (`GOOS`、`Error`、`Goexit`、`Gosched`、`KeepAlive`、`Caller`、`MemStats` など)。scheduling とメモリは `@goesm/runtime` 側 |
 | `internal/reflectlite` | `Type` = runtime の型 descriptor、`Value` = (descriptor, 値 or pointer)。`errors.Is` / `errors.As`、`sort.Slice`、`context` に足りる範囲 |
-| `sync` | `Mutex`、`RWMutex`、`WaitGroup`、`Cond` は競合時に channel で待つ (block し得る箇所だけ async になる)。`Once`、`Map`、`Pool` は普通の Go |
+| `sync` | `Mutex` と `RWMutex` は同期的に lock し、block を跨いで保持される mutex (§5) だけ待つ (async)。`WaitGroup` と `Cond` は channel で待つ。`Once`、`Map`、`Pool` は普通の Go |
+| `syscall/js` | js/wasm の `syscall/js` API を JS の値そのものの上に実装 (`Value` が値を持つ)。goesm は stdlib を js/wasm 向けに compile するので、`os`・`syscall`・`time` はこれを通じて host に届く。`globalThis.fs` と `process` は Node のもの (Bun・Deno も同じ)、browser では console を使う最小限の代替で、`os.Stdout` と `os.Stderr` はどこでも動く |
 
 仕組み:
 
@@ -213,11 +219,12 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 **実装済み (native Go との golden テストで確認)**: package import、関数、多値返却、named result、closure、struct (値 copy、method、pointer method、embedding と promotion、比較)、array、slice (aliasing、append、copy、re-slice、nil)、map (struct / interface key、comma-ok、delete、nil map、range)、pointer (変数・field・要素・`new`、identity)、defer (評価順・named result の変更・LIFO)、panic / recover (runtime error、re-panic)、interface (dispatch、type assertion、type switch、比較、nil interface と nil pointer の区別)、generics (generic 関数、制約と制約の method、interface 経由も含む generic type、型引数に従う演算子と変換、Go 1.27 generic methods、型 identity)、method value / method expression、switch / fallthrough / label 付き break・continue、前方への `goto`、range over int、range-over-func (入れ子の文からの break / continue / return、label 付き branch、yield を誤用する iterator に対する Go と同じ panic)、Go 1.22 の per-iteration loop 変数、8/16/32-bit 整数の wrap、整数 0 除算 panic、UTF-8 string と rune、goroutine、unbuffered / buffered channel、close、channel の range、select (default 含む)、`runtime.Goexit` / `Gosched`、package 変数の init order と `init()`、§9 に挙げた stdlib package。
 
 **未実装** (goesm 診断になるか、動作しないもの):
-* 64-bit 整数の正確な表現 (BigInt または hi/lo)、complex64/128
+* 64-bit 整数の正確な表現 (BigInt または hi/lo)
 * `reflect`、`fmt`、`time`、`encoding/json`、`iter.Pull` (coroutine)、§7 を超える `unsafe`
 * 後方への `goto`、range-over-func の body 内での blocking 操作 / select / defer / goto (診断として報告)、型 parameter 型の変数の address、型 parameter に依存する local type、slice から配列 pointer への変換 (`(*[N]T)(s)`)
-* deadlock 検出 ("all goroutines are asleep")、goroutine の preemption、goroutine-local な recover 状態
-* JS からの呼び出し ABI (Go の値 ⇔ JS 値の自動変換)、DOM / `syscall/js` binding
+* host に未完了の処理 (timer、I/O) が残っている間の deadlock 検出、goroutine の preemption、goroutine-local な recover 状態
+* JS からの呼び出し ABI (Go の値 ⇔ JS 値の自動変換)
+* package 初期化中の panic の Go 形式の出力 (捕捉されない JS 例外として報告される)
 * `go 1.22` 未満の file における共有 loop 変数の range 意味論
 
 **native Go との既知の差分** (最初の 3 項目は `TestKnownGaps` の `Uint64Wrap`・`Int64Precision`・`AppendCap`・`StrconvParseInt64`・`FormatFloatShortest` で差分が存在することを固定。残りは決定的に比較できないため文書のみ):
@@ -227,9 +234,9 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * map の range 順は挿入順 (Go はランダム)。どちらも仕様上未定義。
 * `recover()` は deferred 関数から間接的に呼んでも効く (Go では直接呼んだときだけ)。await を挟んだ後の recover は nil を返す。
 * goroutine は blocking 点でしか切り替わらない (協調的)。blocking する exported 関数は JS からは Promise を返す。
-* 動的呼び出しの blocking 判定は signature / method 名で保守的に行うため、不要な `await` が入ることがある (意味は変わらない)。
-* `println` は console に出力し、Go の書式 (float の `+1.000000e+000` 等) とは異なる。
-* `sync`: 最初の呼び出しの関数が block している間に 2 回目の `Once.Do` を呼ぶと、待たずに panic する。unlock 済み `Mutex` の unlock などの誤用は fatal error ではなく recover できる panic。`runtime.Caller` / `Callers` / `Stack` は何も報告せず、`SetFinalizer` は何もしない。
+* 動的呼び出しの blocking 判定は保守的 (§5) なので、不要な `await` が入ることがある (意味は変わらない)。
+* `print` / `println` は address を固定の `0xc000010000` で表示する (Go の address も再現性はない)。
+* `sync`: block を跨いで保持され、かつ別名でも lock される mutex (§5) は、競合すると panic する。最初の呼び出しの関数が block している間に 2 回目の `Once.Do` を呼ぶと、待たずに panic する。unlock 済み `Mutex` の unlock などの誤用は fatal error ではなく recover できる panic。`runtime.Caller` / `Callers` / `Stack` は何も報告せず、`SetFinalizer` は何もしない。
 
 ## 12. 次に実装すべき 3 項目
 

@@ -28,6 +28,7 @@ type funcEmitter struct {
 	tp       tpScope
 	sig      *types.Signature
 	async    bool
+	syncOnly bool // channel operations must complete at once (natives.Sync)
 	hasDefer bool
 	results  []string // JS references to the result variables, when materialised
 	resultTs []types.Type
@@ -343,7 +344,8 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 			// go/types guarantees a terminating statement; TypeScript's
 			// flow analysis cannot always see it (a switch or type switch
 			// whose every case returns).
-			w.ln("throw new Error(\"goesm: unreachable\");")
+			// globalThis: the package may declare its own Error.
+			w.ln("throw new globalThis.Error(\"goesm: unreachable\");")
 		}
 		return
 	}
@@ -413,6 +415,7 @@ func (fe *funcEmitter) funcLit(lit *ast.FuncLit) string {
 	w.indent = fe.w.indent + 1
 	c := fe.child(w, sig)
 	c.async = fe.pe.prog.LitAsync(lit)
+	c.syncOnly = fe.pe.prog.SyncOnly(lit)
 	params := c.paramList(lit.Type.Params, nil)
 	c.funcBody(nil, lit.Type, lit.Body, sig)
 	prefix := ""
@@ -471,6 +474,16 @@ func (fe *funcEmitter) mayFallOff(list []ast.Stmt) bool {
 		}
 	case *ast.BlockStmt:
 		return fe.mayFallOff(s.List)
+	case *ast.IfStmt:
+		return s.Else == nil || fe.mayFallOff(s.Body.List) || fe.mayFallOff([]ast.Stmt{s.Else})
 	}
 	return true
+}
+
+// recvExpr lowers a receive from ch to a [value, ok] pair.
+func (fe *funcEmitter) recvExpr(ch string) string {
+	if fe.syncOnly {
+		return "$rt.recvNow(" + ch + ")"
+	}
+	return "(await $rt.recv(" + ch + "))"
 }

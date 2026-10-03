@@ -765,7 +765,7 @@ func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
 	case token.AND:
 		return fe.addrOf(e.X)
 	case token.ARROW:
-		return fmt.Sprintf("%s(await $rt.recv(%s))[0]", fe.mark(e), fe.expr(e.X))
+		return fe.mark(e) + fe.recvExpr(fe.expr(e.X)) + "[0]"
 	case token.NOT:
 		return "!" + fe.expr(e.X)
 	case token.ADD:
@@ -826,6 +826,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 			}
 			prefix, recv, iface := fe.methodTarget(f, sel)
 			fn := sel.Obj().(*types.Func)
+			if slow := fe.pe.prog.WaitLock(e); slow != nil {
+				prefix = fe.pe.methodFuncName(slow) + "("
+			}
 			if iface {
 				callee = fmt.Sprintf("$rt.icall(%s, %s", recv, jsString(methodKey(fn)))
 				if args != "" {
@@ -944,7 +947,8 @@ func (fe *funcEmitter) args(e *ast.CallExpr, sig *types.Signature) string {
 				rest := parts[n-1:]
 				parts = append(fixed, "$rt.sliceLit<"+variadicElemTS+">(["+strings.Join(rest, ", ")+"])")
 			}
-			return fmt.Sprintf("...((%s: any) => [%s])(%s)", t, strings.Join(parts, ", "), fe.expr(e.Args[0]))
+			anys := strings.TrimSuffix(strings.Repeat("any, ", len(parts)), ", ")
+			return fmt.Sprintf("...((%s: any): [%s] => [%s])(%s)", t, anys, strings.Join(parts, ", "), fe.expr(e.Args[0]))
 		}
 	}
 	for i, a := range e.Args {
@@ -1163,10 +1167,10 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		return m + "$rt.recover()"
 	case "print", "println":
 		var vals []string
-		for i := range e.Args {
-			vals = append(vals, arg(i))
+		for i, a := range e.Args {
+			vals = append(vals, printArg(fe.info.TypeOf(a), arg(i)))
 		}
-		return m + "$rt.println(" + strings.Join(vals, ", ") + ")"
+		return m + "$rt." + name + "(" + strings.Join(vals, ", ") + ")"
 	case "close":
 		return m + "$rt.close(" + arg(0) + ")"
 	case "clear":
@@ -1301,4 +1305,35 @@ func (fe *funcEmitter) unsafeCall(e *ast.CallExpr, name string) string {
 	}
 	fe.errorf(e.Pos(), "unsafe.%s is not supported in this form (goesm has no address space)", name)
 	return "undefined"
+}
+
+// printArg formats an operand of the print builtins as the Go runtime does
+// where JS's String() differs.
+func printArg(t types.Type, v string) string {
+	t = types.Default(t)
+	if b, ok := t.(*types.Basic); ok && b.Kind() == types.UntypedNil {
+		return `"nil"`
+	}
+	switch u := under(t).(type) {
+	case *types.Basic:
+		switch {
+		case u.Kind() == types.Float32:
+			return "$rt.printFloat(" + v + ", 32)"
+		case u.Info()&types.IsFloat != 0:
+			return "$rt.printFloat(" + v + ")"
+		case u.Kind() == types.Complex64:
+			return "$rt.printComplex(" + v + ", 32)"
+		case u.Info()&types.IsComplex != 0:
+			return "$rt.printComplex(" + v + ")"
+		case u.Kind() == types.UnsafePointer:
+			return "$rt.printPointer(" + v + ")"
+		}
+	case *types.Interface:
+		return "$rt.printIface(" + v + ")"
+	case *types.Slice:
+		return "$rt.printSlice(" + v + ")"
+	case *types.Pointer, *types.Map, *types.Chan, *types.Signature:
+		return "$rt.printPointer(" + v + ")"
+	}
+	return v
 }

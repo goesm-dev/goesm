@@ -15,10 +15,6 @@ export * from "./int.ts";
 export * from "./chan.ts";
 export * from "./interop.ts";
 export * from "./complex.ts";
+export * from "./host.ts";
+export * from "./print.ts";
 
-import { toJSString } from "./string.ts";
-
-// print/println builtins. Go writes these to stderr; the PoC uses the console.
-export function println(...args: any[]): void {
-  console.log(args.map((a) => (typeof a === "string" ? toJSString(a) : String(a))).join(" "));
-}
