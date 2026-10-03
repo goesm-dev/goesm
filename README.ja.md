@@ -55,7 +55,7 @@ Vite / Rolldown / その他の host toolchain
 ES Modules
 ```
 
-TypeScript は実装の詳細であり、中間 target です。
+TypeScript は goesm の出力であり、host toolchain の入力です。Go package ごとに 1 つの ES module になる生成コードで、手で書いたり編集したりするものではありません。
 
 `goesm` は Go parser、Go の型システム、Go Modules、JavaScript の build ecosystem を置き換えようとはしません。
 
@@ -180,24 +180,25 @@ total := cart.Total(items)
 
 最初の作業は、型検査済みの普通の Go package を TypeScript に lowering し、Go の意味論と package 境界を保ったままネイティブな ES module として使えることを実証することに集中しています。
 
-この repository の PoC は go/packages + go/types で package を読み込み、TypeScript と小さな runtime (`@goesm/runtime`) に lowering し、esbuild の Go API で ES module を生成します。設計と実装済み・未実装の範囲は [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md)、GopherJS との違いは [docs/gopherjs-comparison.ja.md](docs/gopherjs-comparison.ja.md)、生成される TypeScript / JavaScript は [docs/example-output.ja.md](docs/example-output.ja.md) を参照してください。
+この repository の PoC は go/packages + go/types で package を読み込み、Go package ごとに 1 つの、ESM としてそのまま build できる TypeScript file の tree と、TypeScript で書かれた小さな runtime (`@goesm/runtime`) に lowering します。この tree は任意の bundler (Vite、Rolldown、esbuild) や TypeScript を扱える runtime (Bun、type stripping を使う Node.js) がそのまま読み込めます。`goesm build` は同じ tree を esbuild の Go API で bundle する便宜的な command です。設計と実装済み・未実装の範囲は [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md)、GopherJS との違いは [docs/gopherjs-comparison.ja.md](docs/gopherjs-comparison.ja.md)、生成される TypeScript / JavaScript は [docs/example-output.ja.md](docs/example-output.ja.md) を参照してください。
 
 ### インストール
 
-goesm は Go toolchain (package の読み込みに `go list` を使います) の Go 1.27 以上が必要です。古い `go` でも `GOTOOLCHAIN` により 1.27 が自動でダウンロードされます。Node.js や npm は不要です。runtime (`@goesm/runtime`) は binary に embed され、`goesm build` の出力に bundle されるので、npm package をインストールする必要はありません。
+goesm は Go toolchain (package の読み込みに `go list` を使います) の Go 1.27 以上が必要です。古い `go` でも `GOTOOLCHAIN` により 1.27 が自動でダウンロードされます。Node.js や npm は不要です。runtime (`@goesm/runtime`) は binary に embed され、出力に書き出される (`emit-ts` では `<dir>/@goesm/runtime/`、`build` では bundle) ので、npm package をインストールする必要はありません。
 
 おすすめは module の tool として追加する方法です。コードと同じ toolchain で goesm が build されます。
 
 ```sh
 go get -tool github.com/goesm-dev/goesm/cmd/goesm@latest
-go tool goesm build ./cart       # dist/cart.js
+go tool goesm emit-ts ./cart     # goesm-ts/<cart の import path>.ts と goesm-ts/@goesm/runtime/
+go tool goesm build ./cart       # bundle した dist/cart.js が欲しい場合
 ```
 
 `PATH` にインストールする場合:
 
 ```sh
 go install github.com/goesm-dev/goesm/cmd/goesm@latest
-goesm build ./cart
+goesm emit-ts ./cart
 ```
 
 build 済み binary は配布していません。goesm はどのみち `go` を実行しますし、自分の toolchain で build すれば goesm の go/types が module の Go とずれません。`goesm version` は goesm の version と、build に使った Go を表示します。release notes は [GitHub Releases](https://github.com/goesm-dev/goesm/releases) にあります。
@@ -206,13 +207,38 @@ goesm が実験段階のあいだ、release は `v0.0.1-beta.N` という名前�
 
 ### 使い方
 
-入力は普通の Go module の中の、普通の Go package pattern です。
+入力は普通の Go module の中の、普通の Go package pattern です。`goesm emit-ts` が TypeScript の tree を書き出します。
 
 ```sh
 cd testdata/example
+go run ../../cmd/goesm emit-ts -o goesm-ts ./main   # -o の既定値は goesm-ts
+```
+
+```text
+goesm-ts/
+├── example.com/app/main.ts    import * as mathx from "./mathx.ts"
+├── example.com/app/mathx.ts   import * as $rt from "../../@goesm/runtime/index.ts"
+└── @goesm/runtime/
+    ├── index.ts
+    ├── natives.ts
+    └── ...                    その他の runtime file
+```
+
+Go package `p` の module は `<dir>/<p>.ts` です (標準 library の package も同様: `strings.ts`、`internal/bytealg.ts`)。runtime は `<dir>/@goesm/runtime/` に置かれます。Go の import path は `@` で始まらないので、runtime が package と衝突することはありません。module 同士は `.ts` で終わる相対 specifier で import し合うため、resolver、plugin、bundler の設定は不要です。自分のコードから entry package を import します。
+
+```ts
+// Vite project の index.ts、または直接実行: bun index.ts / node index.ts (Node.js 22.18 以上)
+import { Result } from "./goesm-ts/example.com/app/main.ts";
+console.log(Result()); // 3
+```
+
+この tree を import するコードを `tsc` で型検査するには `allowImportingTsExtensions` を有効にします。
+
+`goesm build` は便宜的な command です (テストもこれを使います)。同じ tree を一時 directory に書き出し、esbuild の Go API で bundle します。
+
+```sh
 go run ../../cmd/goesm build ./main          # dist/main.js (+ .go を指す .js.map)
-go run ../../cmd/goesm build -split ./main   # Go package ごとに 1 つの ES module
-go run ../../cmd/goesm emit-ts ./main        # 生成された TypeScript を確認
+go run ../../cmd/goesm build -split ./main   # Go package ごとに 1 つの ES module: dist/example.com/app/main.js など
 ```
 
 ```js
@@ -230,7 +256,7 @@ goesm は自身を build した toolchain の go/types を使うので、module 
 
 ```sh
 mise install           # mise.toml で pin した Go、Node.js、Bun を入れる (CI も同じ version)
-npm ci --prefix test   # TestOxlint 用の oxlint (手元では任意、CI では必須)
+npm ci --prefix test   # TestTSC / TestOxlint 用の tsc と oxlint (手元では任意、CI では必須)
 go test ./...          # Go 1.27 以上と Node.js 22 以上が必要、Bun は任意
 ```
 
@@ -240,3 +266,4 @@ go test ./...          # Go 1.27 以上と Node.js 22 以上が必要、Bun は�
 - `TestExamples` は `examples/*` を build し、各 `index.mjs` を Node (インストールされていれば Bun でも) で実行して `output.txt` と比較します。
 - `TestOxlint` は fixture から build した ESM (bundle と split) を oxlint の correctness ルールで検査し、指摘が 1 件でもあれば失敗します。生成コードのために無効にしている 4 ルールとその理由は `test/lint_test.go` にあります。
 - `TestStdlibStatus -v` は標準 library のどの package が lowering でき、そのうち何個の関数が stub かを報告します。
+- `TestTSC` は出力した TypeScript (fixture、examples、runtime) を strict mode の tsc で型検査します。あわせて、exported な Go API が TypeScript から Go の型で見えることを consumer で確認します。`TestOxlint` と同じく `npm ci --prefix test` が必要で、CI では必須です。native Go との結果比較は引き続き意味論の gate です。

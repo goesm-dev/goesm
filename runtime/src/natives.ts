@@ -16,9 +16,10 @@
 // natives.ts is a separate module (@goesm/runtime/natives) that uses the
 // runtime only through its public module, so split builds share one runtime.
 import {
-  GoMap, Goexit, Iface, Kind, S, Slice, Type, assign, chanLen, copy, implementsIface, isAggregate, load,
+  GoMap, Goexit, Iface, Kind, Slice, Type, assign, chanLen, copy, implementsIface, isAggregate, load,
   makeSlice, mapLen, numGoroutine, runtimePanic, sizeOf, store,
-} from "@goesm/runtime";
+} from "./index.ts";
+import type { S } from "./index.ts";
 
 // ---- runtime ----
 

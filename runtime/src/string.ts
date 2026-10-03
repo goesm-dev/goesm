@@ -4,8 +4,9 @@
 // and from ordinary (UTF-16) JS strings happens only at the JS boundary via
 // toJSString / fromJSString.
 
-import { runtimePanic } from "./panic";
-import { Slice, S } from "./slice";
+import { runtimePanic } from "./panic.ts";
+import { Slice } from "./slice.ts";
+import type { S } from "./slice.ts";
 
 export function strIndex(s: string, i: number): number {
   if (i < 0 || i >= s.length) runtimePanic(`index out of range [${i}] with length ${s.length}`);

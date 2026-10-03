@@ -17,4 +17,4 @@ jobs:
       - run: npm ci --prefix test
       - run: go test ./...
         env:
-          GOESM_REQUIRE_OXLINT: "1"
+          GOESM_REQUIRE_TOOLS: "1"
