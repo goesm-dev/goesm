@@ -1,0 +1,8 @@
+{
+  "name": "@goesm/runtime",
+  "version": "0.0.0-poc",
+  "private": true,
+  "description": "Runtime support for TypeScript lowered from Go by goesm. Embedded into the goesm binary; not meant to be authored against directly.",
+  "type": "module",
+  "main": "src/index.ts"
+}
