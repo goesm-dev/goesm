@@ -221,31 +221,9 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 		if isIface(recvT) {
 			return fmt.Sprintf("((r: any, ...a: any[]) => $rt.icall(r, %s, ...a))", jsString(methodKey(fn)))
 		}
-		// Promoted methods walk the embedded fields from the receiver.
-		recv, t := "r", recvT
-		parent, parentProp := "", ""
-		path := sel.Index()
-		for _, idx := range path[:len(path)-1] {
-			base, isPtr := derefType(t)
-			if isPtr {
-				recv = "$rt.deref(" + recv + ")"
-			}
-			st := base.Underlying().(*types.Struct)
-			parent, parentProp = recv, fieldProp(st, idx)
-			recv += "." + parentProp
-			t = st.Field(idx).Type()
-		}
-		base, havePtr := derefType(t)
-		if isPtrRecv(fn) && !havePtr && !isAggregate(base) && parent != "" {
-			recv = fmt.Sprintf("$rt.fieldPtr(%s, %s)", parent, jsString(parentProp))
-		}
-		if !isPtrRecv(fn) && havePtr {
-			recv = fmt.Sprintf("$rt.derefMethod(%s, %s)", recv, jsString(panicwrapMsg(fn, base)))
-			if !isAggregate(base) {
-				recv += ".v"
-			}
-		}
-		return fmt.Sprintf("((r: any, ...a: any[]) => (%s as any)(%s%s, ...a))", fe.pe.methodFuncName(fn), fe.pe.recvTypeArgs(base, fe.tp), recv)
+		// The same function as the method table entry: it follows embedded
+		// fields (promoted methods) and adjusts the receiver.
+		return "(" + fe.pe.methodWrapper(recvT, sel, fe.tp) + ")"
 	}
 	return "undefined"
 }
@@ -459,7 +437,13 @@ func (fe *funcEmitter) compositeLitOf(e *ast.CompositeLit) string {
 		for _, ev := range elems {
 			vals[ev.slot] = ev.val
 		}
-		return wrapPre(pre, fmt.Sprintf("%snew %s(%s)", m, fe.pe.structClass(t), strings.Join(vals, ", ")))
+		class := ""
+		if isTypeParam(t) { // the type argument's class (it may be a defined type)
+			class = "(" + fe.desc(t) + ".ctor)"
+		} else {
+			class = fe.pe.structClass(t)
+		}
+		return wrapPre(pre, fmt.Sprintf("%snew %s(%s)", m, class, strings.Join(vals, ", ")))
 	case *types.Array:
 		pre, vals := fe.indexedElems(e, u.Elem(), int(u.Len()))
 		return wrapPre(pre, m+"["+strings.Join(vals, ", ")+"]")
@@ -837,6 +821,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 	switch f := fun.(type) {
 	case *ast.SelectorExpr:
 		if sel, ok := fe.info.Selections[f]; ok && sel.Kind() == types.MethodVal {
+			if bound, ok := fe.override[f]; ok { // a method value evaluated earlier (defer)
+				return fe.awaitIf(e, fe.mark(e)+"("+bound+" as any)("+args+")")
+			}
 			prefix, recv, iface := fe.methodTarget(f, sel)
 			fn := sel.Obj().(*types.Func)
 			if iface {

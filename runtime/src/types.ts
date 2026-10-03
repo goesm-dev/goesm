@@ -217,13 +217,13 @@ function zeroStruct(t: Type): any {
 
 // named creates the descriptor of a defined (named) type. The underlying type
 // is attached later with setUnderlying so that recursive types work.
-export function named(pkgPath: string, name: string, typeArgs: Type[] = []): Type {
+export function named(pkgPath: string, name: string, typeArgs: Type[] = [], pkgName?: string): Type {
   const t = new Type();
   t.named = true;
   t.pkgPath = pkgPath;
   t.name = name;
   t.typeArgs = typeArgs;
-  const short = pkgPath === "" ? "" : pkgPath.slice(pkgPath.lastIndexOf("/") + 1) + ".";
+  const short = pkgPath === "" ? "" : (pkgName ?? pkgPath.slice(pkgPath.lastIndexOf("/") + 1)) + ".";
   t.str = short + name + (typeArgs.length ? `[${typeArgs.map((a) => a.str).join(",")}]` : "");
   return t;
 }
@@ -271,13 +271,14 @@ export function generic(
   pkgPath: string,
   name: string,
   init: (t: Type, ...targs: Type[]) => void,
+  pkgName?: string,
 ): (...targs: Type[]) => Type {
   const cache = new Map<string, Type>();
   return (...targs: Type[]) => {
     const key = targs.map((t) => t.id).join(",");
     let t = cache.get(key);
     if (!t) {
-      t = named(pkgPath, name, targs);
+      t = named(pkgPath, name, targs, pkgName);
       cache.set(key, t);
       init(t, ...targs);
     }

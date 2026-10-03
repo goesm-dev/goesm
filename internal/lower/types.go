@@ -220,7 +220,17 @@ func methodPkgPath(f *types.Func) string {
 	if f.Exported() || f.Pkg() == nil {
 		return ""
 	}
-	return f.Pkg().Path()
+	return goPkgPath(f.Pkg())
+}
+
+// goPkgPath is the package path the gc runtime reports (reflect's PkgPath,
+// unexported method and field keys, panic messages): a main package is
+// "main" whatever its import path.
+func goPkgPath(p *types.Package) string {
+	if p.Name() == "main" {
+		return "main"
+	}
+	return p.Path()
 }
 
 func methodKey(f *types.Func) string {
@@ -236,7 +246,7 @@ func (pe *pkgEmitter) structDesc(s *types.Struct, ctor string, tp tpScope) strin
 		f := s.Field(i)
 		pkgPath := ""
 		if !f.Exported() && f.Pkg() != nil {
-			pkgPath = f.Pkg().Path()
+			pkgPath = goPkgPath(f.Pkg())
 		}
 		fs = append(fs, fmt.Sprintf("{ name: %s, pkgPath: %s, type: %s, embedded: %v, tag: %s, prop: %s }",
 			jsString(f.Name()), jsString(pkgPath), pe.typeDesc(f.Type(), tp), f.Embedded(), jsString(s.Tag(i)), jsString(fieldProp(s, i))))

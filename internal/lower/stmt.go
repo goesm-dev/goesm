@@ -1364,6 +1364,11 @@ func (fe *funcEmitter) deferredCall(call *ast.CallExpr) string {
 					_, xPtr := xt.Underlying().(*types.Pointer)
 					direct := len(sel.Index()) == 1
 					switch {
+					case !direct:
+						// A promoted method: evaluate the method value now,
+						// which dereferences embedded pointers and
+						// interfaces and copies a value receiver.
+						set(f, fe.expr(f))
 					case direct && isIface(xt):
 						// x.M on a nil interface panics at the defer statement.
 						set(f.X, "$rt.deref("+fe.expr(f.X)+")")

@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 	"go/ast"
+	"path"
 	"go/types"
 	"strings"
 
@@ -24,14 +25,20 @@ func (pe *pkgEmitter) emitNamedType(tn *types.TypeName) {
 		pe.export(name, name)
 	}
 	pe.export(name+"$type", name+"$type")
-	pkgPath := jsString(pe.pkg.PkgPath)
+	pkgPath := jsString(goPkgPath(pe.pkg.Types))
+	// Type strings use the package name (yaml.Node for gopkg.in/yaml.v3),
+	// which the runtime takes from the path unless told otherwise.
+	namedExtra, genericExtra := "", ""
+	if n := pe.pkg.Types.Name(); n != path.Base(goPkgPath(pe.pkg.Types)) {
+		namedExtra, genericExtra = ", [], "+jsString(n), ", "+jsString(n)
+	}
 	ctor := "undefined"
 	if isStruct {
 		ctor = name
 	}
 
 	if !generic {
-		pe.phase1.ln("%sconst %s$type: $rt.Type = $rt.named(%s, %s);", pe.tab.mark(tn.Pos()), name, pkgPath, jsString(tn.Name()))
+		pe.phase1.ln("%sconst %s$type: $rt.Type = $rt.named(%s, %s%s);", pe.tab.mark(tn.Pos()), name, pkgPath, jsString(tn.Name()), namedExtra)
 		var under string
 		if isStruct {
 			under = pe.structDesc(st, name, tpScope{})
@@ -63,7 +70,7 @@ func (pe *pkgEmitter) emitNamedType(tn *types.TypeName) {
 	w.ln("$rt.setUnderlying(t, %s, %s);", under, ctor)
 	pe.methodTables(w, "t", named, tp)
 	w.indent--
-	w.ln("});")
+	w.ln("}%s);", genericExtra)
 }
 
 // methodTables registers the method sets of T and *T on the descriptor.
@@ -419,7 +426,7 @@ func panicwrapMsg(fn *types.Func, recvBase types.Type) string {
 	}
 	pkg := ""
 	if fn.Pkg() != nil {
-		pkg = fn.Pkg().Path() + "."
+		pkg = goPkgPath(fn.Pkg()) + "."
 	}
 	return fmt.Sprintf("value method %s%s.%s called using nil *%s pointer", pkg, name, fn.Name(), name)
 }
