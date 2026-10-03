@@ -12,7 +12,7 @@
 // derived pointer objects. A pointer is not an integer here; unsafe.Pointer
 // arithmetic would need the planned ArrayBuffer-backed memory model.
 
-import { runtimePanic } from "./panic";
+import { plainPanic, runtimePanic } from "./panic";
 import { Slice } from "./slice";
 import { Type, isAggregate } from "./types";
 
@@ -98,5 +98,13 @@ export function assign(t: Type, dst: any, src: any): void {
 // aggregate object itself: it only checks for nil.
 export function deref<T>(p: T | null): T {
   if (p === null) runtimePanic("invalid memory address or nil pointer dereference");
+  return p;
+}
+
+// derefMethod is the receiver dereference of a value method called through a
+// method expression or method table with a *T receiver; a nil pointer panics
+// like Go's panicwrap.
+export function derefMethod<T>(p: T | null, msg: string): T {
+  if (p === null) plainPanic(msg);
   return p;
 }

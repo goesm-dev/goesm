@@ -387,9 +387,9 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 			return lvalue{get: fmt.Sprintf("$rt.load(%s, %s)", d, p), set: func(rhs string) string { return fmt.Sprintf("$rt.store(%s, %s, %s)", d, p, rhs) }}
 		}
 		if isAggregate(t) {
-			return fe.simpleLvalue(p, t)
+			return fe.simpleLvalue("$rt.deref("+p+")", t)
 		}
-		return fe.simpleLvalue(p+".v", t)
+		return fe.simpleLvalue("$rt.deref("+p+").v", t)
 	}
 	fe.errorf(e.Pos(), "unsupported assignment target %T", e)
 	return lvalue{get: "undefined", set: func(rhs string) string { return rhs }}

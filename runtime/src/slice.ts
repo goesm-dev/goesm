@@ -110,6 +110,9 @@ function grow(oldCap: number, needed: number): number {
 export function append<T>(s: S<T>, vals: T[], zero: () => T, et?: Type): S<T> {
   if (vals.length === 0) return s;
   const agg = et !== undefined && isAggregate(et);
+  // Copy aggregate inputs first: they may alias the destination slots
+  // (append(a[:1], a[:2]...)).
+  if (agg) vals = vals.map((v) => copy(et!, v));
   const n = s === null ? 0 : s.$length;
   const c = s === null ? 0 : s.$capacity;
   const newLen = n + vals.length;
@@ -127,7 +130,7 @@ export function append<T>(s: S<T>, vals: T[], zero: () => T, et?: Type): S<T> {
     const v = s!.$array[s!.$offset + i];
     arr[i] = agg ? copy(et!, v) : v;
   }
-  for (let i = 0; i < vals.length; i++) arr[n + i] = agg ? copy(et!, vals[i]) : vals[i];
+  for (let i = 0; i < vals.length; i++) arr[n + i] = vals[i];
   for (let i = newLen; i < newCap; i++) arr[i] = zero();
   return new Slice(arr, 0, newLen, newCap);
 }

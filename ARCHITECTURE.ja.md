@@ -193,7 +193,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 **未実装** (goesm 診断になるか、動作しないもの):
 * 64-bit 整数の正確な表現 (BigInt または hi/lo)、complex64/128
 * `unsafe`、`reflect`、`runtime` 置換、`sync` / `sync/atomic`、`time`、`fmt` / `strconv` / `strings` を含む大半の stdlib
-* `goto`、range-over-func の body 内での blocking / defer / label 付き branch、型 parameter 型の変数の address、型 parameter に依存する local type
+* `goto`、range-over-func の body 内での blocking / defer / label 付き branch、型 parameter 型の変数の address、型 parameter に依存する local type、slice から配列 pointer への変換 (`(*[N]T)(s)`)
 * deadlock 検出 ("all goroutines are asleep")、goroutine の preemption、`runtime.Goexit`、goroutine-local な recover 状態
 * JS からの呼び出し ABI (Go の値 ⇔ JS 値の自動変換)、DOM / `syscall/js` binding
 * `go 1.22` 未満の file における共有 loop 変数の range 意味論
