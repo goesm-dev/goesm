@@ -273,7 +273,10 @@ func (r *conformanceRunner) run(c conformanceCase) conformanceResult {
 		}
 	}
 
-	out, ok := runCmd(dir, 2*time.Minute, r.goesm, "build", "-o", "dist", "./")
+	// Memory is capped so that one test cannot take the machine down: the
+	// 100 MiB array literal of fixedbugs/issue34395 alone made goesm use
+	// 11 GB and got CI runners killed.
+	out, ok := runCmd(dir, 2*time.Minute, "sh", "-c", `ulimit -v 4194304 && exec "$0" "$@"`, r.goesm, "build", "-o", "dist", "./")
 	if out == nil {
 		return fail(statusTimeout, "goesm build did not finish within 2m")
 	}
@@ -291,7 +294,7 @@ func (r *conformanceRunner) run(c conformanceCase) conformanceResult {
 	}
 
 	t0 := time.Now()
-	got, ok := runCmd(dir, 20*time.Second, "node", "--stack-size=8000", r.driver, bundle)
+	got, ok := runCmd(dir, 20*time.Second, "node", "--stack-size=8000", "--max-old-space-size=2048", r.driver, bundle)
 	res.Run = time.Since(t0)
 	switch {
 	case got == nil:
