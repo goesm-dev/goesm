@@ -55,7 +55,7 @@ Vite / Rolldown / another host toolchain
 ES Modules
 ```
 
-TypeScript is an implementation detail and an intermediate target.
+TypeScript is goesm's output and the host toolchain's input: generated ES modules, one per Go package, that you do not write or edit by hand.
 
 `goesm` does not attempt to replace the Go parser, Go type system, Go Modules, or the JavaScript build ecosystem.
 
@@ -180,17 +180,42 @@ to `goesm`, while Vue remains responsible for the SFC and template layer.
 
 The initial work focuses on proving that ordinary, type-checked Go packages can be lowered to TypeScript and consumed as native ES modules while preserving Go semantics and package boundaries.
 
-The proof of concept in this repository loads packages with go/packages + go/types, lowers them to TypeScript plus a small runtime (`@goesm/runtime`), and uses esbuild's Go API to produce the ES modules. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design, what is implemented and what is not, [docs/gopherjs-comparison.md](docs/gopherjs-comparison.md) for how it differs from GopherJS, and [docs/example-output.md](docs/example-output.md) for generated TypeScript and JavaScript.
+The proof of concept in this repository loads packages with go/packages + go/types and lowers them to a tree of ESM-ready TypeScript files, one per Go package, plus a small runtime written in TypeScript (`@goesm/runtime`). Any bundler (Vite, Rolldown, esbuild) or TypeScript-aware runtime (Bun, Node.js with type stripping) consumes that tree directly. `goesm build` bundles the same tree with esbuild's Go API as a convenience. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design, what is implemented and what is not, [docs/gopherjs-comparison.md](docs/gopherjs-comparison.md) for how it differs from GopherJS, and [docs/example-output.md](docs/example-output.md) for generated TypeScript and JavaScript.
 
 ### Usage
 
-Inputs are ordinary Go package patterns in an ordinary Go module:
+Inputs are ordinary Go package patterns in an ordinary Go module. `goesm emit-ts` writes the TypeScript tree:
 
 ```sh
 cd testdata/example
+go run ../../cmd/goesm emit-ts -o goesm-ts ./main   # -o defaults to goesm-ts
+```
+
+```text
+goesm-ts/
+├── example.com/app/main.ts    import * as mathx from "./mathx.ts"
+├── example.com/app/mathx.ts   import * as $rt from "../../@goesm/runtime/index.ts"
+└── @goesm/runtime/
+    ├── index.ts
+    ├── natives.ts
+    └── ...                    the other runtime files
+```
+
+The module of Go package `p` is `<dir>/<p>.ts` (standard library packages too: `strings.ts`, `internal/bytealg.ts`), and the runtime is `<dir>/@goesm/runtime/`. A Go import path cannot start with `@`, so the runtime never collides with a package. Modules import each other with relative specifiers ending in `.ts`, so no resolver, plugin or bundler configuration is needed. Import the entry package from your own code:
+
+```ts
+// index.ts in a Vite project, or run directly: bun index.ts / node index.ts (Node.js 22.18+)
+import { Result } from "./goesm-ts/example.com/app/main.ts";
+console.log(Result()); // 3
+```
+
+To type-check code importing the tree with `tsc`, enable `allowImportingTsExtensions`.
+
+`goesm build` is a convenience (and what the tests use): it writes the same tree to a temporary directory and bundles it with esbuild's Go API.
+
+```sh
 go run ../../cmd/goesm build ./main          # dist/main.js (+ .js.map pointing at .go)
-go run ../../cmd/goesm build -split ./main   # one ES module per Go package
-go run ../../cmd/goesm emit-ts ./main        # inspect the generated TypeScript
+go run ../../cmd/goesm build -split ./main   # one ES module per Go package: dist/example.com/app/main.js, ...
 ```
 
 ```js
@@ -198,15 +223,23 @@ import { Result } from "./dist/main.js";
 Result(); // 3
 ```
 
+[examples/](examples) has runnable examples (the cart above, standard library use, goroutines) with the JS that imports them.
+
+Standard library packages are compiled from their own Go source; the few tied to the gc runtime (`runtime`, `internal/reflectlite`, `sync`) are replaced by goesm's own Go source. A standard library function goesm cannot lower yet becomes a stub that panics if called, and `build` / `emit-ts` print how many there are (`-v` lists them).
+
 goesm uses go/types from the toolchain it was built with, so build it with the toolchain your module uses (for example via a `tool` directive and `go tool goesm`). This repository's fixtures use Go 1.27.
 
 ### Tests
 
 ```sh
-go test ./...   # needs Go 1.27+ and Node.js 22+
+npm ci --prefix test   # tsc and oxlint for TestTSC / TestOxlint (optional locally; required in CI)
+go test ./...          # needs Go 1.27+ and Node.js 22+
 ```
 
 - `TestGolden` runs every parameterless exported function of the fixtures under native Go and in the goesm-built ESM (Node) and requires equal results.
 - `TestJS` runs `test/js/*.test.mjs` (node:test) against built bundles.
 - `TestKnownGaps` pins the documented differences from native Go.
-- `TestStdlibStatus -v` reports how far standard library packages get.
+- `TestExamples` builds `examples/*`, runs each `index.mjs` under Node (and Bun when installed) and compares with its `output.txt`.
+- `TestOxlint` lints the ESM built from the fixtures (bundle and split) with oxlint's correctness rules and fails on any finding; `test/lint_test.go` lists the four rules turned off for generated code and why.
+- `TestStdlibStatus -v` reports which standard library packages lower and how many of their functions are stubs.
+- `TestTSC` type-checks the emitted TypeScript (fixtures, examples, runtime) with tsc in strict mode, together with a consumer that checks exported Go APIs have their Go types in TypeScript. Like `TestOxlint` it needs `npm ci --prefix test` and is required in CI. Comparing results with native Go stays the semantic gate.

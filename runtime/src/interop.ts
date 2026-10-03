@@ -3,10 +3,10 @@
 // by the golden tests (native Go JSON == goesm ESM toJS) and is a first step
 // towards a typed JS ABI for exported functions.
 
-import { Kind, Type } from "./types";
-import { toJSString } from "./string";
-import { GoMap } from "./map";
-import { Slice } from "./slice";
+import { Kind, Type } from "./types.ts";
+import { toJSString } from "./string.ts";
+import { GoMap } from "./map.ts";
+import { Slice } from "./slice.ts";
 
 export function toJS(t: Type, v: any): any {
   switch (t.kind) {

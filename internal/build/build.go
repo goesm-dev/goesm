@@ -36,8 +36,9 @@ type Options struct {
 
 // Result describes the outputs.
 type Result struct {
-	Outputs []string // written JS files
-	TSDir   string
+	Outputs  []string // written JS files
+	TSDir    string
+	Warnings []string // see Lowered.Warnings
 }
 
 // DiagError carries diagnostics from one pipeline layer.
@@ -48,13 +49,22 @@ type DiagError struct {
 
 func (e *DiagError) Error() string { return strings.Join(e.Lines, "\n") }
 
+// Lowered is the result of the frontend and the semantic lowering.
+type Lowered struct {
+	Mods  []*lower.Module
+	Entry string // import path of the root package
+	// Warnings name standard library functions that goesm cannot lower yet;
+	// they were replaced by stubs that panic when called.
+	Warnings []string
+}
+
 // Lower runs the Go frontend and the semantic lowering.
-func Lower(dir string, patterns []string) ([]*lower.Module, string, error) {
+func Lower(dir string, patterns []string) (*Lowered, error) {
 	return LowerOverlay(dir, nil, patterns)
 }
 
 // LowerOverlay is Lower with an overlay (see Options.Overlay).
-func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) ([]*lower.Module, string, error) {
+func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) (*Lowered, error) {
 	prog, err := loader.LoadOverlay(dir, overlay, patterns...)
 	if err != nil {
 		if le, ok := err.(*loader.Error); ok {
@@ -62,24 +72,28 @@ func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) ([]*
 			for _, d := range le.Diags {
 				lines = append(lines, d.String())
 			}
-			return nil, "", &DiagError{Layer: "go", Lines: lines}
+			return nil, &DiagError{Layer: "go", Lines: lines}
 		}
-		return nil, "", err
+		return nil, err
 	}
 	if len(prog.Roots) != 1 {
-		return nil, "", fmt.Errorf("goesm: expected exactly one package, got %d", len(prog.Roots))
+		return nil, fmt.Errorf("goesm: expected exactly one package, got %d", len(prog.Roots))
 	}
 	entry := prog.Roots[0].PkgPath
-	lp := lower.NewProgram(prog.Fset, prog.All)
+	lp := lower.NewProgram(prog.Fset, prog.All, prog.Std)
 	mods := lp.LowerAll(lower.Options{Entry: entry})
 	if len(lp.Diags) > 0 {
 		var lines []string
 		for _, d := range lp.SortedDiags() {
 			lines = append(lines, d.String())
 		}
-		return nil, "", &DiagError{Layer: "goesm", Lines: lines}
+		return nil, &DiagError{Layer: "goesm", Lines: lines}
 	}
-	return mods, entry, nil
+	l := &Lowered{Mods: mods, Entry: entry}
+	for _, d := range lp.SortedWarns() {
+		l.Warnings = append(l.Warnings, d.String())
+	}
+	return l, nil
 }
 
 // ReadOverlay reads an overlay file in the go command's -overlay format,
@@ -118,10 +132,13 @@ func ReadOverlay(file string) (map[string][]byte, error) {
 
 // tsPath is where the module of a Go package is written below the TS dir.
 func tsPath(tsDir, importPath string) string {
-	return filepath.Join(tsDir, "go", filepath.FromSlash(importPath)+".ts")
+	return filepath.Join(tsDir, filepath.FromSlash(lower.ModuleFile(importPath)))
 }
 
-// WriteTS writes generated modules and the embedded runtime to dir.
+// WriteTS writes generated modules and the embedded runtime to dir: the
+// module of Go package p at p.ts and the runtime at @goesm/runtime/*.ts
+// (see lower.ModuleFile). The tree is ready for any ESM bundler; Build
+// bundles it with esbuild.
 func WriteTS(dir string, mods []*lower.Module) error {
 	for _, m := range mods {
 		p := tsPath(dir, m.Path)
@@ -135,7 +152,7 @@ func WriteTS(dir string, mods []*lower.Module) error {
 			return err
 		}
 	}
-	return fs.WalkDir(goesmruntime.Files, ".", func(path string, d fs.DirEntry, err error) error {
+	return fs.WalkDir(goesmruntime.Files, "src", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
@@ -143,7 +160,7 @@ func WriteTS(dir string, mods []*lower.Module) error {
 		if err != nil {
 			return err
 		}
-		out := filepath.Join(dir, "@goesm", "runtime", filepath.FromSlash(path))
+		out := filepath.Join(dir, filepath.FromSlash(filepath.Dir(lower.RuntimeFile)), filepath.Base(path))
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 			return err
 		}
@@ -151,45 +168,22 @@ func WriteTS(dir string, mods []*lower.Module) error {
 	})
 }
 
-// resolver maps "go:<import path>" and "@goesm/runtime" to generated files.
-// It is goesm's own code; there is no third-party plugin mechanism.
-//
-// In split mode every Go package becomes its own ES module and imports
-// between packages stay ES module imports (made relative to the output
-// layout), so the Go package graph is the ES module graph.
-func resolver(tsDir, outDir string, split bool) api.Plugin {
-	outPath := func(importer string) string {
-		// Output path of the module generated from TS file importer.
-		rel, _ := filepath.Rel(filepath.Join(tsDir, "go"), importer)
-		return filepath.Join(outDir, strings.TrimSuffix(rel, ".ts")+".js")
-	}
-	relImport := func(importer, target string) string {
-		r, _ := filepath.Rel(filepath.Dir(outPath(importer)), target)
-		r = filepath.ToSlash(r)
-		if !strings.HasPrefix(r, ".") {
-			r = "./" + r
-		}
-		return r
-	}
+// splitResolver keeps imports between modules external in split mode: an
+// import of another entry point (a Go package's module or the runtime) stays
+// an ES module import of its output, with the same relative specifier ending
+// in .js, since the output layout mirrors the TypeScript layout. In bundle
+// mode the relative .ts imports need no resolver. It is goesm's own code;
+// there is no third-party plugin mechanism.
+func splitResolver(entries map[string]bool) api.Plugin {
 	return api.Plugin{
-		Name: "goesm",
+		Name: "goesm-split",
 		Setup: func(b api.PluginBuild) {
-			b.OnResolve(api.OnResolveOptions{Filter: `^go:`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
-				path := strings.TrimPrefix(args.Path, "go:")
-				p := tsPath(tsDir, path)
-				if _, err := os.Stat(p); err != nil {
-					return api.OnResolveResult{}, fmt.Errorf("Go package %s was not lowered", path)
+			b.OnResolve(api.OnResolveOptions{Filter: `\.ts$`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
+				target := filepath.Join(args.ResolveDir, filepath.FromSlash(args.Path))
+				if args.Kind == api.ResolveEntryPoint || !entries[target] {
+					return api.OnResolveResult{}, nil // bundled into the importer
 				}
-				if split {
-					return api.OnResolveResult{Path: relImport(args.Importer, filepath.Join(outDir, filepath.FromSlash(path)+".js")), External: true}, nil
-				}
-				return api.OnResolveResult{Path: p}, nil
-			})
-			b.OnResolve(api.OnResolveOptions{Filter: `^@goesm/runtime$`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
-				if split {
-					return api.OnResolveResult{Path: relImport(args.Importer, filepath.Join(outDir, "@goesm", "runtime.js")), External: true}, nil
-				}
-				return api.OnResolveResult{Path: filepath.Join(tsDir, "@goesm", "runtime", "src", "index.ts")}, nil
+				return api.OnResolveResult{Path: strings.TrimSuffix(args.Path, ".ts") + ".js", External: true}, nil
 			})
 		},
 	}
@@ -200,10 +194,11 @@ func Build(opts Options) (*Result, error) {
 	if opts.OutDir == "" {
 		opts.OutDir = "dist"
 	}
-	mods, entry, err := LowerOverlay(opts.Dir, opts.Overlay, opts.Patterns)
+	l, err := LowerOverlay(opts.Dir, opts.Overlay, opts.Patterns)
 	if err != nil {
 		return nil, err
 	}
+	mods, entry := l.Mods, l.Entry
 	tsDir := opts.TSDir
 	if tsDir == "" {
 		tsDir, err = os.MkdirTemp("", "goesm-ts-")
@@ -230,7 +225,6 @@ func Build(opts Options) (*Result, error) {
 		SourcesContent:    api.SourcesContentInclude,
 		Write:             true,
 		LogLevel:          api.LogLevelSilent,
-		Plugins:           []api.Plugin{resolver(tsDir, outDir, opts.Split)},
 		AbsWorkingDir:     tsDir,
 		MinifyWhitespace:  opts.Minify,
 		MinifyIdentifiers: opts.Minify,
@@ -238,14 +232,19 @@ func Build(opts Options) (*Result, error) {
 	}
 	if opts.Split {
 		// One ES module per Go package (dist/<import path>.js) plus the
-		// runtime module (dist/@goesm/runtime.js).
-		for _, m := range mods {
-			bo.EntryPointsAdvanced = append(bo.EntryPointsAdvanced, api.EntryPoint{InputPath: tsPath(tsDir, m.Path), OutputPath: m.Path})
+		// runtime modules (dist/@goesm/runtime/index.js and natives.js).
+		entries := map[string]bool{}
+		add := func(file string) {
+			in := filepath.Join(tsDir, filepath.FromSlash(file))
+			entries[in] = true
+			bo.EntryPointsAdvanced = append(bo.EntryPointsAdvanced, api.EntryPoint{InputPath: in, OutputPath: strings.TrimSuffix(file, ".ts")})
 		}
-		bo.EntryPointsAdvanced = append(bo.EntryPointsAdvanced, api.EntryPoint{
-			InputPath:  filepath.Join(tsDir, "@goesm", "runtime", "src", "index.ts"),
-			OutputPath: "@goesm/runtime",
-		})
+		for _, m := range mods {
+			add(lower.ModuleFile(m.Path))
+		}
+		add(lower.RuntimeFile)
+		add(lower.NativesFile)
+		bo.Plugins = []api.Plugin{splitResolver(entries)}
 		bo.Outdir = outDir
 	} else {
 		bo.EntryPoints = []string{tsPath(tsDir, entry)}
@@ -264,7 +263,7 @@ func Build(opts Options) (*Result, error) {
 		}
 		return nil, &DiagError{Layer: "esbuild", Lines: lines}
 	}
-	r := &Result{TSDir: opts.TSDir}
+	r := &Result{TSDir: opts.TSDir, Warnings: l.Warnings}
 	for _, f := range res.OutputFiles {
 		r.Outputs = append(r.Outputs, f.Path)
 	}
