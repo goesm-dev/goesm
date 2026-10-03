@@ -183,6 +183,21 @@ func (p *Program) findConversions(info *types.Info, n ast.Node, sig *types.Signa
 					if a, ok := x.Elem().Underlying().(*types.Array); ok {
 						v = a.Elem()
 					}
+				case *types.Basic:
+					if x.Info()&types.IsInteger != 0 {
+						k = info.TypeOf(n.X)
+					}
+				case *types.Signature: // range over a function: the yield parameters
+					if x.Params().Len() == 1 {
+						if yield, ok := under(x.Params().At(0).Type()).(*types.Signature); ok {
+							if yield.Params().Len() > 0 {
+								k = yield.Params().At(0).Type()
+							}
+							if yield.Params().Len() > 1 {
+								v = yield.Params().At(1).Type()
+							}
+						}
+					}
 				}
 				if n.Key != nil && k != nil {
 					conv(k, info.TypeOf(n.Key))

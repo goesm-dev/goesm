@@ -49,7 +49,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
-		warn(res.Warnings, res.Notes, *verbose)
+		warn(res.Warnings, *verbose)
 		for _, o := range res.Outputs {
 			rel, _ := filepath.Rel(cwd, o)
 			fmt.Println(rel)
@@ -67,7 +67,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
-		warn(l.Warnings, l.Notes, *verbose)
+		warn(l.Warnings, *verbose)
 		if err := build.WriteTS(*out, l.Mods); err != nil {
 			fail(err)
 		}
@@ -108,12 +108,8 @@ func readOverlay(file string) map[string][]byte {
 	return m
 }
 
-// warn prints the notes about the program and summarises the standard
-// library functions that panic if called.
-func warn(warnings, notes []string, verbose bool) {
-	for _, n := range notes {
-		fmt.Fprintln(os.Stderr, n)
-	}
+// warn summarises the standard library functions that panic if called.
+func warn(warnings []string, verbose bool) {
 	if len(warnings) == 0 {
 		return
 	}

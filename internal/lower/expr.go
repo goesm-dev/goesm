@@ -826,7 +826,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 			}
 			prefix, recv, iface := fe.methodTarget(f, sel)
 			fn := sel.Obj().(*types.Func)
-			if slow := fe.pe.prog.WaitLock(e); slow != nil {
+			if slow, locker := fe.pe.prog.WaitLock(e); locker {
+				return fe.awaitIf(e, fe.mark(e)+fe.pe.methodFuncName(slow)+"(null, "+fe.expr(f.X)+")")
+			} else if slow != nil {
 				prefix = fe.pe.methodFuncName(slow) + "("
 			}
 			if iface {

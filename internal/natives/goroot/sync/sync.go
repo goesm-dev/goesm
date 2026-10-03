@@ -8,12 +8,10 @@
 // holds it while blocked (on a channel, a timer, a JavaScript promise), so
 // Lock is an ordinary synchronous function that never waits, and code that
 // locks (most of the standard library) is not lowered to async functions.
-// goesm finds the mutexes that are held across an operation that may block
-// (a variable or struct field locked in such a critical section) and lowers
-// every Lock of those to lockSlow, which waits; see
-// internal/lower/lockcheck.go. A Lock that would have to wait anyway (the
-// mutex reached under another name) panics. WaitGroup and Cond wait, on a
-// channel, and are therefore async.
+// goesm finds the Lock calls that may find their mutex held by a blocked
+// goroutine and lowers them to lockSlow, rLockSlow or lockerSlow, which wait
+// (internal/lower/lockcheck.go). A Lock that would have to wait anyway
+// panics. WaitGroup and Cond wait, on a channel, and are therefore async.
 package sync
 
 // A Locker represents an object that can be locked and unlocked.
@@ -71,9 +69,18 @@ func (m *Mutex) lockSlow() {
 }
 
 // contended reports a Lock that would have to wait: the holder is blocked.
+// lockerSlow recovers it to wait for a Locker it cannot see through.
 func contended(what string) {
-	fatal("sync: " + what + " is locked by a blocked goroutine, and goesm did not find that it is held across a blocking operation (lock it under one name: a variable or struct field)")
+	panic(contention{"sync: " + what + " is locked by a blocked goroutine, and goesm did not lower this Lock to one that waits (please report it)"})
 }
+
+type contention struct{ msg string }
+
+func (c contention) Error() string { return c.msg }
+
+// anyUnlock wakes the lockerSlow calls waiting on a Locker they cannot see
+// through.
+var anyUnlock waitList
 
 // TryLock tries to lock m and reports whether it succeeded.
 func (m *Mutex) TryLock() bool {
@@ -91,13 +98,15 @@ func (m *Mutex) Unlock() {
 	}
 	m.locked = false
 	m.waiters.wake()
+	anyUnlock.wake()
 }
 
 // A RWMutex is a reader/writer mutual exclusion lock.
 type RWMutex struct {
-	readers int
-	writer  bool
-	waiters waitList
+	readers        int
+	writer         bool
+	writersWaiting int // in lockSlow; they exclude new readers, as in Go
+	waiters        waitList
 }
 
 // Lock locks rw for writing.
@@ -111,9 +120,11 @@ func (rw *RWMutex) Lock() {
 // lockSlow is Lock for a mutex that goesm found held across a blocking
 // operation: it waits for the holders.
 func (rw *RWMutex) lockSlow() {
+	rw.writersWaiting++
 	for rw.writer || rw.readers > 0 {
 		rw.waiters.wait()
 	}
+	rw.writersWaiting--
 	rw.writer = true
 }
 
@@ -133,11 +144,12 @@ func (rw *RWMutex) Unlock() {
 	}
 	rw.writer = false
 	rw.waiters.wake()
+	anyUnlock.wake()
 }
 
 // RLock locks rw for reading.
 func (rw *RWMutex) RLock() {
-	if rw.writer {
+	if rw.writer || rw.writersWaiting > 0 {
 		contended("RWMutex")
 	}
 	rw.readers++
@@ -146,7 +158,7 @@ func (rw *RWMutex) RLock() {
 // rLockSlow is RLock for a mutex that goesm found held across a blocking
 // operation: it waits for the writer.
 func (rw *RWMutex) rLockSlow() {
-	for rw.writer {
+	for rw.writer || rw.writersWaiting > 0 {
 		rw.waiters.wait()
 	}
 	rw.readers++
@@ -169,6 +181,7 @@ func (rw *RWMutex) RUnlock() {
 	rw.readers--
 	if rw.readers == 0 {
 		rw.waiters.wake()
+		anyUnlock.wake()
 	}
 }
 
@@ -177,6 +190,41 @@ func (rw *RWMutex) RUnlock() {
 func (rw *RWMutex) RLocker() Locker { return (*rlocker)(rw) }
 
 type rlocker RWMutex
+
+// waiter carries lockerSlow, the waiting Lock of a sync.Locker.
+type waiter struct{}
+
+// lockerSlow is l.Lock() where l may be held by a blocked goroutine: it
+// waits for the mutexes of this package. Other Lockers are locked as they
+// are, and if their Lock is one of this package's (a struct embedding a
+// Mutex) and finds it held, retried after the next unlock.
+func (*waiter) lockerSlow(l Locker) {
+	switch m := l.(type) {
+	case *Mutex:
+		m.lockSlow()
+	case *RWMutex:
+		m.lockSlow()
+	case *rlocker:
+		(*RWMutex)(m).rLockSlow()
+	default:
+		for !tryLocker(l) {
+			anyUnlock.wait()
+		}
+	}
+}
+
+func tryLocker(l Locker) (locked bool) {
+	defer func() {
+		if !locked {
+			r := recover()
+			if _, ok := r.(contention); !ok && r != nil {
+				panic(r)
+			}
+		}
+	}()
+	l.Lock()
+	return true
+}
 
 func (r *rlocker) Lock()   { (*RWMutex)(r).RLock() }
 func (r *rlocker) Unlock() { (*RWMutex)(r).RUnlock() }
@@ -347,7 +395,7 @@ func (c *Cond) Wait() {
 	c.waiters = append(c.waiters, ch)
 	c.L.Unlock()
 	<-ch
-	c.L.Lock()
+	(*waiter)(nil).lockerSlow(c.L) // Wait is async anyway
 }
 
 // Signal wakes one goroutine waiting on c, if there is any.

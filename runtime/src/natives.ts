@@ -422,8 +422,9 @@ export function native$syscall$js$valueType(v: any): number {
 export function native$syscall$js$valueGet(v: any, p: string): any {
   const o = fromRef(v);
   const name = toJSString(p);
-  if (o === globalThis && (name === "fs" || name === "process") && (globalThis as any)[name] === undefined) {
-    return name === "fs" ? hostFS() : hostProcess();
+  if (o === globalThis) {
+    if (name === "fs") return hostFS();
+    if (name === "process" && (globalThis as any).process === undefined) return hostProcess();
   }
   return toRef(Reflect.get(o, name));
 }
@@ -522,11 +523,12 @@ export function native$syscall$js$makeFunc(fn: (self: any, args: S<any>) => any)
 // ---- the host's fs and process, seen through js.Global() ----
 //
 // Package syscall reaches files through js.Global().Get("fs") with Node's
-// callback API, like Go's wasm_exec.js expects. Where the host has no global
-// fs (Node and Bun do not expose one; browsers have no file system), goesm
-// supplies one without touching globalThis. It calls back before returning,
-// which lets goesm lower syscall.fsCall as synchronous (internal/natives:
-// syncFuncs), so writing to os.Stdout does not make callers async.
+// callback API, like Go's wasm_exec.js expects. goesm always supplies its own
+// fs there, without touching globalThis, even if the host has a global fs
+// (as wasm_exec.js users set up): it calls back before returning, which lets
+// goesm lower syscall.fsCall as synchronous (internal/natives: syncFuncs), so
+// writing to os.Stdout does not make callers async. A host fs with Node's
+// asynchronous callbacks would break that.
 
 function enosys(): Error {
   const err = new Error("not implemented");
