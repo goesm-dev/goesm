@@ -1016,3 +1016,45 @@ func RangeFuncMisuse() []string {
 		}),
 	}
 }
+
+// ---- value receivers are copies even when captured or sliced ----
+
+type Counter3 struct {
+	n   int
+	arr [3]int
+}
+
+func (c Counter3) Getter() func() int { return func() int { return c.n } }
+
+func (c Counter3) Elems() []int { return c.arr[:] }
+
+func ValueReceiverNotAliased() []int {
+	c := Counter3{n: 1, arr: [3]int{1, 2, 3}}
+	g := c.Getter()
+	s := c.Elems()
+	c.n = 2
+	c.arr[0] = 9
+	s[1] = 7
+	return []int{g(), s[0], s[1], c.arr[1]}
+}
+
+// ---- comma-ok forms in package variable initialisers ----
+
+var pkgMap = map[string]int{"x": 1}
+var pkgV, pkgOk = pkgMap["x"]
+var pkgMissing, pkgOk2 = pkgMap["y"]
+var pkgAny any = 3
+var pkgN, pkgIsInt = pkgAny.(int)
+var pkgS, pkgIsStr = pkgAny.(string)
+var pkgCh = func() chan int {
+	c := make(chan int, 1)
+	c <- 5
+	close(c)
+	return c
+}()
+var pkgRecv, pkgRecvOk = <-pkgCh
+var pkgRecv2, pkgRecvOk2 = <-pkgCh
+
+func PackageCommaOk() []any {
+	return []any{pkgV, pkgOk, pkgMissing, pkgOk2, pkgN, pkgIsInt, pkgS, pkgIsStr, pkgRecv, pkgRecvOk, pkgRecv2, pkgRecvOk2}
+}

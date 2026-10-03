@@ -408,19 +408,24 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 			v := in.Lhs[0]
 			rhs := fe.valueOf(in.Rhs, v.Type())
 			if v.Name() == "_" {
-				pe.vars.ln("%s%s;", mark, rhs)
+				fe.discard(mark, rhs)
 			} else {
 				pe.vars.ln("%s%s = %s;", mark, fe.varRef(v), rhs)
 			}
 			continue
 		}
+		// f() or a comma-ok form (v, ok = m[k], <-ch, x.(T)).
+		e, tt, ok := fe.commaOk(in.Rhs)
+		if !ok {
+			e, tt = fe.expr(in.Rhs), fe.info.TypeOf(in.Rhs)
+		}
 		t := fe.tmp()
-		pe.vars.ln("%sconst %s = %s;", mark, t, fe.expr(in.Rhs))
+		pe.vars.ln("%sconst %s = %s;", mark, t, e)
 		for i, v := range in.Lhs {
 			if v.Name() == "_" {
 				continue
 			}
-			pe.vars.ln("%s = %s;", fe.varRef(v), fe.convert(fmt.Sprintf("%s[%d]", t, i), tupleAt(fe.info.TypeOf(in.Rhs), i), v.Type()))
+			pe.vars.ln("%s = %s;", fe.varRef(v), fe.convertCopy(fmt.Sprintf("%s[%d]", t, i), tupleAt(tt, i), v.Type()))
 		}
 	}
 }

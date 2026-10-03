@@ -49,6 +49,10 @@ type Program struct {
 	// value: function literals not called in place, and functions or
 	// methods referenced other than as the callee of a call.
 	funcValues map[any]bool
+	// methodExprs are the function types of method expressions used as
+	// values (T.M, (*T).M, I.M), by method name: calling such a value
+	// passes the receiver as the first argument.
+	methodExprs map[string][]*types.Signature
 
 	Diags []Diagnostic
 	// Warns are standard library functions that were replaced by stubs
@@ -193,7 +197,7 @@ func (p *Program) analyzeBlocking() {
 		}
 	}
 	p.units = units
-	p.funcValues = p.findFuncValues()
+	p.funcValues, p.methodExprs = p.findFuncValues()
 	for changed := true; changed; {
 		changed = false
 		for _, u := range units {
@@ -208,8 +212,9 @@ func (p *Program) analyzeBlocking() {
 	}
 }
 
-func (p *Program) findFuncValues() map[any]bool {
+func (p *Program) findFuncValues() (map[any]bool, map[string][]*types.Signature) {
 	vals := map[any]bool{}
+	exprs := map[string][]*types.Signature{}
 	for _, pkg := range p.Pkgs {
 		info := pkg.TypesInfo
 		for _, f := range pkg.Syntax {
@@ -234,7 +239,12 @@ func (p *Program) findFuncValues() map[any]bool {
 					}
 				case *ast.SelectorExpr:
 					if !callees[n] {
-						if fn, ok := info.Uses[n.Sel].(*types.Func); ok {
+						if sel, ok := info.Selections[n]; ok && sel.Kind() == types.MethodExpr {
+							sig, _ := info.TypeOf(n).Underlying().(*types.Signature)
+							if sig != nil {
+								exprs[n.Sel.Name] = append(exprs[n.Sel.Name], sig)
+							}
+						} else if fn, ok := info.Uses[n.Sel].(*types.Func); ok {
 							vals[fn.Origin()] = true
 						}
 						callees[n.Sel] = true // the Sel ident is visited next
@@ -250,7 +260,7 @@ func (p *Program) findFuncValues() map[any]bool {
 			})
 		}
 	}
-	return vals
+	return vals, exprs
 }
 
 func (p *Program) unitBlocks(u *unit, units []*unit) bool {
@@ -264,8 +274,20 @@ func (p *Program) unitBlocks(u *unit, units []*unit) bool {
 	}
 	for _, s := range u.dynSigs {
 		for _, o := range units {
-			if p.async[o.key] && p.funcValues[o.key] && o.sig != nil && sigMatch(s, o.sig) {
+			if !p.async[o.key] || o.sig == nil {
+				continue
+			}
+			if p.funcValues[o.key] && sigMatch(s, o.sig) {
 				return true
+			}
+			// A method reached through a method expression value: the
+			// receiver is the first parameter (an interface for I.M).
+			if o.isMethod {
+				for _, e := range p.methodExprs[o.name] {
+					if sigMatch(s, e) && sigMatch(dropFirstParam(e), o.sig) {
+						return true
+					}
+				}
 			}
 		}
 	}
@@ -397,6 +419,16 @@ func identOf(e ast.Expr) *ast.Ident {
 		return e.Sel
 	}
 	return nil
+}
+
+// dropFirstParam returns sig without its first parameter (the receiver of a
+// method expression's function type).
+func dropFirstParam(sig *types.Signature) *types.Signature {
+	var params []*types.Var
+	for i := 1; i < sig.Params().Len(); i++ {
+		params = append(params, sig.Params().At(i))
+	}
+	return types.NewSignatureType(nil, nil, nil, types.NewTuple(params...), sig.Results(), sig.Variadic())
 }
 
 func sigMatch(a, b *types.Signature) bool {
