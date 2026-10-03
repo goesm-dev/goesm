@@ -325,6 +325,7 @@ fixedbugs/issue80517_1.go
 fixedbugs/issue80517_2.go
 fixedbugs/issue80517_3.go
 fixedbugs/issue80577.go
+fixedbugs/issue80976.go
 fixedbugs/issue8325.go
 fixedbugs/issue8336.go
 fixedbugs/issue8347.go
