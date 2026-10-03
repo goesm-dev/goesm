@@ -175,7 +175,12 @@ func (fe *funcEmitter) fieldBase(e *ast.SelectorExpr) (string, string) {
 	t := fe.info.TypeOf(e.X)
 	path := sel.Index()
 	for i, idx := range path {
-		base, _ := derefType(t)
+		base, isPtr := derefType(t)
+		if isPtr {
+			// A nil pointer (also an embedded one) is a Go panic, not a
+			// TypeError.
+			obj = "$rt.deref(" + obj + ")"
+		}
 		st := base.Underlying().(*types.Struct)
 		prop := fieldProp(st, idx)
 		if i == len(path)-1 {
@@ -787,6 +792,10 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 		callee = fe.expr(fun)
 		if _, ok := fun.(*ast.FuncLit); ok {
 			callee = "(" + callee + ")"
+		} else if !isStaticFunc(fe.info, fun) {
+			// Calling a nil function value panics after the arguments
+			// are evaluated.
+			callee = "(" + callee + " ?? $rt.nilFunc)"
 		}
 	}
 	all := targs
@@ -797,6 +806,24 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 		all += args
 	}
 	return fe.awaitIf(e, fmt.Sprintf("%s%s(%s)", fe.mark(e), callee, all))
+}
+
+// isStaticFunc reports whether fun names a declared function (never nil).
+func isStaticFunc(info *types.Info, fun ast.Expr) bool {
+	var id *ast.Ident
+	switch f := funcIdent(fun).(type) {
+	case *ast.Ident:
+		id = f
+	case *ast.SelectorExpr:
+		if _, ok := info.Selections[f]; ok {
+			return false
+		}
+		id = f.Sel
+	default:
+		return false
+	}
+	_, ok := info.Uses[id].(*types.Func)
+	return ok
 }
 
 func funcIdent(fun ast.Expr) ast.Expr {

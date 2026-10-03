@@ -105,3 +105,37 @@ func Deref(p *int) int {
 func IndexArrayPtr(p *[3]int) int {
 	return p[1]
 }
+
+type Node struct {
+	Next *Node
+	Val  int
+}
+
+type Outer struct{ *Node }
+
+// FieldOf reads a field through a pointer (nil: a Go panic, not a TypeError).
+func FieldOf(p *Node) int { return p.Val }
+
+// NextVal reads a field through two pointer hops.
+func NextVal(p *Node) int { return p.Next.Val }
+
+// Call calls a function value (nil: a Go panic, not a TypeError).
+func Call(f func() int) int { return f() }
+
+func NilSelectorsAndCalls() []string {
+	var log []string
+	return []string{
+		catch(func() { _ = FieldOf(nil) }),
+		catch(func() { _ = NextVal(&Node{}) }),
+		catch(func() {
+			var o Outer
+			o.Val = 1 // through the nil embedded *Node
+		}),
+		catch(func() { _ = Call(nil) }),
+		catch(func() {
+			var f func(int)
+			f(func() int { log = append(log, "args first"); return 1 }())
+		}),
+		log[0],
+	}
+}
