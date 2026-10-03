@@ -17,10 +17,6 @@ func (fe *funcEmitter) expr(e ast.Expr) string {
 		return s
 	}
 	if tv, ok := fe.info.Types[e]; ok && tv.Value != nil {
-		if tv.Value.Kind() == constant.Complex {
-			fe.errorf(e.Pos(), "complex numbers are not supported yet")
-			return "0"
-		}
 		return constLit(tv.Value, tv.Type)
 	}
 	switch e := e.(type) {
@@ -616,6 +612,16 @@ func isTypeParam(t types.Type) bool {
 	return ok
 }
 
+func isComplex(t types.Type) bool {
+	b, ok := under(t).(*types.Basic)
+	return ok && b.Info()&types.IsComplex != 0
+}
+
+func isComplex64(t types.Type) bool {
+	b, ok := under(t).(*types.Basic)
+	return ok && b.Kind() == types.Complex64
+}
+
 func isFloat32(t types.Type) bool {
 	b, ok := t.Underlying().(*types.Basic)
 	return ok && b.Kind() == types.Float32
@@ -655,6 +661,14 @@ func (fe *funcEmitter) arith(op token.Token, a, b string, t types.Type) string {
 	}
 	if b0, ok := t.Underlying().(*types.Basic); ok && b0.Info()&types.IsString != 0 {
 		return "(" + a + " + " + b + ")"
+	}
+	if isComplex(t) {
+		fn := map[token.Token]string{token.ADD: "cadd", token.SUB: "csub", token.MUL: "cmul", token.QUO: "cdiv"}[op]
+		c := "$rt." + fn + "(" + a + ", " + b + ")"
+		if isComplex64(t) {
+			return "$rt.c64(" + c + ")"
+		}
+		return c
 	}
 	s := "(" + a + " " + op.String() + " " + b + ")"
 	if isFloat32(t) {
@@ -702,6 +716,9 @@ func (fe *funcEmitter) eqExpr(a string, at types.Type, b string, bt types.Type) 
 	}
 	if isAggregate(at) {
 		return fmt.Sprintf("$rt.equal(%s, %s, %s)", fe.desc(at), a, b)
+	}
+	if isComplex(at) {
+		return "$rt.ceq(" + a + ", " + b + ")"
 	}
 	if p, ok := under(at).(*types.Pointer); ok && zeroSize(p.Elem()) && !isNil(at) && !isNil(bt) {
 		// Like gc, all zero-size values share one address (runtime.zerobase),
@@ -778,6 +795,9 @@ func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
 		}
 		if isFloat32(t) {
 			return "$rt.fround(-" + fe.expr(e.X) + ")"
+		}
+		if isComplex(t) {
+			return "$rt.cneg(" + fe.expr(e.X) + ")"
 		}
 		return "(-" + fe.expr(e.X) + ")"
 	case token.XOR:
@@ -1006,6 +1026,13 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 				return wrap(s, ii)
 			}
 			return s
+		case tb.Kind() == types.Complex64:
+			if fb != nil && fb.Kind() == types.Complex64 {
+				return s
+			}
+			return "$rt.c64(" + s + ")"
+		case tb.Info()&types.IsComplex != 0:
+			return s
 		case tb.Kind() == types.Float32:
 			return "$rt.fround(" + s + ")"
 		case tb.Info()&types.IsFloat != 0:
@@ -1161,6 +1188,12 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			return fmt.Sprintf("%s$rt.sliceClear(%s, %s%s)", m, arg(0), fe.zeroFn(sl.Elem()), fe.elemTypeArg(sl.Elem()))
 		}
 		return m + "$rt.mapClear(" + arg(0) + ")"
+	case "real":
+		return "(" + arg(0) + ").re"
+	case "imag":
+		return "(" + arg(0) + ").im"
+	case "complex":
+		return "$rt.complex(" + arg(0) + ", " + arg(1) + ")"
 	case "min", "max":
 		var vals []string
 		for i := range e.Args {

@@ -118,7 +118,11 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 		if s.Tok == token.DEC {
 			op = token.SUB
 		}
-		w.ln("%s%s;", m, lv.set(fe.arith(op, lv.get, "1", t)))
+		one := "1"
+		if isComplex(t) {
+			one = "$rt.complex(1, 0)"
+		}
+		w.ln("%s%s;", m, lv.set(fe.arith(op, lv.get, one, t)))
 	case *ast.BlockStmt:
 		w.ln("%s%s{", m, labelPrefix(label))
 		fe.block(s.List)
@@ -795,6 +799,13 @@ func terminates(list []ast.Stmt) bool {
 		return true
 	case *ast.BranchStmt:
 		return s.Tok != token.FALLTHROUGH
+	case *ast.BlockStmt:
+		return terminates(s.List)
+	case *ast.IfStmt:
+		if s.Else == nil || !terminates(s.Body.List) {
+			return false
+		}
+		return terminates([]ast.Stmt{s.Else})
 	}
 	return false
 }

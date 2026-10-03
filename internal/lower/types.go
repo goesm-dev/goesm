@@ -105,7 +105,8 @@ var basicDesc = map[types.BasicKind]string{
 	types.Bool: "bool", types.Int: "int", types.Int8: "int8", types.Int16: "int16", types.Int32: "int32",
 	types.Int64: "int64", types.Uint: "uint", types.Uint8: "uint8", types.Uint16: "uint16",
 	types.Uint32: "uint32", types.Uint64: "uint64", types.Uintptr: "uintptr", types.Float32: "float32",
-	types.Float64: "float64", types.String: "string", types.UnsafePointer: "unsafePointer",
+	types.Float64: "float64", types.Complex64: "complex64", types.Complex128: "complex128",
+	types.String: "string", types.UnsafePointer: "unsafePointer", types.UntypedComplex: "complex128",
 	types.UntypedBool: "bool", types.UntypedInt: "int", types.UntypedRune: "int32",
 	types.UntypedFloat: "float64", types.UntypedString: "string",
 }
@@ -268,6 +269,8 @@ func (pe *pkgEmitter) zeroOf(t types.Type, tp tpScope) string {
 			return "false"
 		case u.Info()&types.IsString != 0:
 			return `""`
+		case u.Info()&types.IsComplex != 0:
+			return "$rt.complexZero"
 		case u.Info()&types.IsNumeric != 0:
 			return "0"
 		}
@@ -377,6 +380,8 @@ func (pe *pkgEmitter) tsTypeIn(t types.Type, tp tpScope, in map[string]bool) str
 			return "boolean"
 		case u.Info()&types.IsString != 0:
 			return "string"
+		case u.Info()&types.IsComplex != 0:
+			return "$rt.Complex"
 		case u.Info()&types.IsNumeric != 0:
 			return "number"
 		}
