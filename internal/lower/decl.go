@@ -161,10 +161,19 @@ func (pe *pkgEmitter) methodWrapper(T types.Type, sel *types.Selection, tp tpSco
 // receiver type (empty otherwise).
 func (pe *pkgEmitter) recvTypeArgs(recvBase types.Type, tp tpScope) string {
 	named, ok := types.Unalias(recvBase).(*types.Named)
-	if !ok || named.TypeArgs().Len() == 0 {
+	if !ok {
 		return ""
 	}
 	var b strings.Builder
+	if named.TypeArgs().Len() == 0 {
+		// The origin of a generic type (its own method tables): the
+		// dictionaries are the type's parameters in scope.
+		for i := 0; i < named.TypeParams().Len(); i++ {
+			b.WriteString(tp.names[named.TypeParams().At(i)])
+			b.WriteString(", ")
+		}
+		return b.String()
+	}
 	for i := 0; i < named.TypeArgs().Len(); i++ {
 		b.WriteString(pe.typeDesc(named.TypeArgs().At(i), tp))
 		b.WriteString(", ")

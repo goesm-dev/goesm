@@ -249,6 +249,12 @@ func (fe *funcEmitter) methodTarget(e *ast.SelectorExpr, sel *types.Selection) (
 		t = st.Field(idx).Type()
 	}
 	if isIface(fn.Signature().Recv().Type()) {
+		if _, ok := types.Unalias(t).(*types.TypeParam); ok {
+			// A constraint method on a type-parameter-typed value: the
+			// value is unboxed (erasure), so dispatch through the
+			// dictionary's method table by boxing it with its type.
+			recv = fmt.Sprintf("$rt.box(%s, %s)", fe.desc(t), recv)
+		}
 		return "", recv, true
 	}
 	wantPtr := isPtrRecv(fn)
