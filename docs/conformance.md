@@ -40,51 +40,52 @@ Only tests whose recipe is a bare `// run` are selected. Tests with arguments or
 
 ## Results
 
-Go 1.27.0 `test/` directory, Node.js 22:
+Go 1.27.0 `test/` directory, Node.js 22, goesm at #1's head of 2026-10-03 (with `errors`, `strings`, `strconv`, `sort`, `slices`, `maps` and `sync` compiled from Go source):
 
 | directory | pass rate | skipped |
 |---|---|---|
-| `test/` | 32.4% (44/136) | 9 |
-| `chan/` | 41.2% (7/17) | 0 |
-| `fixedbugs/` | 50.6% (312/616) | 30 |
+| `test/` | 36.0% (49/136) | 9 |
+| `chan/` | 58.8% (10/17) | 0 |
+| `fixedbugs/` | 59.4% (366/616) | 30 |
 | `interface/` | 72.7% (8/11) | 0 |
-| `ken/` | 70.0% (28/40) | 0 |
-| `typeparam/` | 41.8% (59/141) | 0 |
-| **total** | **47.7% (458/961)** | 39 |
-| tests without imports | 87.5% (448/512) | |
+| `ken/` | 72.5% (29/40) | 0 |
+| `typeparam/` | 47.5% (67/141) | 0 |
+| **total** | **55.0% (529/961)** | 39 |
+| tests without imports | 89.8% (460/512) | |
 
 With `GOESM_CONFORMANCE_NATIVE=1`, native `go run` reproduces the `.out` file for every selected test except 11 that shell out to the go command (`os/exec`), which goesm cannot build anyway.
 
-Tests that import a standard library package, by package (a test counts once per import; only `unsafe` passes anywhere, when the test uses only `unsafe.Sizeof` and similar constants):
+Tests that import a standard library package, by package (a test counts once for each package it imports):
 
-| package | tests | pass |
-|---|---|---|
-| `fmt` | 209 | 0 |
-| `runtime` | 110 | 0 |
-| `reflect` | 68 | 0 |
-| `os` | 58 | 0 |
-| `unsafe` | 55 | 8 |
-| `strings` | 42 | 0 |
-| `math` | 29 | 0 |
-| `time` | 19 | 0 |
-| `strconv` | 16 | 0 |
-| `sync` | 15 | 0 |
+| package | pass rate |
+|---|---|
+| `fmt` | 0.0% (0/209) |
+| `runtime` | 26.4% (29/110) |
+| `reflect` | 0.0% (0/68) |
+| `os` | 0.0% (0/58) |
+| `unsafe` | 21.8% (12/55) |
+| `strings` | 23.8% (10/42) |
+| `math` | 13.8% (4/29) |
+| `time` | 0.0% (0/19) |
+| `strconv` | 18.8% (3/16) |
+| `sync` | 20.0% (3/15) |
 
-The suite prints this table for every run.
+The suite prints this table for every run. The two biggest blockers are:
 
-Most failures are tests that import the standard library (107 tests import nothing but `fmt`), which goesm cannot compile yet (ARCHITECTURE.md §9). Among the 512 tests without imports, the 64 failures fall into these groups:
+* **complex numbers**: `fmt` depends on `complex128` (`strconv.FormatComplex`, `%v` of complex values), so every one of the 209 `fmt` tests stops at "unsupported basic type complex128". Supporting complex numbers is the change that unblocks the most tests.
+* **`os` output**: on `js/wasm`, `os.Stdout` writes through `syscall/js`, so 45 tests that use `os` panic with "syscall/js.valueGet is not supported yet".
+
+Among the 512 tests without imports, the 52 failures fall into these groups:
 
 | group | tests |
 |---|---|
 | not supported yet: complex numbers | `convT2X`, `print`, `ken/cplx0`, `cplx1`, `cplx2`, `cplx5`, `fixedbugs/bug329`, `bug401`, `bug491`, `issue5793`, `issue58671`, `issue79812` |
-| not supported yet: `goto` | `ken/label`, `fixedbugs/bug005`, `bug178`, `issue13684`, `issue40367`, `issue4748`, `issue75569` |
-| not supported yet: other | `convert4` (slice to array pointer), `range4` and `fixedbugs/issue71675` (labeled branches in range-over-func), `typeparam/issue54537` (address of a type-parameter variable) |
+| not supported yet: backward `goto` | `ken/label`, `fixedbugs/bug005`, `bug178`, `issue40367`, `issue75569` |
+| not supported yet: other | `convert4` (slice to array pointer), `range4` and `fixedbugs/issue71675` (`defer` in a range-over-func body), `typeparam/issue54537` (address of a type-parameter variable) |
 | 64-bit integers (known difference) | `intcvt`, `printbig`, `divmod` (times out), `fixedbugs/issue2615`, `issue4448`, `issue43480`, `issue50854`, `issue70481`, `issue23305` |
 | indirect `recover` (known difference) | `fixedbugs/issue73916`, `issue73916b`, `issue73917`, `issue73920` |
-| package variables initialised from a multi-value expression (`var a, ok = m[k]`, `var x, y = f()`, `var v, ok = i.(T)`) | `fixedbugs/bug227`, `bug244`, `bug291`, `issue53619` |
 | goesm crashes (stack overflow) on recursive types (`type S []S`, `type Chan[T any] chan Chan[T]`) | `ddd`, `fixedbugs/issue17039`, `typeparam/issue47901` |
-| method calls on type parameters / generic method sets (`reading 'methods'`, ARCHITECTURE known gap) | `typeparam/issue49421`, `issue53419`, `issue54225`, `shape1`, `typeswitch3`, `fixedbugs/issue54348` |
-| other generics bugs | `typeparam/interfacearg` (internal error), `issue50833` (composite literal of type `P`), `issue44688`, `issue376214` |
+| generics | `typeparam/typeswitch3` (`reading 'methods'`), `interfacearg` (internal error), `issue50833` (composite literal of type `P`), `issue376214` |
 | method expressions (promoted methods, literal receiver types) | `method`, `method7` |
 | `new(expr)` (Go 1.26) is lowered as `new(T)` | `newexpr` |
 | `defer x.M()` with a nil interface must panic at the defer statement | `fixedbugs/issue15975` |

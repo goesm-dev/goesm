@@ -308,7 +308,9 @@ func runCmd(dir string, timeout time.Duration, name string, args ...string) ([]b
 	return out, err == nil
 }
 
-var diagRE = regexp.MustCompile(`^(.*?\.go):\d+:\d+: (.*) \[([^\]]+)\]$`)
+// diagRE matches "file.go:1:2: msg [layer]", or "-: msg [layer]" for a
+// diagnostic without a position.
+var diagRE = regexp.MustCompile(`^(-|.*?\.go):(?:\d+:\d+:)? (.*) \[([^\]]+)\]$`)
 
 // classifyBuildFailure turns the diagnostics of a failed goesm build into
 // a status and a one-line reason. Diagnostics inside the standard library
