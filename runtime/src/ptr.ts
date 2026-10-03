@@ -86,6 +86,11 @@ export function newPtr(t: Type): any {
   return isAggregate(t) ? t.zero() : new Cell(t.zero());
 }
 
+// newPtrOf is new(v) for a value v of type t (already copied).
+export function newPtrOf(t: Type, v: any): any {
+  return isAggregate(t) ? v : new Cell(v);
+}
+
 export function load(t: Type, p: any): any {
   if (p === null) runtimePanic("invalid memory address or nil pointer dereference");
   return isAggregate(t) ? p : p.v;
