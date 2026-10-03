@@ -1,0 +1,6 @@
+dist/
+goesm-ts/
+node_modules/
+/goesm
+testdata/**/_golden*/
+/bin/
