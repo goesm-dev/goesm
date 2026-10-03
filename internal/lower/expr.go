@@ -1175,6 +1175,13 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 				}
 				return fmt.Sprintf("$rt.fmtFloat(%s, %d)", v, bits)
 			}
+			if b, ok := under(t).(*types.Basic); ok && b.Info()&types.IsComplex != 0 {
+				bits := 64
+				if b.Kind() == types.Complex64 {
+					bits = 32
+				}
+				return fmt.Sprintf("$rt.fmtComplex(%s, %d)", v, bits)
+			}
 			switch under(t).(type) {
 			case *types.Slice:
 				return "$rt.fmtSlice(" + v + ")"
