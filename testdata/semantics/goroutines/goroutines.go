@@ -138,3 +138,29 @@ func PanicAcrossBlocking() (msg string) {
 	<-ch
 	panic("after receive")
 }
+
+// A range-over-func iterator that blocks on a channel.
+func chanSeq(ch chan int) func(func(int) bool) {
+	return func(yield func(int) bool) {
+		for v := range ch {
+			if !yield(v) {
+				return
+			}
+		}
+	}
+}
+
+func BlockingIterator() []int {
+	ch := make(chan int)
+	go func() {
+		for i := 1; i <= 3; i++ {
+			ch <- i
+		}
+		close(ch)
+	}()
+	var out []int
+	for v := range chanSeq(ch) {
+		out = append(out, v*10)
+	}
+	return out
+}

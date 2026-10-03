@@ -3,6 +3,50 @@
 // result in the ES module built by goesm.
 package basics
 
+import (
+	"example.com/sem/initdeps/constonly"
+	"example.com/sem/initdeps/registry"
+	_ "example.com/sem/initdeps/sideeffect"
+)
+
+// ---- imports used only for initialization ----
+
+func InitOnlyImports() []any {
+	return []any{constonly.K, registry.Inited}
+}
+
+// ---- literal evaluation order ----
+
+type Pair struct {
+	A, B int
+}
+
+func KeyedLiteralOrder() []any {
+	var order []int
+	next := func(v int) int {
+		order = append(order, v)
+		return v
+	}
+	p := Pair{B: next(1), A: next(2)}
+	arr := [3]int{2: next(3), 0: next(4)}
+	s := []int{1: next(5), 0: next(6)}
+	return []any{p, arr, s, order}
+}
+
+// ---- float32 constants ----
+
+const third float32 = 1.0 / 3
+
+func widen(x float32) float64 { return float64(x) }
+
+func narrow() float32 { return 0.2 }
+
+func Float32Const() []float64 {
+	var f float32 = 0.1
+	g := float32(1.0 / 3)
+	return []float64{float64(f), float64(g), float64(f + g), float64(third), widen(0.3), float64(narrow())}
+}
+
 // ---- struct + method ----
 
 type User struct {

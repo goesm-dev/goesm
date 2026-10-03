@@ -648,7 +648,7 @@ func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Sign
 	ret, retv := fe.tmp(), fe.tmp()
 	w.ln("%slet %s = false, %s: any;", fe.mark(s), ret, retv)
 	call := fmt.Sprintf("%s((%s) => {", fe.expr(s.X), strings.Join(params, ", "))
-	if fe.pe.prog.async[s] {
+	if fe.pe.prog.RangeBlocks(fe.info, s) {
 		call = "await " + call
 	}
 	w.ln("%s", call)
