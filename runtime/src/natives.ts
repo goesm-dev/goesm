@@ -18,7 +18,7 @@
 import {
   GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, assign, chanLen, copy, exitProcess,
   fromJSString, hostNodeFS, implementsIface, isAggregate, load, toJSString, writeConsole, writeSyncAll,
-  makeSlice, mapLen, numGoroutine, runtimePanic, sizeOf, store,
+  makeSlice, mapLen, numGoroutine, runtimePanic, sizeOf, store, panic, types, append,
 } from "./index.ts";
 import type { S } from "./index.ts";
 
@@ -31,19 +31,16 @@ export function native$runtime$Goexit(): never {
 export const native$runtime$NumGoroutine = numGoroutine;
 
 // ---- math and internal/strconv: float bits ----
-//
-// 64-bit integers are JS numbers in the PoC, so the uint64 bits of a float64
-// are exact only below 2^53 (see ARCHITECTURE.md, integers).
 
 const scratch = new DataView(new ArrayBuffer(8));
 
-export function native$math$Float64bits(f: number): number {
+export function native$math$Float64bits(f: number): bigint {
   scratch.setFloat64(0, f);
-  return Number(scratch.getBigUint64(0));
+  return scratch.getBigUint64(0);
 }
 
-export function native$math$Float64frombits(b: number): number {
-  scratch.setBigUint64(0, BigInt.asUintN(64, BigInt(Math.trunc(b))));
+export function native$math$Float64frombits(b: bigint): number {
+  scratch.setBigUint64(0, b);
   return scratch.getFloat64(0);
 }
 
@@ -60,82 +57,105 @@ export function native$math$Float32frombits(b: number): number {
 export const native$internal$strconv$float64bits = native$math$Float64bits;
 export const native$internal$strconv$float64frombits = native$math$Float64frombits;
 export const native$internal$strconv$float32bits = native$math$Float32bits;
+
+// formatBits formats u (negated first if neg) in base, the strconv way:
+// appended to dst, or as a string.
+export function native$internal$strconv$formatBits(
+  dst: S<number>, u: bigint, base: number, neg: boolean, append_: boolean,
+): [S<number>, string] {
+  if (base < 2 || base === 10 || base > 36) {
+    panic(new Iface(types.string, "strconv: illegal AppendInt/FormatInt base"));
+  }
+  const s = (neg ? "-" + BigInt.asUintN(64, -u).toString(base) : u.toString(base));
+  if (!append_) return [null, s];
+  const b: number[] = new Array(s.length);
+  for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
+  return [append(dst, b, () => 0), ""];
+}
 export const native$internal$strconv$float32frombits = native$math$Float32frombits;
 
 // ---- math/bits (64-bit) ----
 //
-// The Go code's de Bruijn multiplications and 64-bit masks need exact uint64
-// arithmetic; BigInt gives it for inputs below 2^53.
+// The Go code is exact on BigInts too, but works bit by bit or in 32-bit
+// halves; these use the two 32-bit halves and the engine's clz32 or BigInt
+// multiplication and division directly.
 
 const M64 = (1n << 64n) - 1n;
-const big = (x: number) => BigInt.asUintN(64, BigInt(Math.trunc(x)));
-const num = (x: bigint) => Number(BigInt.asUintN(64, x));
+const lo32 = (x: bigint) => Number(x & 0xffffffffn);
+const hi32 = (x: bigint) => Number(x >> 32n);
+const ctz32 = (x: number) => 31 - Math.clz32(x & -x);
+const pop32 = (x: number) => {
+  x -= (x >>> 1) & 0x55555555;
+  x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
+  return (Math.imul((x + (x >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24);
+};
+const rev32 = (x: number) => {
+  x = ((x >>> 1) & 0x55555555) | ((x & 0x55555555) << 1);
+  x = ((x >>> 2) & 0x33333333) | ((x & 0x33333333) << 2);
+  x = ((x >>> 4) & 0x0f0f0f0f) | ((x & 0x0f0f0f0f) << 4);
+  return revBytes32(x);
+};
+const revBytes32 = (x: number) => ((x << 24) | ((x & 0xff00) << 8) | ((x >>> 8) & 0xff00) | (x >>> 24)) >>> 0;
+const join = (hi: number, lo: number) => (BigInt(hi >>> 0) << 32n) | BigInt(lo >>> 0);
 
-export function native$math$bits$Len64(x: number): number {
-  const b = big(x);
-  return b === 0n ? 0 : b.toString(2).length;
+export function native$math$bits$Len64(x: bigint): number {
+  const h = hi32(x);
+  return h !== 0 ? 64 - Math.clz32(h) : 32 - Math.clz32(lo32(x));
 }
 
-export function native$math$bits$LeadingZeros64(x: number): number {
+export function native$math$bits$LeadingZeros64(x: bigint): number {
   return 64 - native$math$bits$Len64(x);
 }
 
-export function native$math$bits$TrailingZeros64(x: number): number {
-  const b = big(x);
-  return b === 0n ? 64 : (b & -b).toString(2).length - 1;
+export function native$math$bits$TrailingZeros64(x: bigint): number {
+  const l = lo32(x);
+  if (l !== 0) return ctz32(l);
+  const h = hi32(x);
+  return h !== 0 ? 32 + ctz32(h) : 64;
 }
 
-export function native$math$bits$OnesCount64(x: number): number {
-  let n = 0;
-  for (const c of big(x).toString(2)) if (c === "1") n++;
-  return n;
+export function native$math$bits$OnesCount64(x: bigint): number {
+  return pop32(lo32(x)) + pop32(hi32(x));
 }
 
-export function native$math$bits$RotateLeft64(x: number, k: number): number {
-  const s = BigInt(((k % 64) + 64) % 64), b = big(x);
-  return num((b << s) | (b >> (64n - s)));
+export function native$math$bits$RotateLeft64(x: bigint, k: number): bigint {
+  const s = BigInt(k & 63);
+  return s === 0n ? x : ((x << s) & M64) | (x >> (64n - s));
 }
 
-export function native$math$bits$Reverse64(x: number): number {
-  return num(BigInt("0b" + big(x).toString(2).padStart(64, "0").split("").reverse().join("")));
+export function native$math$bits$Reverse64(x: bigint): bigint {
+  return join(rev32(lo32(x)), rev32(hi32(x)));
 }
 
-export function native$math$bits$ReverseBytes64(x: number): number {
-  let b = big(x), r = 0n;
-  for (let i = 0; i < 8; i++) {
-    r = (r << 8n) | (b & 0xffn);
-    b >>= 8n;
-  }
-  return num(r);
+export function native$math$bits$ReverseBytes64(x: bigint): bigint {
+  return join(revBytes32(lo32(x)), revBytes32(hi32(x)));
 }
 
-export function native$math$bits$Add64(x: number, y: number, carry: number): [number, number] {
-  const s = big(x) + big(y) + big(carry);
-  return [num(s), Number(s >> 64n)];
+export function native$math$bits$Add64(x: bigint, y: bigint, carry: bigint): [bigint, bigint] {
+  const s = x + y + carry;
+  return [s & M64, s >> 64n];
 }
 
-export function native$math$bits$Sub64(x: number, y: number, borrow: number): [number, number] {
-  const d = big(x) - big(y) - big(borrow);
-  return [num(d), d < 0n ? 1 : 0];
+export function native$math$bits$Sub64(x: bigint, y: bigint, borrow: bigint): [bigint, bigint] {
+  const d = x - y - borrow;
+  return [d & M64, d < 0n ? 1n : 0n];
 }
 
-export function native$math$bits$Mul64(x: number, y: number): [number, number] {
-  const p = big(x) * big(y);
-  return [num(p >> 64n), num(p & M64)];
+export function native$math$bits$Mul64(x: bigint, y: bigint): [bigint, bigint] {
+  const p = x * y;
+  return [p >> 64n, p & M64];
 }
 
-export function native$math$bits$Div64(hi: number, lo: number, y: number): [number, number] {
-  const d = big(y), h = big(hi);
-  if (d === 0n) runtimePanic("integer divide by zero");
-  if (d <= h) runtimePanic("integer overflow");
-  const n = (h << 64n) | big(lo);
-  return [num(n / d), num(n % d)];
+export function native$math$bits$Div64(hi: bigint, lo: bigint, y: bigint): [bigint, bigint] {
+  if (y === 0n) runtimePanic("integer divide by zero");
+  if (y <= hi) runtimePanic("integer overflow");
+  const n = (hi << 64n) | lo;
+  return [n / y, n % y];
 }
 
-export function native$math$bits$Rem64(hi: number, lo: number, y: number): number {
-  const d = big(y);
-  if (d === 0n) runtimePanic("integer divide by zero");
-  return num(((big(hi) << 64n) | big(lo)) % d);
+export function native$math$bits$Rem64(hi: bigint, lo: bigint, y: bigint): bigint {
+  if (y === 0n) runtimePanic("integer divide by zero");
+  return ((hi << 64n) | lo) % y;
 }
 
 // ---- maps, slices ----
@@ -212,10 +232,11 @@ const cas = (p: any, old: any, v: any) => {
   p.v = v;
   return true;
 };
-const add = (w: (x: number) => number) => (p: any, d: number) => (p.v = w(p.v + d));
-const and = (w: (x: number) => number) => (p: any, m: number) => { const old = p.v; p.v = w(Number(BigInt(old) & BigInt(m))); return old; };
-const or = (w: (x: number) => number) => (p: any, m: number) => { const old = p.v; p.v = w(Number(BigInt(old) | BigInt(m))); return old; };
+const add = (w: (x: any) => any) => (p: any, d: any) => (p.v = w(p.v + d));
+const and = (w: (x: any) => any) => (p: any, m: any) => { const old = p.v; p.v = w(typeof old === "bigint" ? old & m : Number(BigInt(old) & BigInt(m))); return old; };
+const or = (w: (x: any) => any) => (p: any, m: any) => { const old = p.v; p.v = w(typeof old === "bigint" ? old | m : Number(BigInt(old) | BigInt(m))); return old; };
 const i32 = (x: number) => x | 0, u32 = (x: number) => x >>> 0, n64 = (x: number) => x;
+const i64 = (x: bigint) => BigInt.asIntN(64, x), u64 = (x: bigint) => BigInt.asUintN(64, x);
 
 export const native$sync$atomic$LoadInt32 = ld, native$sync$atomic$LoadInt64 = ld, native$sync$atomic$LoadUint32 = ld,
   native$sync$atomic$LoadUint64 = ld, native$sync$atomic$LoadUintptr = ld, native$sync$atomic$LoadPointer = ld;
@@ -227,11 +248,11 @@ export const native$sync$atomic$CompareAndSwapInt32 = cas, native$sync$atomic$Co
   native$sync$atomic$CompareAndSwapUint32 = cas, native$sync$atomic$CompareAndSwapUint64 = cas,
   native$sync$atomic$CompareAndSwapUintptr = cas, native$sync$atomic$CompareAndSwapPointer = cas;
 export const native$sync$atomic$AddInt32 = add(i32), native$sync$atomic$AddUint32 = add(u32),
-  native$sync$atomic$AddInt64 = add(n64), native$sync$atomic$AddUint64 = add(n64), native$sync$atomic$AddUintptr = add(n64);
+  native$sync$atomic$AddInt64 = add(i64), native$sync$atomic$AddUint64 = add(u64), native$sync$atomic$AddUintptr = add(n64);
 export const native$sync$atomic$AndInt32 = and(i32), native$sync$atomic$AndUint32 = and(u32),
-  native$sync$atomic$AndInt64 = and(n64), native$sync$atomic$AndUint64 = and(n64), native$sync$atomic$AndUintptr = and(n64);
+  native$sync$atomic$AndInt64 = and(i64), native$sync$atomic$AndUint64 = and(u64), native$sync$atomic$AndUintptr = and(n64);
 export const native$sync$atomic$OrInt32 = or(i32), native$sync$atomic$OrUint32 = or(u32),
-  native$sync$atomic$OrInt64 = or(n64), native$sync$atomic$OrUint64 = or(n64), native$sync$atomic$OrUintptr = or(n64);
+  native$sync$atomic$OrInt64 = or(i64), native$sync$atomic$OrUint64 = or(u64), native$sync$atomic$OrUintptr = or(n64);
 
 // ---- internal/reflectlite ----
 //
@@ -642,9 +663,9 @@ export function native$syscall$Exit(code: number): never {
   return exitProcess(code);
 }
 
-export function native$syscall$now(): [number, number] {
+export function native$syscall$now(): [bigint, number] {
   const ms = Date.now();
-  return [Math.floor(ms / 1000), (ms % 1000) * 1e6];
+  return [BigInt(Math.floor(ms / 1000)), (ms % 1000) * 1e6];
 }
 
 // os.Args: the program (the script) and its arguments, as with go run.
@@ -656,9 +677,9 @@ export function native$os$runtime_args(): Slice<string> {
 export function native$os$runtime_beforeExit(_code: number): void {}
 export function native$os$sigpipe(): void {}
 
-export function native$os$runtime_rand(): number {
-  // 53 random bits: 64-bit integers are JS numbers (exact below 2^53).
-  return Math.floor(Math.random() * 2 ** 53);
+export function native$os$runtime_rand(): bigint {
+  const r = () => BigInt(Math.floor(Math.random() * 2 ** 32));
+  return (r() << 32n) | r();
 }
 
 // ---- internal/poll ----
@@ -677,19 +698,18 @@ export function native$internal$poll$runtime_Semrelease(sema: any): void {
 // ---- time: clocks ----
 //
 // The wall clock is Date.now (millisecond resolution); the monotonic clock
-// is performance.now, in nanoseconds since the program started, so it stays
-// exact as a JS number.
+// is performance.now, in nanoseconds since the program started.
 
 const perf = (globalThis as any).performance;
 const monoStart = perf ? perf.now() : Date.now();
 
-function monoNanos(): number {
-  return Math.round(((perf ? perf.now() : Date.now()) - monoStart) * 1e6) + 1;
+function monoNanos(): bigint {
+  return BigInt(Math.round(((perf ? perf.now() : Date.now()) - monoStart) * 1e6) + 1);
 }
 
-function wallNow(): [number, number, number] {
+function wallNow(): [bigint, number, bigint] {
   const ms = Date.now();
-  return [Math.floor(ms / 1000), (ms % 1000) * 1e6, monoNanos()];
+  return [BigInt(Math.floor(ms / 1000)), (ms % 1000) * 1e6, monoNanos()];
 }
 
 export const native$time$now = wallNow;

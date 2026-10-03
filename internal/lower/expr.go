@@ -6,6 +6,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"regexp"
 	"strings"
 )
 
@@ -17,6 +18,20 @@ func (fe *funcEmitter) expr(e ast.Expr) string {
 		return s
 	}
 	if tv, ok := fe.info.Types[e]; ok && tv.Value != nil {
+		if isTypeParam(tv.Type) && tv.Value.Kind() != constant.String && tv.Value.Kind() != constant.Bool {
+			// A numeric constant of type parameter type: its representation
+			// (Number, BigInt, complex) is that of the type argument.
+			v := tv.Value
+			if v.Kind() == constant.Complex {
+				return fmt.Sprintf("$rt.constT(%s, %s)", fe.desc(tv.Type), constLit(v, types.Typ[types.Complex128]))
+			}
+			if v.Kind() == constant.Int {
+				if i, exact := constant.Int64Val(v); !exact || i > 1<<53 || i < -(1<<53) {
+					return fmt.Sprintf("$rt.constT(%s, %sn)", fe.desc(tv.Type), v.ExactString())
+				}
+			}
+			return fmt.Sprintf("$rt.constT(%s, %s)", fe.desc(tv.Type), constLit(v, types.Typ[types.UntypedFloat]))
+		}
 		return constLit(tv.Value, tv.Type)
 	}
 	switch e := e.(type) {
@@ -333,14 +348,14 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 		xt := fe.info.TypeOf(x.X)
 		if _, ok := xt.Underlying().(*types.Slice); ok {
 			if isAggregate(t) {
-				return fmt.Sprintf("%s$rt.index(%s, %s)", fe.mark(x), fe.expr(x.X), fe.expr(x.Index))
+				return fmt.Sprintf("%s$rt.index(%s, %s)", fe.mark(x), fe.expr(x.X), fe.intNumber(x.Index))
 			}
-			return fmt.Sprintf("%s$rt.sliceElemPtr(%s, %s)", fe.mark(x), fe.expr(x.X), fe.expr(x.Index))
+			return fmt.Sprintf("%s$rt.sliceElemPtr(%s, %s)", fe.mark(x), fe.expr(x.X), fe.intNumber(x.Index))
 		}
 		if isAggregate(t) {
 			return fmt.Sprintf("%s[%s]", fe.expr(x.X), fe.arrayIndex(x))
 		}
-		return fmt.Sprintf("%s$rt.arrayElemPtr(%s, %s)", fe.mark(x), fe.expr(x.X), fe.expr(x.Index))
+		return fmt.Sprintf("%s$rt.arrayElemPtr(%s, %s)", fe.mark(x), fe.expr(x.X), fe.intNumber(x.Index))
 	case *ast.StarExpr: // &*p is p, but a nil p still panics
 		return fe.mark(x) + "$rt.deref(" + fe.expr(x.X) + ")"
 	case *ast.CompositeLit:
@@ -355,12 +370,12 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 
 func (fe *funcEmitter) arrayIndex(x *ast.IndexExpr) string {
 	if tv, ok := fe.info.Types[x.Index]; ok && tv.Value != nil {
-		return fe.expr(x.Index) // constant indices are bounds-checked by go/types
+		return fe.intNumber(x.Index) // constant indices are bounds-checked by go/types
 	}
 	xt := fe.info.TypeOf(x.X)
 	base, _ := derefType(xt)
 	n := base.Underlying().(*types.Array).Len()
-	return fmt.Sprintf("$rt.arrayIndex(%d, %s)", n, fe.expr(x.Index))
+	return fmt.Sprintf("$rt.arrayIndex(%d, %s)", n, fe.intNumber(x.Index))
 }
 
 func (fe *funcEmitter) index(e *ast.IndexExpr) string {
@@ -371,9 +386,9 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 	m := fe.mark(e)
 	switch u := under(xt).(type) {
 	case *types.Basic:
-		return fmt.Sprintf("%s$rt.strIndex(%s, %s)", m, fe.expr(e.X), fe.expr(e.Index))
+		return fmt.Sprintf("%s$rt.strIndex(%s, %s)", m, fe.expr(e.X), fe.intNumber(e.Index))
 	case *types.Slice:
-		return fmt.Sprintf("%s$rt.index(%s, %s)", m, fe.expr(e.X), fe.expr(e.Index))
+		return fmt.Sprintf("%s$rt.index(%s, %s)", m, fe.expr(e.X), fe.intNumber(e.Index))
 	case *types.Map:
 		return fmt.Sprintf("%s$rt.mapGet(%s, %s, %s)", m, fe.expr(e.X), fe.valueOf(e.Index, u.Key()), fe.zeroFn(u.Elem()))
 	case *types.Array:
@@ -383,7 +398,7 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 	case *types.Interface:
 		// Type parameter without a core type, e.g. ~string | ~[]byte: the
 		// representation is chosen at run time.
-		return fmt.Sprintf("%s$rt.indexAny(%s, %s)", m, fe.expr(e.X), fe.expr(e.Index))
+		return fmt.Sprintf("%s$rt.indexAny(%s, %s)", m, fe.expr(e.X), fe.intNumber(e.Index))
 	}
 	fe.errorf(e.Pos(), "unsupported index expression on %s", xt)
 	return "undefined"
@@ -394,7 +409,7 @@ func (fe *funcEmitter) sliceExpr(e *ast.SliceExpr) string {
 		if x == nil {
 			return "undefined"
 		}
-		return fe.expr(x)
+		return fe.intNumber(x)
 	}
 	xt := fe.info.TypeOf(e.X)
 	m := fe.mark(e)
@@ -557,6 +572,27 @@ func wrapPre(pre, s string) string {
 type intInfo struct {
 	bits   int
 	signed bool
+	big    bool // int64 or uint64: a BigInt
+}
+
+// bigOperand types an operand of a BigInt operator for TypeScript: a value
+// read through `any` (a pointer's field, an interface's value) would make
+// a - b a number. Names and literals are typed already.
+func bigOperand(s string) string {
+	if simpleOperand.MatchString(s) {
+		return s
+	}
+	return "(" + s + " as bigint)"
+}
+
+var simpleOperand = regexp.MustCompile(`^(-?[0-9]+n|[A-Za-z_$][A-Za-z0-9_$]*)$`)
+
+// bigWrap truncates a BigInt to the width and signedness of ii.
+func bigWrap(s string, ii intInfo) string {
+	if ii.signed {
+		return fmt.Sprintf("BigInt.asIntN(%d, %s)", ii.bits, s)
+	}
+	return fmt.Sprintf("BigInt.asUintN(%d, %s)", ii.bits, s)
 }
 
 func intKind(t types.Type) (intInfo, bool) {
@@ -566,28 +602,36 @@ func intKind(t types.Type) (intInfo, bool) {
 	}
 	switch b.Kind() {
 	case types.Int8:
-		return intInfo{8, true}, true
+		return intInfo{8, true, false}, true
 	case types.Int16:
-		return intInfo{16, true}, true
+		return intInfo{16, true, false}, true
 	case types.Int32, types.UntypedRune:
-		return intInfo{32, true}, true
-	case types.Int, types.Int64, types.UntypedInt:
-		return intInfo{64, true}, true
+		return intInfo{32, true, false}, true
+	case types.Int64:
+		return intInfo{64, true, true}, true
+	case types.Int, types.UntypedInt:
+		return intInfo{64, true, false}, true
 	case types.Uint8:
-		return intInfo{8, false}, true
+		return intInfo{8, false, false}, true
 	case types.Uint16:
-		return intInfo{16, false}, true
+		return intInfo{16, false, false}, true
 	case types.Uint32:
-		return intInfo{32, false}, true
-	case types.Uint, types.Uint64, types.Uintptr:
-		return intInfo{64, false}, true
+		return intInfo{32, false, false}, true
+	case types.Uint64:
+		return intInfo{64, false, true}, true
+	case types.Uint, types.Uintptr:
+		return intInfo{64, false, false}, true
 	}
 	return intInfo{}, false
 }
 
-// wrap truncates an integer result to its Go width. 64-bit integers are JS
-// numbers in the PoC and are not wrapped (documented gap).
+// wrap truncates an integer result to its Go width. int64 and uint64 are
+// BigInts (see bigWrap); int, uint and uintptr are JS numbers, exact up to
+// 2^53 and not wrapped (documented gap).
 func wrap(s string, ii intInfo) string {
+	if ii.big {
+		return bigWrap(s, ii)
+	}
 	switch {
 	case ii.bits == 32 && ii.signed:
 		return "((" + s + ") | 0)"
@@ -633,6 +677,24 @@ func (fe *funcEmitter) arith(op token.Token, a, b string, t types.Type) string {
 		// concatenation) is that of the type argument.
 		return fmt.Sprintf("$rt.arithT(%s, %q, %s, %s)", fe.desc(t), op.String(), a, b)
 	}
+	if ii, ok := intKind(t); ok && ii.big {
+		// Written inline so that engines that compile asIntN(64, ...) to
+		// machine arithmetic (V8) can.
+		a, b := bigOperand(a), bigOperand(b)
+		switch op {
+		case token.ADD, token.SUB, token.MUL:
+			return bigWrap(a+" "+op.String()+" "+b, ii)
+		case token.QUO:
+			return bigWrap("$rt.divBig("+a+", "+b+")", ii)
+		case token.REM:
+			return "$rt.modBig(" + a + ", " + b + ")"
+		case token.AND, token.OR, token.XOR:
+			// In range for operands of one signedness.
+			return "(" + a + " " + op.String() + " " + b + ")"
+		case token.AND_NOT:
+			return "(" + a + " & ~" + b + ")"
+		}
+	}
 	if ii, ok := intKind(t); ok {
 		switch op {
 		case token.ADD, token.SUB:
@@ -675,11 +737,36 @@ func (fe *funcEmitter) arith(op token.Token, a, b string, t types.Type) string {
 	return s
 }
 
+// shiftCount lowers a shift count to a JS number.
+func (fe *funcEmitter) shiftCount(e ast.Expr) string {
+	return fe.intNumber(e)
+}
+
+// intNumber lowers an integer expression used as a JS number (an index, a
+// length, a shift count): BigInts are converted (a value beyond 2^53 is out
+// of range either way).
+func (fe *funcEmitter) intNumber(e ast.Expr) string {
+	t := fe.info.TypeOf(e)
+	if isTypeParam(t) {
+		return "$rt.intNumber(" + fe.expr(e) + ")"
+	}
+	if isBig(t) {
+		return "Number(" + fe.expr(e) + ")"
+	}
+	return fe.expr(e)
+}
+
 func (fe *funcEmitter) shift(op token.Token, a, n string, t types.Type) string {
 	if isTypeParam(t) {
 		return fmt.Sprintf("$rt.shiftT(%s, %v, %s, %s)", fe.desc(t), op == token.SHL, a, n)
 	}
 	ii, _ := intKind(t)
+	if ii.big {
+		if op == token.SHL {
+			return fmt.Sprintf("$rt.shlBig(%s, %s, %v)", a, n, ii.signed)
+		}
+		return fmt.Sprintf("$rt.shrBig(%s, %s)", a, n)
+	}
 	if ii.bits == 64 {
 		if op == token.SHL {
 			return fmt.Sprintf("$rt.shl64(%s, %s, %v)", a, n, ii.signed)
@@ -768,7 +855,7 @@ func (fe *funcEmitter) binary(e *ast.BinaryExpr) string {
 	case token.LSS, token.LEQ, token.GTR, token.GEQ:
 		return "(" + fe.expr(e.X) + " " + e.Op.String() + " " + fe.expr(e.Y) + ")"
 	case token.SHL, token.SHR:
-		return fe.mark(e) + fe.shift(e.Op, fe.expr(e.X), fe.expr(e.Y), fe.info.TypeOf(e))
+		return fe.mark(e) + fe.shift(e.Op, fe.expr(e.X), fe.shiftCount(e.Y), fe.info.TypeOf(e))
 	}
 	return fe.mark(e) + fe.arith(e.Op, fe.expr(e.X), fe.expr(e.Y), fe.info.TypeOf(e))
 }
@@ -788,7 +875,9 @@ func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
 		if isTypeParam(t) {
 			return fmt.Sprintf("$rt.negT(%s, %s)", fe.desc(t), fe.expr(e.X))
 		}
-		if ii, ok := intKind(t); ok {
+		if ii, ok := intKind(t); ok && ii.big {
+			return bigWrap("-"+bigOperand(fe.expr(e.X)), ii)
+		} else if ok {
 			return wrap("-"+fe.expr(e.X), ii)
 		}
 		if isFloat32(t) {
@@ -803,6 +892,12 @@ func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
 			return fmt.Sprintf("$rt.notT(%s, %s)", fe.desc(t), fe.expr(e.X))
 		}
 		ii, _ := intKind(t)
+		if ii.big {
+			if ii.signed {
+				return "(~" + bigOperand(fe.expr(e.X)) + ")"
+			}
+			return bigWrap("~"+bigOperand(fe.expr(e.X)), ii)
+		}
 		if ii.bits == 64 {
 			return fmt.Sprintf("$rt.not64(%s, %v)", fe.expr(e.X), ii.signed)
 		}
@@ -1025,6 +1120,9 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 		switch {
 		case tb.Info()&types.IsString != 0:
 			if fb != nil && fb.Info()&types.IsInteger != 0 {
+				if isBigKind(fb) {
+					s = "Number(" + s + ")"
+				}
 				return "$rt.encodeRune(" + s + ")"
 			}
 			if sl, ok := fu.(*types.Slice); ok {
@@ -1036,10 +1134,32 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 			return s
 		case tb.Info()&types.IsInteger != 0:
 			ii, _ := intKind(to)
+			fi, _ := intKind(from)
+			fBig := fb != nil && isBigKind(fb)
+			switch {
+			case isBigKind(tb) && fb != nil && fb.Info()&types.IsFloat != 0:
+				return fmt.Sprintf("$rt.floatToBig(%s, %v)", s, ii.signed)
+			case isBigKind(tb) && fBig:
+				if fi.signed != ii.signed {
+					return wrap(s, ii)
+				}
+				return s
+			case isBigKind(tb):
+				if fi.signed == ii.signed && (fi.signed || fi.bits < 64) {
+					return "BigInt(" + s + ")"
+				}
+				return wrap("BigInt("+s+")", ii)
+			case fBig:
+				if ii.bits < 64 || fi.signed != ii.signed {
+					// BigInt.asIntN / asUintN of the narrower width.
+					return "Number(" + bigWrap(s, ii) + ")"
+				}
+				return "Number(" + s + ")"
+			}
 			if fb != nil && fb.Info()&types.IsFloat != 0 {
 				return wrap("$rt.trunc("+s+")", ii)
 			}
-			if fi, ok := intKind(from); ok && (fi.bits > ii.bits || fi.signed != ii.signed || ii.bits < 64) {
+			if fi.bits > ii.bits || fi.signed != ii.signed || ii.bits < 64 {
 				return wrap(s, ii)
 			}
 			return s
@@ -1051,8 +1171,14 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 		case tb.Info()&types.IsComplex != 0:
 			return s
 		case tb.Kind() == types.Float32:
+			if fb != nil && isBigKind(fb) {
+				s = "Number(" + s + ")"
+			}
 			return "$rt.fround(" + s + ")"
 		case tb.Info()&types.IsFloat != 0:
+			if fb != nil && isBigKind(fb) {
+				return "Number(" + s + ")"
+			}
 			return s
 		}
 	}
@@ -1150,9 +1276,9 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		t := fe.info.TypeOf(e.Args[0])
 		switch u := under(t).(type) {
 		case *types.Slice:
-			l, c := arg(1), "undefined"
+			l, c := fe.intNumber(e.Args[1]), "undefined"
 			if len(e.Args) > 2 {
-				c = arg(2)
+				c = fe.intNumber(e.Args[2])
 			}
 			return fmt.Sprintf("%s$rt.makeSlice(%s, %s, %s)", m, l, c, fe.zeroFn(u.Elem()))
 		case *types.Map:
@@ -1163,7 +1289,7 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		case *types.Chan:
 			c := "0"
 			if len(e.Args) > 1 {
-				c = arg(1)
+				c = fe.intNumber(e.Args[1])
 			}
 			return fmt.Sprintf("%s$rt.makeChan(%s, %s)", m, c, fe.zeroFn(u.Elem()))
 		}
@@ -1301,7 +1427,7 @@ func (fe *funcEmitter) unsafeElem(ptr ast.Expr) (base, idx string, checked, ok b
 		if ix, isIdx := unparen(p.X).(*ast.IndexExpr); p.Op == token.AND && isIdx {
 			switch under(fe.info.TypeOf(ix.X)).(type) {
 			case *types.Slice, *types.Array, *types.Pointer:
-				return fe.expr(ix.X), fe.expr(ix.Index), true, true
+				return fe.expr(ix.X), fe.intNumber(ix.Index), true, true
 			}
 		}
 	case *ast.CallExpr:
@@ -1319,18 +1445,18 @@ func (fe *funcEmitter) unsafeCall(e *ast.CallExpr, name string) string {
 	switch name {
 	case "String":
 		if base, idx, checked, ok := fe.unsafeElem(e.Args[0]); ok {
-			return fmt.Sprintf("%s$rt.bytesToString($rt.unsafeSlice(%s, %s, %s, %v))", m, base, idx, fe.expr(e.Args[1]), checked)
+			return fmt.Sprintf("%s$rt.bytesToString($rt.unsafeSlice(%s, %s, %s, %v))", m, base, idx, fe.intNumber(e.Args[1]), checked)
 		}
 	case "Slice":
 		if base, idx, checked, ok := fe.unsafeElem(e.Args[0]); ok {
-			return fmt.Sprintf("%s$rt.unsafeSlice(%s, %s, %s, %v)", m, base, idx, fe.expr(e.Args[1]), checked)
+			return fmt.Sprintf("%s$rt.unsafeSlice(%s, %s, %s, %v)", m, base, idx, fe.intNumber(e.Args[1]), checked)
 		}
 		if c, ok := unparen(e.Args[0]).(*ast.CallExpr); ok {
 			if se, ok := unparen(c.Fun).(*ast.SelectorExpr); ok {
 				if b, ok := fe.info.Uses[se.Sel].(*types.Builtin); ok && b.Name() == "StringData" {
 					// The bytes of a string are immutable, so a copy is
 					// indistinguishable from an alias.
-					return fmt.Sprintf("%s$rt.stringToBytes($rt.substr(%s, 0, %s))", m, fe.expr(c.Args[0]), fe.expr(e.Args[1]))
+					return fmt.Sprintf("%s$rt.stringToBytes($rt.substr(%s, 0, %s))", m, fe.expr(c.Args[0]), fe.intNumber(e.Args[1]))
 				}
 			}
 		}
