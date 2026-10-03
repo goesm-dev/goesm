@@ -267,3 +267,7 @@ go test ./...          # needs Go 1.27+ and Node.js 22+; Bun is optional
 - `TestOxlint` lints the ESM built from the fixtures (bundle and split) with oxlint's correctness rules and fails on any finding; `test/lint_test.go` lists the four rules turned off for generated code and why.
 - `TestStdlibStatus -v` reports which standard library packages lower and how many of their functions are stubs.
 - `TestTSC` type-checks the emitted TypeScript (fixtures, examples, runtime) with tsc in strict mode, together with a consumer that checks exported Go APIs have their Go types in TypeScript. Like `TestOxlint` it needs `npm ci --prefix test` and is required in CI. Comparing results with native Go stays the semantic gate.
+
+## License
+
+goesm is released under the [BSD 3-Clause License](LICENSE). The output of `emit-ts` and `build` includes the Go standard library packages your code uses, compiled from Go's source, which are under [Go's own BSD-style license](https://go.dev/LICENSE).
