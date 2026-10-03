@@ -229,8 +229,9 @@ goesm uses go/types from the toolchain it was built with, so build it with the t
 ### Tests
 
 ```sh
+mise install           # Go, Node.js and Bun at the versions pinned in mise.toml (CI uses the same)
 npm ci --prefix test   # oxlint for TestOxlint (optional locally; required in CI)
-go test ./...          # needs Go 1.27+ and Node.js 22+
+go test ./...          # needs Go 1.27+ and Node.js 22+; Bun is optional
 ```
 
 - `TestGolden` runs every parameterless exported function of the fixtures under native Go and in the goesm-built ESM (Node) and requires equal results.
