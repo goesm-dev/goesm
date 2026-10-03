@@ -228,7 +228,7 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 * `recover()` also works when called indirectly from a deferred function (Go requires a direct call); after an await it returns nil.
 * Goroutines switch only at blocking points (cooperative). Blocking exported functions return Promises to JS.
 * Blocking of dynamic calls is decided conservatively by signature / method name, which can add unneeded `await`s (behaviour is unchanged).
-* `println` writes to the console in a format different from Go's (e.g. floats as `+1.000000e+000`).
+* `print` / `println` write to stderr in the Go runtime's format, but pointer, map, channel, func, slice and interface values print a fixed address instead of a real one.
 * `sync`: a second `Once.Do` while the first call's function is blocked panics instead of waiting; misuse such as unlocking an unlocked `Mutex` is a recoverable panic, not a fatal error. `runtime.Caller` / `Callers` / `Stack` report nothing and `SetFinalizer` is a no-op.
 
 ## 12. Next three items
