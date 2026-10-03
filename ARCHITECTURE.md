@@ -135,11 +135,13 @@ function F() {
 
 ### goroutines / channels / select
 
-* **Blocking analysis** (whole program): a function is blocking if it contains channel operations, a select without default, a range over a channel, a call or defer of a blocking function, or a dynamic call that may reach one. Blocking functions become `async function`s and every blocking point is an `await`; all other functions stay synchronous (no await cost). Dynamic calls are resolved conservatively: a call through a function value may reach any function of the same signature that is used as a value somewhere (a function literal not called in place, or a function or method referenced other than as a callee); an interface method call may reach any method of that name.
+* **Blocking analysis** (whole program): a function is blocking if it contains channel operations, a select without default, a range over a channel, a call or defer of a blocking function, or a dynamic call that may reach one. Blocking functions become `async function`s and every blocking point is an `await`; all other functions stay synchronous (no await cost). Dynamic calls are resolved conservatively: a call through a function value may reach any function of the same signature that is used as a value somewhere (a function literal not called in place, or a function or method referenced other than as a callee). An interface method call may reach the method of that name of any type that can be stored in an interface value and implements the interface: the types converted to an interface type somewhere (assignment, argument, return, composite literal element, send, map key, explicit conversion, `append`, `panic`), the type arguments of every instantiation, and the types reachable from those through fields, elements and pointers (for reflection). So `io.PipeWriter.Write`, which blocks, does not make every `io.Writer.Write` call async, and `fmt.Println` stays synchronous unless the program stores a pipe in an `io.Writer`.
+* **Mutexes**: a goroutine can only find a `sync.Mutex` locked if the holder is blocked, so `Lock` is synchronous and never waits. goesm finds the critical sections that may block (from a `Lock` statement to the matching `Unlock` in the same block, or to the end after `defer Unlock`); the variable or struct field locked there is held across a blocking operation, and every `Lock` / `RLock` of it in the program becomes the waiting (async) `lockSlow` / `rLockSlow`. This repeats with the blocking analysis until nothing changes. A mutex locked under another name (through a pointer, or with no name such as `f().Lock()`) does not wait: a contended `Lock` there panics, and the build prints a warning at the blocking operation for such sections outside the standard library.
 * `go f(x)` evaluates the function value and arguments in place; `$rt.go(closure)` starts it as a microtask.
 * Channels are a buffer plus send/receive wait queues in the runtime. An operation that can complete immediately returns synchronously; only a blocking one returns a Promise. Implemented: unbuffered handoff, close (including panicking blocked senders), and `select` (uniformly random among ready cases, default, nil channels block forever).
 * So "converting to async/await makes it Go" is not the assumption. Blocking semantics live at the runtime boundary (the wait queues); async/await is only the mechanism to suspend and resume a goroutine. `runtime.Goexit` (deferred calls run, `recover` does not stop it) and the `sync` replacement (§9) are built on it; deadlock detection, goroutine-local panic state and timers will be too.
 * JS boundary: a blocking exported function returns a Promise (`await Example()` is 42).
+* **Programs**: the main package's module runs `main` through `$rt.runMain`. As in Go, the process exits when `main` returns (also with other goroutines still running), `os.Exit` exits with its code without running deferred calls, and a panic nothing recovers prints `panic: ...` and `goroutine 1 [running]:` with the JS stack to standard error and exits with status 2. If the host's event loop runs dry while `main` is still blocked, no goroutine can be woken any more: goesm prints Go's `fatal error: all goroutines are asleep - deadlock!` and exits with status 2. In browsers, which have no process, an unrecovered panic is reported with `reportError` and a blocked `main` simply stays blocked.
 
 ## 6. Runtime (`runtime/src`, emitted as `<dir>/@goesm/runtime/*.ts`)
 
@@ -153,7 +155,10 @@ function F() {
 | `string.ts` | byte strings ⇔ UTF-8 / runes, JS boundary conversion |
 | `int.ts` | integer division and remainder (divide-by-zero panic), shifts, 64-bit bitwise ops, min / max |
 | `panic.ts` | GoPanic, runtime error types, Defers, recover |
-| `chan.ts` | channels, select, goroutine start and count |
+| `chan.ts` | channels, select, goroutine start and count, running `main` (exit status, crash output, deadlock) |
+| `complex.ts` | complex numbers |
+| `host.ts` | standard output and error (Node / Bun / Deno `fs` write, or the console in browsers), process exit |
+| `print.ts` | the `print` / `println` builtins in the Go runtime's format |
 | `natives.ts` | standard library functions without a Go body (§9); a separate module, imported only by the standard library modules that need it, with one export per function so tree shaking drops the unused ones |
 | `interop.ts` | Go value → JSON-shaped JS value guided by descriptors (golden tests, future JS ABI) |
 
@@ -187,7 +192,8 @@ The policy is to compile the ordinary Go source, not to port packages to TS by h
 |---|---|
 | `runtime` | the exported API other packages use (`GOOS`, `Error`, `Goexit`, `Gosched`, `KeepAlive`, `Caller`, `MemStats`, ...); scheduling and memory stay in `@goesm/runtime` |
 | `internal/reflectlite` | `Type` = a runtime type descriptor, `Value` = (descriptor, value or pointer); enough for `errors.Is` / `errors.As`, `sort.Slice`, `context` |
-| `sync` | `Mutex`, `RWMutex`, `WaitGroup`, `Cond` wait on channels when contended (so they are async only where they block); `Once`, `Map`, `Pool` are plain Go |
+| `sync` | `Mutex` and `RWMutex` lock synchronously, and wait (async) only for the mutexes held across a blocking operation (§5); `WaitGroup` and `Cond` wait on channels; `Once`, `Map`, `Pool` are plain Go |
+| `syscall/js` | the js/wasm `syscall/js` API over the JS values themselves (a `Value` holds the value). goesm compiles the standard library for js/wasm, so `os`, `syscall` and `time` reach the host through it: `globalThis.fs` and `process` are Node's (also in Bun and Deno) or, in browsers, a minimal console-backed stand-in, so `os.Stdout` and `os.Stderr` work everywhere |
 
 How it works:
 
@@ -213,11 +219,12 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 **Implemented (verified by golden tests against native Go)**: package import, functions, multiple results, named results, closures, structs (value copies, methods, pointer methods, embedding and promotion, comparison), arrays, slices (aliasing, append, copy, re-slicing, nil), maps (struct / interface keys, comma-ok, delete, nil maps, range), pointers (variables, fields, elements, `new`, identity), defer (ordering, modifying named results, LIFO), panic / recover (runtime errors, re-panic), interfaces (dispatch, type assertions, type switches, comparison, nil interface vs nil pointer), generics (generic functions, constraints and constraint methods, generic types also through interfaces, operators and conversions following the type argument, Go 1.27 generic methods, type identity), method values / method expressions, switch / fallthrough / labeled break and continue, forward `goto`, range over int, range-over-func (break / continue / return from nested statements, labeled branches, Go's panics for iterators that misuse yield), Go 1.22 per-iteration loop variables, 8/16/32-bit integer wrap-around, integer divide-by-zero panics, UTF-8 strings and runes, goroutines, unbuffered / buffered channels, close, range over channels, select (including default), `runtime.Goexit` / `Gosched`, package variable init order and `init()`; the standard library packages listed in §9.
 
 **Not implemented** (produces a goesm diagnostic or does not work):
-* exact 64-bit integers (BigInt or hi/lo), complex64/128
+* exact 64-bit integers (BigInt or hi/lo)
 * `reflect`, `fmt`, `time`, `encoding/json`, `iter.Pull` (coroutines), and the parts of `unsafe` beyond §7
 * backward `goto`; blocking operations, select, defer or goto inside a range-over-func body (reported as diagnostics); taking the address of type-parameter-typed variables; local types depending on type parameters; conversion from a slice to an array pointer (`(*[N]T)(s)`)
-* deadlock detection ("all goroutines are asleep"), goroutine preemption, goroutine-local recover state
-* a JS calling ABI (automatic Go ⇔ JS value conversion), DOM / `syscall/js` bindings
+* deadlock detection while the host still has pending work (timers, I/O), goroutine preemption, goroutine-local recover state
+* a JS calling ABI (automatic Go ⇔ JS value conversion)
+* Go-style output for a panic during package initialization (it is reported as an uncaught JS exception)
 * shared loop variables in range loops for files with `go` < 1.22
 
 **Known differences from native Go** (`TestKnownGaps` asserts that the first three still differ, via `Uint64Wrap`, `Int64Precision`, `AppendCap`, `StrconvParseInt64` and `FormatFloatShortest`; the rest are not deterministic enough to pin and are documented only):
@@ -227,9 +234,9 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 * Map range order is insertion order (Go randomises it; both are unspecified).
 * `recover()` also works when called indirectly from a deferred function (Go requires a direct call); after an await it returns nil.
 * Goroutines switch only at blocking points (cooperative). Blocking exported functions return Promises to JS.
-* Blocking of dynamic calls is decided conservatively by signature / method name, which can add unneeded `await`s (behaviour is unchanged).
-* `println` writes to the console in a format different from Go's (e.g. floats as `+1.000000e+000`).
-* `sync`: a second `Once.Do` while the first call's function is blocked panics instead of waiting; misuse such as unlocking an unlocked `Mutex` is a recoverable panic, not a fatal error. `runtime.Caller` / `Callers` / `Stack` report nothing and `SetFinalizer` is a no-op.
+* Blocking of dynamic calls is decided conservatively (§5), which can add unneeded `await`s (behaviour is unchanged).
+* `print` / `println` show addresses as a fixed `0xc000010000` (Go's are not reproducible either).
+* `sync`: a mutex held across a blocking operation and also locked under another name (§5) panics when contended. A second `Once.Do` while the first call's function is blocked panics instead of waiting; misuse such as unlocking an unlocked `Mutex` is a recoverable panic, not a fatal error. `runtime.Caller` / `Callers` / `Stack` report nothing and `SetFinalizer` is a no-op.
 
 ## 12. Next three items
 

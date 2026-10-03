@@ -16,7 +16,8 @@
 // natives.ts is a separate module (@goesm/runtime/natives) that uses the
 // runtime only through its public module, so split builds share one runtime.
 import {
-  GoMap, Goexit, Iface, Kind, Slice, Type, assign, chanLen, copy, implementsIface, isAggregate, load,
+  GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, assign, chanLen, copy, exitProcess,
+  fromJSString, hostNodeFS, implementsIface, isAggregate, load, toJSString, writeConsole, writeSyncAll,
   makeSlice, mapLen, numGoroutine, runtimePanic, sizeOf, store,
 } from "./index.ts";
 import type { S } from "./index.ts";
@@ -345,4 +346,347 @@ export function native$internal$reflectlite$swapper(t: Type, s: Slice<any> | nul
       a[o + j] = tmp;
     }
   };
+}
+
+// ---- syscall/js ----
+//
+// goesm's syscall/js (internal/natives/goroot/syscall/js) holds JavaScript
+// values as they are. Go's nil (the zero Value) is undefined, so JavaScript
+// null needs a sentinel.
+
+const jsNull = { toString: () => "null" };
+
+function toRef(x: unknown): any {
+  return x === undefined ? null : x === null ? jsNull : x;
+}
+
+function fromRef(r: any): any {
+  return r === null ? undefined : r === jsNull ? null : r;
+}
+
+function refArgs(args: S<any>): any[] {
+  const out: any[] = [];
+  if (args !== null) for (let i = 0; i < args.$length; i++) out.push(fromRef(args.$array[args.$offset + i]));
+  return out;
+}
+
+// A JavaScript exception becomes a js.Error; a Go panic or Goexit raised by
+// Go code called back from JavaScript keeps unwinding.
+function jsThrown(e: unknown): [any, boolean] {
+  if (e instanceof GoPanic || e instanceof Goexit || e instanceof ProgramExit) throw e;
+  return [toRef(e), false];
+}
+
+export function native$syscall$js$nullRef(): any {
+  return jsNull;
+}
+
+export function native$syscall$js$globalRef(): any {
+  return globalThis;
+}
+
+export function native$syscall$js$boolVal(b: boolean): any {
+  return b;
+}
+
+export function native$syscall$js$floatVal(f: number): any {
+  return f;
+}
+
+export function native$syscall$js$stringVal(s: string): any {
+  return toJSString(s);
+}
+
+export function native$syscall$js$valueEqual(v: any, w: any): boolean {
+  return fromRef(v) === fromRef(w);
+}
+
+export function native$syscall$js$valueIsNaN(v: any): boolean {
+  return typeof v === "number" && v !== v;
+}
+
+export function native$syscall$js$valueType(v: any): number {
+  const x = fromRef(v);
+  if (x === undefined) return 0;
+  if (x === null) return 1;
+  switch (typeof x) {
+    case "boolean": return 2;
+    case "number": return 3;
+    case "string": return 4;
+    case "symbol": return 5;
+    case "function": return 7;
+  }
+  return 6; // objects and bigints, as in wasm_exec.js
+}
+
+export function native$syscall$js$valueGet(v: any, p: string): any {
+  const o = fromRef(v);
+  const name = toJSString(p);
+  if (o === globalThis && (name === "fs" || name === "process") && (globalThis as any)[name] === undefined) {
+    return name === "fs" ? hostFS() : hostProcess();
+  }
+  return toRef(Reflect.get(o, name));
+}
+
+export function native$syscall$js$valueSet(v: any, p: string, x: any): void {
+  Reflect.set(fromRef(v), toJSString(p), fromRef(x));
+}
+
+export function native$syscall$js$valueDelete(v: any, p: string): void {
+  Reflect.deleteProperty(fromRef(v), toJSString(p));
+}
+
+export function native$syscall$js$valueIndex(v: any, i: number): any {
+  return toRef(Reflect.get(fromRef(v), i));
+}
+
+export function native$syscall$js$valueSetIndex(v: any, i: number, x: any): void {
+  Reflect.set(fromRef(v), i, fromRef(x));
+}
+
+export function native$syscall$js$valueLength(v: any): number {
+  return Number(fromRef(v).length);
+}
+
+export function native$syscall$js$valueCall(v: any, m: string, args: S<any>): [any, boolean] {
+  try {
+    const o = fromRef(v);
+    const f = native$syscall$js$valueGet(v, m);
+    return [toRef(Reflect.apply(fromRef(f), o, refArgs(args))), true];
+  } catch (e) {
+    return jsThrown(e);
+  }
+}
+
+export function native$syscall$js$valueInvoke(v: any, args: S<any>): [any, boolean] {
+  try {
+    return [toRef(Reflect.apply(fromRef(v), undefined, refArgs(args))), true];
+  } catch (e) {
+    return jsThrown(e);
+  }
+}
+
+export function native$syscall$js$valueNew(v: any, args: S<any>): [any, boolean] {
+  try {
+    return [toRef(Reflect.construct(fromRef(v), refArgs(args))), true];
+  } catch (e) {
+    return jsThrown(e);
+  }
+}
+
+export function native$syscall$js$valueFloat(v: any): number {
+  return v;
+}
+
+export function native$syscall$js$valueTruthy(v: any): boolean {
+  return !!fromRef(v);
+}
+
+export function native$syscall$js$valueString(v: any): string {
+  return fromJSString(String(fromRef(v)));
+}
+
+export function native$syscall$js$valueInstanceOf(v: any, t: any): boolean {
+  return fromRef(v) instanceof fromRef(t);
+}
+
+function isByteArray(x: unknown): x is Uint8Array | Uint8ClampedArray {
+  return x instanceof Uint8Array || x instanceof Uint8ClampedArray;
+}
+
+export function native$syscall$js$copyBytesToGo(dst: S<number>, src: any): [number, boolean] {
+  const a = fromRef(src);
+  if (!isByteArray(a)) return [0, false];
+  const n = Math.min(dst === null ? 0 : dst.$length, a.length);
+  for (let i = 0; i < n; i++) dst!.$array[dst!.$offset + i] = a[i];
+  return [n, true];
+}
+
+export function native$syscall$js$copyBytesToJS(dst: any, src: S<number>): [number, boolean] {
+  const a = fromRef(dst);
+  if (!isByteArray(a)) return [0, false];
+  const n = Math.min(a.length, src === null ? 0 : src.$length);
+  for (let i = 0; i < n; i++) a[i] = src!.$array[src!.$offset + i];
+  return [n, true];
+}
+
+export function native$syscall$js$makeFunc(fn: (self: any, args: S<any>) => any): any {
+  return function (this: any, ...args: any[]): any {
+    const a = args.map(toRef);
+    const r = fn(toRef(this), new Slice(a, 0, a.length, a.length));
+    // A Go function that blocks was lowered to an async function.
+    return r instanceof Promise ? r.then(fromRef) : fromRef(r);
+  };
+}
+
+// ---- the host's fs and process, seen through js.Global() ----
+//
+// Package syscall reaches files through js.Global().Get("fs") with Node's
+// callback API, like Go's wasm_exec.js expects. Where the host has no global
+// fs (Node and Bun do not expose one; browsers have no file system), goesm
+// supplies one without touching globalThis. It calls back before returning,
+// which lets goesm lower syscall.fsCall as synchronous (internal/natives:
+// syncFuncs), so writing to os.Stdout does not make callers async.
+
+function enosys(): Error {
+  const err = new Error("not implemented");
+  (err as any).code = "ENOSYS";
+  return err;
+}
+
+const fsCalls = [
+  "open", "close", "read", "write", "fstat", "stat", "lstat", "readdir", "mkdir", "unlink", "rmdir",
+  "chmod", "fchmod", "chown", "fchown", "lchown", "utimes", "rename", "truncate", "ftruncate",
+  "readlink", "link", "symlink", "fsync",
+];
+
+let theFS: any = null;
+
+function hostFS(): any {
+  if (theFS === null) {
+    const fs = hostNodeFS();
+    theFS = fs ? nodeFS(fs) : consoleFS();
+  }
+  return theFS;
+}
+
+// nodeFS adapts the synchronous API of node:fs (Node, Bun, Deno) to the
+// callback API.
+function nodeFS(fs: any): any {
+  const shim: any = { constants: fs.constants };
+  for (const name of fsCalls) {
+    shim[name] = (...args: any[]) => {
+      const cb = args.pop();
+      let r: any;
+      try {
+        r = name === "write" ? writeSyncAll(fs, args[0], args[1], args[2], args[3], args[4]) : fs[name + "Sync"](...args);
+      } catch (e) {
+        cb(e);
+        return;
+      }
+      cb(null, r);
+    };
+  }
+  return shim;
+}
+
+// consoleFS is a browser's file system: as in wasm_exec.js, standard output
+// and standard error go to the console line by line, and everything else
+// fails with ENOSYS.
+function consoleFS(): any {
+  const shim: any = {
+    constants: { O_WRONLY: -1, O_RDWR: -1, O_CREAT: -1, O_TRUNC: -1, O_APPEND: -1, O_EXCL: -1, O_DIRECTORY: -1 },
+    write(fd: number, buf: Uint8Array, off: number, len: number, pos: number | null, cb: (err: any, n?: number) => void) {
+      if ((fd !== 1 && fd !== 2) || pos !== null) {
+        cb(enosys());
+        return;
+      }
+      writeConsole(fd, buf.subarray(off, off + len));
+      cb(null, len);
+    },
+  };
+  for (const name of fsCalls) {
+    if (!(name in shim)) shim[name] = (...args: any[]) => args[args.length - 1](enosys());
+  }
+  return shim;
+}
+
+let theProcess: any = null;
+
+function hostProcess(): any {
+  theProcess ??= {
+    getuid: () => -1, getgid: () => -1, geteuid: () => -1, getegid: () => -1,
+    getgroups: () => { throw enosys(); },
+    pid: -1, ppid: -1,
+    umask: () => { throw enosys(); },
+    cwd: () => { throw enosys(); },
+    chdir: () => { throw enosys(); },
+  };
+  return theProcess;
+}
+
+// ---- syscall and os: the process ----
+
+const gproc = (globalThis as any).process;
+
+function goStrings(xs: string[]): Slice<string> {
+  const a = xs.map(fromJSString);
+  return new Slice(a, 0, a.length, a.length);
+}
+
+// The environment is the host's at start-up; package syscall keeps its own
+// copy, so Setenv does not change the host's.
+export function native$syscall$runtime_envs(): Slice<string> {
+  const env = gproc?.env;
+  return goStrings(env ? Object.keys(env).map((k) => k + "=" + env[k]) : []);
+}
+
+export function native$syscall$runtimeSetenv(_k: string, _v: string): void {}
+export function native$syscall$runtimeUnsetenv(_k: string): void {}
+export function native$syscall$runtimeClearenv(): void {}
+
+export function native$syscall$Getpagesize(): number {
+  return 65536;
+}
+
+export function native$syscall$Exit(code: number): never {
+  return exitProcess(code);
+}
+
+export function native$syscall$now(): [number, number] {
+  const ms = Date.now();
+  return [Math.floor(ms / 1000), (ms % 1000) * 1e6];
+}
+
+// os.Args: the program (the script) and its arguments, as with go run.
+export function native$os$runtime_args(): Slice<string> {
+  const argv: string[] | undefined = gproc?.argv;
+  return goStrings(Array.isArray(argv) && argv.length > 1 ? argv.slice(1) : ["js"]);
+}
+
+export function native$os$runtime_beforeExit(_code: number): void {}
+export function native$os$sigpipe(): void {}
+
+export function native$os$runtime_rand(): number {
+  // 53 random bits: 64-bit integers are JS numbers (exact below 2^53).
+  return Math.floor(Math.random() * 2 ** 53);
+}
+
+// ---- internal/poll ----
+//
+// goesm's file I/O is synchronous, so the fd mutex is never contended.
+
+export function native$internal$poll$runtime_Semacquire(sema: any): void {
+  if (sema.v === 0) runtimePanic("goesm: internal/poll semaphore would block");
+  sema.v--;
+}
+
+export function native$internal$poll$runtime_Semrelease(sema: any): void {
+  sema.v++;
+}
+
+// ---- time: clocks ----
+//
+// The wall clock is Date.now (millisecond resolution); the monotonic clock
+// is performance.now, in nanoseconds since the program started, so it stays
+// exact as a JS number.
+
+const perf = (globalThis as any).performance;
+const monoStart = perf ? perf.now() : Date.now();
+
+function monoNanos(): number {
+  return Math.round(((perf ? perf.now() : Date.now()) - monoStart) * 1e6) + 1;
+}
+
+function wallNow(): [number, number, number] {
+  const ms = Date.now();
+  return [Math.floor(ms / 1000), (ms % 1000) * 1e6, monoNanos()];
+}
+
+export const native$time$now = wallNow;
+export const native$time$runtimeNow = wallNow;
+export const native$time$runtimeNano = monoNanos;
+
+export function native$time$runtimeIsBubbled(): boolean {
+  return false;
 }

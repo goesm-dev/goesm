@@ -319,12 +319,8 @@ func (pe *pkgEmitter) emit() *Module {
 		pe.vars.ln("%s;", call)
 	}
 	if pe.isEntry && pkg.Name == "main" {
-		if m, ok := scope.Lookup("main").(*types.Func); ok {
-			call := "main()"
-			if pe.prog.IsAsync(m) {
-				call = "await " + call
-			}
-			pe.vars.ln("%s;", call)
+		if _, ok := scope.Lookup("main").(*types.Func); ok {
+			pe.vars.ln("$rt.runMain(main);")
 		}
 	}
 

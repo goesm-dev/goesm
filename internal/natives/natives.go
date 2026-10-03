@@ -99,6 +99,21 @@ var overrides = map[string]bool{
 	"internal/strconv.float64frombits": true,
 }
 
+// syncFuncs are standard library functions that block only formally: a
+// channel operation in them (or in function literals inside them) always
+// completes at once under goesm. They are lowered as ordinary synchronous
+// functions, with channel operations that panic if they would block, so
+// their callers do not become async. syscall.fsCall waits on a buffered
+// channel for the callback of a JavaScript fs call, which goesm's fs
+// (runtime/src/natives.ts) invokes before returning.
+var syncFuncs = map[string]bool{
+	"syscall.fsCall": true,
+}
+
+// Sync reports whether the standard library function with the given
+// types.Func.FullName is lowered as synchronous despite channel operations.
+func Sync(fullName string) bool { return syncFuncs[fullName] }
+
 // Override reports whether the standard library function with the given
 // types.Func.FullName is implemented natively despite having a Go body.
 func Override(fullName string) bool { return overrides[fullName] }

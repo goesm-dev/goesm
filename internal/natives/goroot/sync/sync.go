@@ -2,9 +2,18 @@
 
 // Package sync is goesm's replacement for the standard library's sync
 // package. Goroutines share one JavaScript thread and switch only where they
-// block, so the primitives need no atomics: a contended Mutex, RWMutex,
-// WaitGroup or Cond waits on a channel (and is therefore lowered to an async
-// function), and the uncontended paths are plain field updates.
+// block, so the primitives need no atomics.
+//
+// A goroutine can only find a Mutex or RWMutex locked if another goroutine
+// holds it while blocked (on a channel, a timer, a JavaScript promise), so
+// Lock is an ordinary synchronous function that never waits, and code that
+// locks (most of the standard library) is not lowered to async functions.
+// goesm finds the mutexes that are held across an operation that may block
+// (a variable or struct field locked in such a critical section) and lowers
+// every Lock of those to lockSlow, which waits; see
+// internal/lower/lockcheck.go. A Lock that would have to wait anyway (the
+// mutex reached under another name) panics. WaitGroup and Cond wait, on a
+// channel, and are therefore async.
 package sync
 
 // A Locker represents an object that can be locked and unlocked.
@@ -46,10 +55,24 @@ type Mutex struct {
 
 // Lock locks m, waiting until it is available.
 func (m *Mutex) Lock() {
+	if m.locked {
+		contended("Mutex")
+	}
+	m.locked = true
+}
+
+// lockSlow is Lock for a mutex that goesm found held across a blocking
+// operation: it waits for the holder.
+func (m *Mutex) lockSlow() {
 	for m.locked {
 		m.waiters.wait()
 	}
 	m.locked = true
+}
+
+// contended reports a Lock that would have to wait: the holder is blocked.
+func contended(what string) {
+	fatal("sync: " + what + " is locked by a blocked goroutine, and goesm did not find that it is held across a blocking operation (lock it under one name: a variable or struct field)")
 }
 
 // TryLock tries to lock m and reports whether it succeeded.
@@ -70,22 +93,27 @@ func (m *Mutex) Unlock() {
 	m.waiters.wake()
 }
 
-// A RWMutex is a reader/writer mutual exclusion lock. A blocked Lock call
-// excludes new readers, as in Go.
+// A RWMutex is a reader/writer mutual exclusion lock.
 type RWMutex struct {
-	readers        int
-	writer         bool
-	writersWaiting int
-	waiters        waitList
+	readers int
+	writer  bool
+	waiters waitList
 }
 
 // Lock locks rw for writing.
 func (rw *RWMutex) Lock() {
-	rw.writersWaiting++
+	if rw.writer || rw.readers > 0 {
+		contended("RWMutex")
+	}
+	rw.writer = true
+}
+
+// lockSlow is Lock for a mutex that goesm found held across a blocking
+// operation: it waits for the holders.
+func (rw *RWMutex) lockSlow() {
 	for rw.writer || rw.readers > 0 {
 		rw.waiters.wait()
 	}
-	rw.writersWaiting--
 	rw.writer = true
 }
 
@@ -109,7 +137,16 @@ func (rw *RWMutex) Unlock() {
 
 // RLock locks rw for reading.
 func (rw *RWMutex) RLock() {
-	for rw.writer || rw.writersWaiting > 0 {
+	if rw.writer {
+		contended("RWMutex")
+	}
+	rw.readers++
+}
+
+// rLockSlow is RLock for a mutex that goesm found held across a blocking
+// operation: it waits for the writer.
+func (rw *RWMutex) rLockSlow() {
+	for rw.writer {
 		rw.waiters.wait()
 	}
 	rw.readers++
@@ -117,7 +154,7 @@ func (rw *RWMutex) RLock() {
 
 // TryRLock tries to lock rw for reading and reports whether it succeeded.
 func (rw *RWMutex) TryRLock() bool {
-	if rw.writer || rw.writersWaiting > 0 {
+	if rw.writer {
 		return false
 	}
 	rw.readers++
