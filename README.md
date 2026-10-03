@@ -55,7 +55,7 @@ Vite / Rolldown / another host toolchain
 ES Modules
 ```
 
-TypeScript is an implementation detail and an intermediate target.
+TypeScript is goesm's output and the host toolchain's input: generated ES modules, one per Go package, that you do not write or edit by hand.
 
 `goesm` does not attempt to replace the Go parser, Go type system, Go Modules, or the JavaScript build ecosystem.
 
@@ -180,24 +180,25 @@ to `goesm`, while Vue remains responsible for the SFC and template layer.
 
 The initial work focuses on proving that ordinary, type-checked Go packages can be lowered to TypeScript and consumed as native ES modules while preserving Go semantics and package boundaries.
 
-The proof of concept in this repository loads packages with go/packages + go/types, lowers them to TypeScript plus a small runtime (`@goesm/runtime`), and uses esbuild's Go API to produce the ES modules. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design, what is implemented and what is not, [docs/gopherjs-comparison.md](docs/gopherjs-comparison.md) for how it differs from GopherJS, and [docs/example-output.md](docs/example-output.md) for generated TypeScript and JavaScript.
+The proof of concept in this repository loads packages with go/packages + go/types and lowers them to a tree of ESM-ready TypeScript files, one per Go package, plus a small runtime written in TypeScript (`@goesm/runtime`). Any bundler (Vite, Rolldown, esbuild) or TypeScript-aware runtime (Bun, Node.js with type stripping) consumes that tree directly. `goesm build` bundles the same tree with esbuild's Go API as a convenience. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design, what is implemented and what is not, [docs/gopherjs-comparison.md](docs/gopherjs-comparison.md) for how it differs from GopherJS, and [docs/example-output.md](docs/example-output.md) for generated TypeScript and JavaScript.
 
 ### Install
 
-goesm needs the Go toolchain (it loads packages with `go list`), Go 1.27 or later; an older `go` downloads 1.27 by itself through `GOTOOLCHAIN`. It does not need Node.js or npm: the runtime (`@goesm/runtime`) is embedded in the binary and bundled into the output of `goesm build`, so there is no npm package to install.
+goesm needs the Go toolchain (it loads packages with `go list`), Go 1.27 or later; an older `go` downloads 1.27 by itself through `GOTOOLCHAIN`. It does not need Node.js or npm: the runtime (`@goesm/runtime`) is embedded in the binary and written into the output (as `<dir>/@goesm/runtime/` by `emit-ts`, bundled by `build`), so there is no npm package to install.
 
 The recommended way is to add goesm as a tool of your module, so that it is built with the same toolchain as your code:
 
 ```sh
 go get -tool github.com/goesm-dev/goesm/cmd/goesm@latest
-go tool goesm build ./cart       # dist/cart.js
+go tool goesm emit-ts ./cart     # goesm-ts/<import path of cart>.ts + goesm-ts/@goesm/runtime/
+go tool goesm build ./cart       # or a bundled dist/cart.js
 ```
 
 Or install it on your `PATH`:
 
 ```sh
 go install github.com/goesm-dev/goesm/cmd/goesm@latest
-goesm build ./cart
+goesm emit-ts ./cart
 ```
 
 There are no prebuilt binaries: goesm runs `go` anyway, and building it with your own toolchain keeps its go/types in step with the Go your module uses. `goesm version` prints the goesm version and the Go it was built with. Release notes are on [GitHub Releases](https://github.com/goesm-dev/goesm/releases).
@@ -206,13 +207,38 @@ While goesm is experimental, releases are prereleases named `v0.0.1-beta.N`; `@l
 
 ### Usage
 
-Inputs are ordinary Go package patterns in an ordinary Go module:
+Inputs are ordinary Go package patterns in an ordinary Go module. `goesm emit-ts` writes the TypeScript tree:
 
 ```sh
 cd testdata/example
+go run ../../cmd/goesm emit-ts -o goesm-ts ./main   # -o defaults to goesm-ts
+```
+
+```text
+goesm-ts/
+├── example.com/app/main.ts    import * as mathx from "./mathx.ts"
+├── example.com/app/mathx.ts   import * as $rt from "../../@goesm/runtime/index.ts"
+└── @goesm/runtime/
+    ├── index.ts
+    ├── natives.ts
+    └── ...                    the other runtime files
+```
+
+The module of Go package `p` is `<dir>/<p>.ts` (standard library packages too: `strings.ts`, `internal/bytealg.ts`), and the runtime is `<dir>/@goesm/runtime/`. A Go import path cannot start with `@`, so the runtime never collides with a package. Modules import each other with relative specifiers ending in `.ts`, so no resolver, plugin or bundler configuration is needed. Import the entry package from your own code:
+
+```ts
+// index.ts in a Vite project, or run directly: bun index.ts / node index.ts (Node.js 22.18+)
+import { Result } from "./goesm-ts/example.com/app/main.ts";
+console.log(Result()); // 3
+```
+
+To type-check code importing the tree with `tsc`, enable `allowImportingTsExtensions`.
+
+`goesm build` is a convenience (and what the tests use): it writes the same tree to a temporary directory and bundles it with esbuild's Go API.
+
+```sh
 go run ../../cmd/goesm build ./main          # dist/main.js (+ .js.map pointing at .go)
-go run ../../cmd/goesm build -split ./main   # one ES module per Go package
-go run ../../cmd/goesm emit-ts ./main        # inspect the generated TypeScript
+go run ../../cmd/goesm build -split ./main   # one ES module per Go package: dist/example.com/app/main.js, ...
 ```
 
 ```js
@@ -230,7 +256,7 @@ goesm uses go/types from the toolchain it was built with, so build it with the t
 
 ```sh
 mise install           # Go, Node.js and Bun at the versions pinned in mise.toml (CI uses the same)
-npm ci --prefix test   # oxlint for TestOxlint (optional locally; required in CI)
+npm ci --prefix test   # tsc and oxlint for TestTSC / TestOxlint (optional locally; required in CI)
 go test ./...          # needs Go 1.27+ and Node.js 22+; Bun is optional
 ```
 
@@ -240,3 +266,4 @@ go test ./...          # needs Go 1.27+ and Node.js 22+; Bun is optional
 - `TestExamples` builds `examples/*`, runs each `index.mjs` under Node (and Bun when installed) and compares with its `output.txt`.
 - `TestOxlint` lints the ESM built from the fixtures (bundle and split) with oxlint's correctness rules and fails on any finding; `test/lint_test.go` lists the four rules turned off for generated code and why.
 - `TestStdlibStatus -v` reports which standard library packages lower and how many of their functions are stubs.
+- `TestTSC` type-checks the emitted TypeScript (fixtures, examples, runtime) with tsc in strict mode, together with a consumer that checks exported Go APIs have their Go types in TypeScript. Like `TestOxlint` it needs `npm ci --prefix test` and is required in CI. Comparing results with native Go stays the semantic gate.

@@ -6,28 +6,32 @@
 // private to this module, which leaves room for TypedArray/ArrayBuffer backed
 // slices (needed for unsafe and efficient []byte) later.
 
-import { copy } from "./iface";
-import { runtimePanic } from "./panic";
-import { arrayElemPtr, assign } from "./ptr";
-import { isAggregate, Type } from "./types";
+import { copy } from "./iface.ts";
+import { runtimePanic } from "./panic.ts";
+import { arrayElemPtr, assign } from "./ptr.ts";
+import { isAggregate, Type } from "./types.ts";
 
 export class Slice<T> {
-  constructor(
-    public $array: T[],
-    public $offset: number,
-    public $length: number,
-    public $capacity: number,
-  ) {}
+  $array: T[];
+  $offset: number;
+  $length: number;
+  $capacity: number;
+  constructor($array: T[], $offset: number, $length: number, $capacity: number) {
+    this.$array = $array;
+    this.$offset = $offset;
+    this.$length = $length;
+    this.$capacity = $capacity;
+  }
 }
 
 export type S<T> = Slice<T> | null;
 
-export function sliceLit<T>(arr: T[]): Slice<T> {
+export function sliceLit<T = any>(arr: T[]): Slice<T> {
   return new Slice(arr, 0, arr.length, arr.length);
 }
 
 // makeSlice implements make([]T, len, cap); cap is undefined for make([]T, len).
-export function makeSlice<T>(len: number, cap: number | undefined, zero: () => T): Slice<T> {
+export function makeSlice<T = any>(len: number, cap: number | undefined, zero: () => T): Slice<T> {
   if (len < 0 || !Number.isInteger(len)) runtimePanic("makeslice: len out of range");
   cap = cap ?? len;
   if (cap < len) runtimePanic("makeslice: cap out of range");
@@ -48,13 +52,13 @@ function indexPanic(i: number, n: number): never {
   runtimePanic(`index out of range [${i}] with length ${n}`);
 }
 
-export function index<T>(s: S<T>, i: number): T {
+export function index<T = any>(s: S<T>, i: number): T {
   const n = s === null ? 0 : s.$length;
   if (i < 0 || i >= n) indexPanic(i, n);
   return s!.$array[s!.$offset + i];
 }
 
-export function setIndex<T>(s: S<T>, i: number, v: T): void {
+export function setIndex<T = any>(s: S<T>, i: number, v: T): void {
   const n = s === null ? 0 : s.$length;
   if (i < 0 || i >= n) indexPanic(i, n);
   s!.$array[s!.$offset + i] = v;
@@ -72,7 +76,7 @@ function boundsPanic(lo: number, hi: number, max: number, c: number): never {
 }
 
 // slice implements s[lo:hi:max] on a slice.
-export function slice<T>(s: S<T>, lo?: number, hi?: number, max?: number): S<T> {
+export function slice<T = any>(s: S<T>, lo?: number, hi?: number, max?: number): S<T> {
   const c = s === null ? 0 : s.$capacity;
   const l = lo ?? 0;
   const h = hi ?? (s === null ? 0 : s.$length);
@@ -83,7 +87,7 @@ export function slice<T>(s: S<T>, lo?: number, hi?: number, max?: number): S<T> 
 }
 
 // sliceArray implements a[lo:hi:max] on an (addressable) array.
-export function sliceArray<T>(a: T[], lo?: number, hi?: number, max?: number): Slice<T> {
+export function sliceArray<T = any>(a: T[], lo?: number, hi?: number, max?: number): Slice<T> {
   const c = a.length;
   const l = lo ?? 0;
   const h = hi ?? c;
@@ -107,7 +111,7 @@ function grow(oldCap: number, needed: number): number {
 // append implements the append builtin. et, the element type, is passed
 // when elements may be aggregates (structs / arrays are objects): they are
 // then copied, since a slice element is a value.
-export function append<T>(s: S<T>, vals: T[], zero: () => T, et?: Type): S<T> {
+export function append<T = any>(s: S<T>, vals: T[], zero: () => T, et?: Type): S<T> {
   if (vals.length === 0) return s;
   const agg = et !== undefined && isAggregate(et);
   // Copy aggregate inputs first: they may alias the destination slots
@@ -136,19 +140,19 @@ export function append<T>(s: S<T>, vals: T[], zero: () => T, et?: Type): S<T> {
 }
 
 // sliceToArray implements the conversion [n]T(s), which needs len(s) >= n.
-export function sliceToArray<T>(s: S<T>, n: number): T[] {
+export function sliceToArray<T = any>(s: S<T>, n: number): T[] {
   const l = s === null ? 0 : s.$length;
   if (l < n) runtimePanic(`cannot convert slice with length ${l} to array or pointer to array with length ${n}`);
   return toArray(slice(s, 0, n));
 }
 
-export function toArray<T>(s: S<T>): T[] {
+export function toArray<T = any>(s: S<T>): T[] {
   if (s === null) return [];
   return s.$array.slice(s.$offset, s.$offset + s.$length);
 }
 
 // copy implements the copy builtin. src may be a string (copy([]byte, string)).
-export function sliceCopy<T>(dst: S<T>, src: S<T> | string, et?: Type): number {
+export function sliceCopy<T = any>(dst: S<T>, src: S<T> | string, et?: Type): number {
   if (dst === null || src === null) return 0;
   if (typeof src === "string") {
     const n = Math.min(dst.$length, src.length);
@@ -170,7 +174,7 @@ export function sliceCopy<T>(dst: S<T>, src: S<T> | string, et?: Type): number {
   return n;
 }
 
-export function sliceClear<T>(s: S<T>, zero: () => T, et?: Type): void {
+export function sliceClear<T = any>(s: S<T>, zero: () => T, et?: Type): void {
   if (s === null) return;
   const agg = et !== undefined && isAggregate(et);
   for (let i = 0; i < s.$length; i++) {
@@ -211,7 +215,7 @@ export function sliceAny(x: any, lo?: number, hi?: number): any {
 // unsafe.String) for x a slice or array: a slice of length and capacity n
 // over x's backing array starting at element i. checked: the operand was
 // &x[i], which panics like x[i] when i is out of range.
-export function unsafeSlice<T>(x: S<T> | T[] | null, i: number, n: number, checked: boolean): S<T> {
+export function unsafeSlice<T = any>(x: S<T> | T[] | null, i: number, n: number, checked: boolean): S<T> {
   if (n < 0) runtimePanic("unsafe.Slice: len out of range");
   let arr: T[], off: number, len: number, c: number;
   if (x === null) {
@@ -230,7 +234,7 @@ export function unsafeSlice<T>(x: S<T> | T[] | null, i: number, n: number, check
 
 // sliceData implements unsafe.SliceData: a pointer to the first element of
 // the backing array (the element object itself for aggregates).
-export function sliceData<T>(s: S<T>, aggregate: boolean): any {
+export function sliceData<T = any>(s: S<T>, aggregate: boolean): any {
   if (s === null || s.$capacity === 0) return null;
   if (aggregate) return s.$array[s.$offset];
   return arrayElemPtr(s.$array, s.$offset);

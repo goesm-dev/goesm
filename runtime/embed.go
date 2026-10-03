@@ -1,6 +1,7 @@
 // Package runtime embeds the @goesm/runtime TypeScript sources so that the
 // goesm binary is self-contained. The runtime is written in TypeScript and is
-// compiled by esbuild together with the generated code; goesm never executes it.
+// emitted next to the generated modules (@goesm/runtime/*.ts), for whichever
+// bundler consumes them; goesm never executes it.
 package runtime
 
 import (
@@ -12,7 +13,7 @@ import (
 
 // Files holds runtime/src/*.ts.
 //
-//go:embed package.json src/*.ts
+//go:embed src/*.ts
 var Files embed.FS
 
 // NativeName is the export of runtime/src/natives.ts implementing the
