@@ -851,3 +851,210 @@ func NilArrayPointerIndex() string {
 	var p *[3]int
 	return recoverMsg(func() { _ = p[1] })
 }
+
+// ---- goto (forward) ----
+
+func GotoForward() []int {
+	var out []int
+	for i := 0; i < 10; i++ {
+		if i == 3 {
+			goto done
+		}
+		out = append(out, i)
+	}
+	out = append(out, 100)
+done:
+	out = append(out, -1)
+	return out
+}
+
+func gotoSearch(target int) string {
+	s := ""
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 3; j++ {
+			if i*j == target {
+				goto found
+			}
+		}
+	}
+	s += "none"
+	goto end
+found:
+	s += "found"
+end:
+	n := len(s)
+	return s + "!" + string(rune('0'+n))
+}
+
+func GotoLabels() []string { return []string{gotoSearch(2), gotoSearch(5)} }
+
+// ---- range-over-func: branches out of nested statements ----
+
+func RangeFuncNestedReturn() []int {
+	find := func(target int) (int, int) {
+		for i := range Count(5) {
+			for j := 0; j < 5; j++ {
+				if i*j == target {
+					return i, j
+				}
+			}
+		}
+		return -1, -1
+	}
+	a, b := find(6)
+	c, d := find(100)
+	return []int{a, b, c, d}
+}
+
+func RangeFuncNestedRangeReturn() int {
+	for i := range Count(4) {
+		for j := range Count(4) {
+			if i+j == 5 {
+				return i*10 + j
+			}
+		}
+	}
+	return -1
+}
+
+func RangeFuncLabeled() []int {
+	var out []int
+outer:
+	for i := range Count(5) {
+		for j := range Count(5) {
+			switch {
+			case j > i:
+				continue outer
+			case i == 3:
+				break outer
+			}
+			out = append(out, i*10+j)
+		}
+	}
+	return out
+}
+
+func RangeFuncSwitchContinue() []int {
+	var out []int
+	for i := range Count(6) {
+		switch i % 2 {
+		case 0:
+			continue
+		}
+		out = append(out, i)
+	}
+	return out
+}
+
+func RangeFuncReturnWithDefer() (s string) {
+	defer func() { s += "!" }()
+	for i := range Count(5) {
+		for {
+			if i == 2 {
+				return "two"
+			}
+			break
+		}
+	}
+	return "none"
+}
+
+// ---- range-over-func: iterators that misuse yield ----
+
+func badSeq(yield func(int) bool) {
+	yield(1)
+	yield(2)
+}
+
+var savedYield func(int) bool
+
+func savingSeq(yield func(int) bool) {
+	savedYield = yield
+	yield(1)
+}
+
+func recoveringSeq(yield func(int) bool) {
+	defer func() { recover() }()
+	yield(1)
+}
+
+func panicContinueSeq(yield func(int) bool) {
+	func() {
+		defer func() { recover() }()
+		yield(1)
+	}()
+	yield(2)
+}
+
+func rangeErr(f func()) (msg string) {
+	defer func() { msg = recover().(error).Error() }()
+	f()
+	return "no panic"
+}
+
+func RangeFuncMisuse() []string {
+	return []string{
+		rangeErr(func() {
+			for range badSeq {
+				break
+			}
+		}),
+		rangeErr(func() {
+			for range savingSeq {
+			}
+			savedYield(2)
+		}),
+		rangeErr(func() {
+			for range recoveringSeq {
+				panic("body")
+			}
+		}),
+		rangeErr(func() {
+			for range panicContinueSeq {
+				panic("body")
+			}
+		}),
+	}
+}
+
+// ---- value receivers are copies even when captured or sliced ----
+
+type Counter3 struct {
+	n   int
+	arr [3]int
+}
+
+func (c Counter3) Getter() func() int { return func() int { return c.n } }
+
+func (c Counter3) Elems() []int { return c.arr[:] }
+
+func ValueReceiverNotAliased() []int {
+	c := Counter3{n: 1, arr: [3]int{1, 2, 3}}
+	g := c.Getter()
+	s := c.Elems()
+	c.n = 2
+	c.arr[0] = 9
+	s[1] = 7
+	return []int{g(), s[0], s[1], c.arr[1]}
+}
+
+// ---- comma-ok forms in package variable initialisers ----
+
+var pkgMap = map[string]int{"x": 1}
+var pkgV, pkgOk = pkgMap["x"]
+var pkgMissing, pkgOk2 = pkgMap["y"]
+var pkgAny any = 3
+var pkgN, pkgIsInt = pkgAny.(int)
+var pkgS, pkgIsStr = pkgAny.(string)
+var pkgCh = func() chan int {
+	c := make(chan int, 1)
+	c <- 5
+	close(c)
+	return c
+}()
+var pkgRecv, pkgRecvOk = <-pkgCh
+var pkgRecv2, pkgRecvOk2 = <-pkgCh
+
+func PackageCommaOk() []any {
+	return []any{pkgV, pkgOk, pkgMissing, pkgOk2, pkgN, pkgIsInt, pkgS, pkgIsStr, pkgRecv, pkgRecvOk, pkgRecv2, pkgRecvOk2}
+}

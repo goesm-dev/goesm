@@ -1,0 +1,4 @@
+Square(12): 144
+SumSquares returns a Promise: true
+SumSquares(100, 4): 338350
+Count(8, 1000): 8000

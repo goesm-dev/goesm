@@ -35,6 +35,7 @@ JavaScript ESM (+ .go を指す source map)
 ```
 cmd/goesm/            CLI: goesm build / goesm emit-ts
 internal/loader/      go/packages による frontend と診断 (go list / go/parser / go/types の layer 付き)
+internal/natives/     goesm が持つ stdlib package の Go source 置換 (runtime、internal/reflectlite、sync)
 internal/lower/       typed AST → TypeScript lowering
   program.go          whole-program 解析 (address-taken 変数、blocking 解析)
   emit.go decl.go     package = 1 TS module、型 descriptor、struct class、method table
@@ -74,7 +75,7 @@ docs/                 GopherJS 比較、生成物の実例
 
 * **1 Go package = 1 TypeScript module = 1 ES module**。Go の import は `import * as mathx from "go:example.com/app/mathx"` として表現します。`go:` scheme は npm package と名前空間を分けるためのもので、import path 自体は Go のまま保持します。
   * `goesm build` (既定) は esbuild が 1 bundle (`dist/main.js`) にまとめます。
-  * `goesm build -split` は package ごとに `dist/example.com/app/mathx.js` を出し、Go の import が `import * as mathx from "./mathx.js"` という ESM dependency として残ります (runtime は `dist/@goesm/runtime.js`)。
+  * `goesm build -split` は package ごとに `dist/example.com/app/mathx.js` を出し、Go の import が `import * as mathx from "./mathx.js"` という ESM dependency として残ります (runtime は `dist/@goesm/runtime.js` と `dist/@goesm/runtime/natives.js`)。
 * 名前: Go の識別子は `$` を含まないので、goesm が導入する名前はすべて `$` を含みます (`User$type`, `User$Adult`, `$rt`, `$t3`)。1 つの関数宣言内の Go object には一意な JS 名を振るため、Go の shadowing を JS の scope 規則で再現する必要がありません。
 * 定数式は go/types が評価した値をそのまま出力します (iota、型付き定数、`unsafe.Sizeof` 等)。
 * package 変数は `types.Info.InitOrder` の順で初期化し、次に `init()`、entry package に `func main` があれば最後に `main()` を実行します。
@@ -131,10 +132,10 @@ function F() {
 
 ### goroutine / channel / select
 
-* **blocking 解析** (whole program): channel 操作、default 無しの select、channel の range、blocking 関数の呼び出し/defer、blocking し得る動的呼び出しを含む関数を blocking とし、`async function` に lowering します。blocking 点はすべて `await`。それ以外は同期関数のままです (await のコストを払わない)。動的呼び出しは signature (関数値) / method 名 (interface) で保守的に解決します。
+* **blocking 解析** (whole program): channel 操作、default 無しの select、channel の range、blocking 関数の呼び出し/defer、blocking し得る動的呼び出しを含む関数を blocking とし、`async function` に lowering します。blocking 点はすべて `await`。それ以外は同期関数のままです (await のコストを払わない)。動的呼び出しは保守的に解決します。関数値経由の呼び出しは、同じ signature を持ち、どこかで値として使われる関数 (その場で呼ばれない関数 literal、callee 以外の位置で参照される関数や method) に届き得るとみなし、interface method の呼び出しは同名の method すべてに届き得るとみなします。
 * `go f(x)` は関数値と引数をその場で評価し、`$rt.go(closure)` が microtask として起動します。
 * channel は runtime 内の buffer と送受信 wait queue で表現し、即時完了できる場合は同期的に値を返し、block する場合だけ Promise を返します。unbuffered の handoff、close (待機中 sender への panic を含む)、`select` (ready な case から一様ランダム、default、nil channel は永久 block) を実装しています。
-* つまり「async/await に変換すれば Go と同じ」とは扱っていません。blocking の意味論は wait queue という runtime 側の境界にあり、async/await は「goroutine を中断・再開する手段」に限定しています。deadlock 検出、Goexit、goroutine-local な panic 状態、timer、`sync` は今後この境界の上に実装します。
+* つまり「async/await に変換すれば Go と同じ」とは扱っていません。blocking の意味論は wait queue という runtime 側の境界にあり、async/await は「goroutine を中断・再開する手段」に限定しています。`runtime.Goexit` (deferred 呼び出しは実行され、`recover` では止まらない) と `sync` の置換 (§9) はこの境界の上に実装しました。deadlock 検出、goroutine-local な panic 状態、timer も同様に載せます。
 * JS 境界: blocking する exported 関数は Promise を返します (例: `await Example()` は 42)。
 
 ## 6. runtime 構成 (`runtime/src`)
@@ -149,7 +150,8 @@ function F() {
 | `string.ts` | byte string ⇔ UTF-8 / rune、JS 境界変換 |
 | `int.ts` | 整数除算・剰余 (0 除算 panic)、shift、64-bit bit 演算、min / max |
 | `panic.ts` | GoPanic、runtime error 型、Defers、recover |
-| `chan.ts` | channel、select、goroutine 起動 |
+| `chan.ts` | channel、select、goroutine の起動と数 |
+| `natives.ts` | Go の body を持たない stdlib 関数の実装 (§9)。独立した module `@goesm/runtime/natives` で、関数ごとに 1 export なので使われないものは esbuild が落とす |
 | `interop.ts` | 型 descriptor に従う Go 値 → JSON 形 JS 値 (golden テスト・将来の JS ABI) |
 
 fixture を通すのに必要なものから実装しており、scheduler や reflect の先行実装はしていません。
@@ -158,7 +160,11 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 
 * **reflect**: codegen は named type identity、field 名・tag・embedded、method set (名前・signature)、型引数を runtime descriptor として常に残しています。`reflect.TypeOf` は interface 値の `t`、`reflect.Value` は (descriptor, 値 or pointer object) で実装でき、`Kind` は reflect と同じ番号です。reflect package 自体は Go source を target 置換 (後述) し、`internal/abi` 依存部分を descriptor に差し替える計画です。
 * **pointer 表現**: 現在は「aggregate は object 自体、他は accessor object」。`unsafe.Pointer` との相互変換を将来入れるため、pointer 生成は `ptr.ts` の関数に集約してあり、表現を差し替えられます。
-* **unsafe / linear memory**: 「JS に pointer は無いので非対応」とはしません。予定している方向は、(1) `[]byte` 等の数値 slice を TypedArray backing にする (slice の backing store は `slice.ts` の private な表現)、(2) `unsafe.Pointer` を (ArrayBuffer, byte offset) または (object, field) の tagged 表現にし、`unsafe.Slice` / `unsafe.String` / `unsafe.Add` を DataView 上で実装する、(3) 必要な package だけ linear memory (ArrayBuffer) 上に struct を layout する、の段階的導入です。現状 `unsafe` を使う箇所は「not supported yet」の goesm 診断になります。
+* **unsafe / linear memory**: 「JS に pointer は無いので非対応」とはしません。予定している方向は、(1) `[]byte` 等の数値 slice を TypedArray backing にする (slice の backing store は `slice.ts` の private な表現)、(2) `unsafe.Pointer` を (ArrayBuffer, byte offset) または (object, field) の tagged 表現にし、`unsafe.Slice` / `unsafe.String` / `unsafe.Add` を DataView 上で実装する、(3) 必要な package だけ linear memory (ArrayBuffer) 上に struct を layout する、の段階的導入です。現状は次のとおりです:
+  * `unsafe.Pointer` は pointer object そのものを保持するので、`*T` → `unsafe.Pointer` → `*T` は恒等変換です (`strings.Builder`、`sync/atomic.Pointer`、`internal/race` がこれに依存)。
+  * `unsafe.String(&b[i], n)`、`unsafe.String(unsafe.SliceData(b), n)`、`unsafe.Slice(&a[i], n)`、`unsafe.SliceData(s)` は slice / array の要素に対して動きます (同じ backing array 上の slice)。`unsafe.Slice(unsafe.StringData(s), n)` は copy しますが、byte は不変なので区別できません。
+  * 型 parameter の `unsafe.Sizeof` / `Alignof` は wasm の size で descriptor から計算します。
+  * メモリの再解釈 (異なる `T` への `(*T)(unsafe.Pointer(&u))`)、`uintptr` との相互変換、`unsafe.Add` は goesm 診断です。stdlib でこれを行う少数の関数は natives に置き換えています (`math.Float64bits`、`slices.overlaps` など)。
 
 ## 8. Source maps と diagnostics
 
@@ -166,49 +172,64 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * 生成 TS ごとに TS→Go の Source Map v3 を作り、TS に inline で添付します。esbuild はそれを読み込んで最終的な **JS→.go** の map を合成します (`sourcesContent` に Go source を含む)。Node の `--enable-source-maps` で panic の stack が `panics.go:NN` を指すことをテストしています。
 * 診断は layer を区別します:
   * `file.go:4:17: ... [go/types]` / `[go/parser]` / `[go list]` — Go frontend の error。元の `.go` 位置。
-  * `file.go:8:3: goto is not supported yet [goesm lowering]` — goesm の未対応。Go の compile error とは別物として表示。
+  * `file.go:8:3: backward goto is not supported yet [goesm lowering]` — goesm の未対応。Go の compile error とは別物として表示。
+  * stdlib package では、goesm がまだ lowering できない関数は error にしません。呼ばれると panic する stub (`goesm: <func> is not supported yet`) になり、CLI がその数を報告します (`-v` で最初の理由とともに一覧)。大半のプログラムはこれらに到達せず (`internal/abi` の gc 型 layout、complex など)、到達しないものは esbuild が落とします。
   * `internal error: esbuild rejected TypeScript generated by goesm ... [esbuild]` — goesm の bug。Go の error に見せかけません。
 
 ## 9. stdlib
 
-方針は「通常の Go source をそのまま compile する」です。TS への手移植から始めません。
+方針は「通常の Go source をそのまま compile する」で、TS への手移植はしません。GopherJS の natives と同様に、gc runtime に結び付いた少数の package には target 固有の置換が必要ですが、goesm ではそれも **Go source** として持ちます (`internal/natives/goroot/<import path>/`):
 
-現状 (`go test ./test -run TestStdlibStatus -v` で再現):
+| 置換する package | 置換の内容 |
+|---|---|
+| `runtime` | 他の package が使う exported API (`GOOS`、`Error`、`Goexit`、`Gosched`、`KeepAlive`、`Caller`、`MemStats` など)。scheduling とメモリは `@goesm/runtime` 側 |
+| `internal/reflectlite` | `Type` = runtime の型 descriptor、`Value` = (descriptor, 値 or pointer)。`errors.Is` / `errors.As`、`sort.Slice`、`context` に足りる範囲 |
+| `sync` | `Mutex`、`RWMutex`、`WaitGroup`、`Cond` は競合時に channel で待つ (block し得る箇所だけ async になる)。`Once`、`Map`、`Pool` は普通の Go |
 
-* `unicode`、`unicode/utf8`、`math/bits` は Go source のまま compile でき、golden テストで native Go と一致します (`testdata/semantics/stdlibuse`)。
-* `strings`、`strconv`、`slices`、`maps`、`encoding/json` は自 package 内の未対応箇所は少数 (goto、`unsafe.String`、`unsafe.Pointer`、`maps.clone` の linkname など) ですが、`errors` → `internal/reflectlite`、`iter` → `runtime` などを経由して **`runtime`・`internal/abi`・`internal/reflectlite`・`internal/runtime/*`・`sync/atomic`** に依存し、ここで数千件の診断になります。
+仕組み:
 
-これらは GopherJS の natives と同様に target 固有の置換が必要です。goesm では置換も **Go source** として持ち、`packages.Config.Overlay` で go/packages に渡す方針です (package graph は Go tooling から見えるまま、置換は goesm 自身が持つ固定の file 群で、依存 package から拡張されることはありません)。
+* loader は `packages.Config.ParseFile` を設定します。go/packages が `$GOROOT/src` 以下の置換対象 package の file を parse するとき、最初の file が置換 source になり、残りは空 file になります。したがって go/types はすべての importer を置換後の package に対して型検査し、go command が解決した package graph は変わりません。`packages.Config.Overlay` ではできません: `go tool goesm` の toolchain がある module cache 以下の file は go command が overlay を拒否します。
+* 型検査済みの import (置換後) で到達できる package だけを lowering するので、gc runtime の内部 (`internal/runtime/*` など) は外れます。
+* Go の body を持たない関数 (assembly、`//go:linkname` 宣言、置換で body を省いたもの) は `runtime/src/natives.ts` に、`types.Func.FullName` から決まる名前の export として実装します。export の有無は goesm が compile 時に確認します。メモリを再解釈する Go body を持つ関数も、短い固定 list (`natives.Override`) で natives に置き換えます: `math.Float64bits` など、64-bit の `math/bits` 関数 (BigInt により 2^53 未満で正確)、`slices.overlaps`、`internal/abi.NoEscape`。
+* 置換・override・natives は goesm に compile される固定の集合です。適用されるのは `$GOROOT/src` 以下の file だけで、依存 package の内容がこれを増やすことはできません。
+
+現状 (`go test ./test -run TestStdlibStatus -v`、golden テストは `testdata/semantics/stdlibuse`):
+
+* Go source のまま compile でき native Go と一致: `errors` (`Is`、`As`、`Join`、`Unwrap`)、`strings` (検索、split、fields、大文字小文字、`Builder`、`Replacer`、`EqualFold`)、`strconv` (整数の format、`Atoi`、quote、`NumError`)、`sort`、`slices`、`maps`、`sync`、`unicode`、`unicode/utf8`、`math/bits`。
+* `bitSize` 64 の `strconv` の parse と最短表現の float format は 64-bit 演算の正確さに依存し、誤った結果になります (`TestKnownGaps` で固定)。
+* `encoding/json` と `fmt` は `reflect` (と complex) が必要で、まだ置換していません。
 
 ## 10. Tooling compatibility と security
 
 * `.go` file は普通の Go で、goesm 専用 syntax・directive・magic comment はありません。fixture は `go vet` / `go build` / `go run` がそのまま通り、golden テストはまさに native Go 実行と比較しています。package graph は go command が解決したもので、govulncheck 等の call graph も変わりません。
-* 依存 package を import しても goesm 側でコードは実行されません。compiler plugin / extension 機構はありません。esbuild の plugin は goesm 内蔵の resolver (`go:` と `@goesm/runtime` の解決) だけです。
+* 依存 package を import しても goesm 側でコードは実行されません。compiler plugin / extension 機構はありません。esbuild の plugin は goesm 内蔵の resolver (`go:` と `@goesm/runtime` の解決) だけです。stdlib の置換と natives (§9) は goesm 内の固定の集合で、`$GOROOT/src` にだけ適用されます。stdlib 以外で body の無い Go 関数は error であり、hook にはなりません。
 * 懸念点: (1) go/packages は `go list` を実行するので、`GOFLAGS` などの環境、`go.work`、`GOPROXY` からの module 取得について go command と同じ trust 境界を継承します (goesm がそれを広げることはありません)。(2) 生成コードは Go の型安全性に依存しており、goesm の lowering bug は JS 上の memory safety ではなく誤動作として現れます (JS 自体は memory safe)。(3) 生成 ESM は `globalThis.reportError` 等の host API を使いますが、DOM API binding は未実装です。(4) `GoPanic` の message や source map の `sourcesContent` は Go source を含むため、公開 bundle に Go source が載ります (`SourcesContent` を外すオプションは未実装)。
 
 ## 11. 実装済み / 未実装 / native Go との差分
 
-**実装済み (native Go との golden テストで確認)**: package import、関数、多値返却、named result、closure、struct (値 copy、method、pointer method、embedding と promotion、比較)、array、slice (aliasing、append、copy、re-slice、nil)、map (struct / interface key、comma-ok、delete、nil map、range)、pointer (変数・field・要素・`new`、identity)、defer (評価順・named result の変更・LIFO)、panic / recover (runtime error、re-panic)、interface (dispatch、type assertion、type switch、比較、nil interface と nil pointer の区別)、generics (generic 関数、制約、generic type、Go 1.27 generic methods、型 identity)、method value / method expression、switch / fallthrough / label 付き break・continue、range over int、range-over-func (break / continue / return)、Go 1.22 の per-iteration loop 変数、8/16/32-bit 整数の wrap、整数 0 除算 panic、UTF-8 string と rune、goroutine、unbuffered / buffered channel、close、channel の range、select (default 含む)、package 変数の init order と `init()`。
+**実装済み (native Go との golden テストで確認)**: package import、関数、多値返却、named result、closure、struct (値 copy、method、pointer method、embedding と promotion、比較)、array、slice (aliasing、append、copy、re-slice、nil)、map (struct / interface key、comma-ok、delete、nil map、range)、pointer (変数・field・要素・`new`、identity)、defer (評価順・named result の変更・LIFO)、panic / recover (runtime error、re-panic)、interface (dispatch、type assertion、type switch、比較、nil interface と nil pointer の区別)、generics (generic 関数、制約と制約の method、interface 経由も含む generic type、型引数に従う演算子と変換、Go 1.27 generic methods、型 identity)、method value / method expression、switch / fallthrough / label 付き break・continue、前方への `goto`、range over int、range-over-func (入れ子の文からの break / continue / return、label 付き branch、yield を誤用する iterator に対する Go と同じ panic)、Go 1.22 の per-iteration loop 変数、8/16/32-bit 整数の wrap、整数 0 除算 panic、UTF-8 string と rune、goroutine、unbuffered / buffered channel、close、channel の range、select (default 含む)、`runtime.Goexit` / `Gosched`、package 変数の init order と `init()`、§9 に挙げた stdlib package。
 
 **未実装** (goesm 診断になるか、動作しないもの):
 * 64-bit 整数の正確な表現 (BigInt または hi/lo)、complex64/128
-* `unsafe`、`reflect`、`runtime` 置換、`sync` / `sync/atomic`、`time`、`fmt` / `strconv` / `strings` を含む大半の stdlib
-* `goto`、range-over-func の body 内での blocking / defer / label 付き branch、型 parameter 型の変数の address、型 parameter に依存する local type、slice から配列 pointer への変換 (`(*[N]T)(s)`)
-* deadlock 検出 ("all goroutines are asleep")、goroutine の preemption、`runtime.Goexit`、goroutine-local な recover 状態
+* `reflect`、`fmt`、`time`、`encoding/json`、`iter.Pull` (coroutine)、§7 を超える `unsafe`
+* 後方への `goto`、range-over-func の body 内での blocking 操作 / select / defer / goto (診断として報告)、型 parameter 型の変数の address、型 parameter に依存する local type、slice から配列 pointer への変換 (`(*[N]T)(s)`)
+* deadlock 検出 ("all goroutines are asleep")、goroutine の preemption、goroutine-local な recover 状態
 * JS からの呼び出し ABI (Go の値 ⇔ JS 値の自動変換)、DOM / `syscall/js` binding
 * `go 1.22` 未満の file における共有 loop 変数の range 意味論
 
-**native Go との既知の差分** (最初の 2 項目は `TestKnownGaps` の `Uint64Wrap`・`Int64Precision`・`AppendCap` で差分が存在することを固定。残りは決定的に比較できないため文書のみ):
+**native Go との既知の差分** (最初の 3 項目は `TestKnownGaps` の `Uint64Wrap`・`Int64Precision`・`AppendCap`・`StrconvParseInt64`・`FormatFloatShortest` で差分が存在することを固定。残りは決定的に比較できないため文書のみ):
 * `int`/`int64`/`uint64` が 2^53 を超えると不正確、64-bit overflow で wrap しない (`uint64(0)-1` が `-1`)。
+* stdlib のコードもこれを引き継ぐ: `strconv.ParseInt(s, 10, 64)` と最短表現の float format が誤った結果になる。
 * `append` の capacity 拡張は近似 (size class の丸めなし)。`cap()` の値が gc と異なることがある。
 * map の range 順は挿入順 (Go はランダム)。どちらも仕様上未定義。
 * `recover()` は deferred 関数から間接的に呼んでも効く (Go では直接呼んだときだけ)。await を挟んだ後の recover は nil を返す。
 * goroutine は blocking 点でしか切り替わらない (協調的)。blocking する exported 関数は JS からは Promise を返す。
 * 動的呼び出しの blocking 判定は signature / method 名で保守的に行うため、不要な `await` が入ることがある (意味は変わらない)。
 * `print` / `println` は Go ランタイムと同じ書式で stderr に出力するが、ポインタ・map・channel・func・スライス・interface の値は実アドレスではなく固定のアドレスを表示する。
+* `sync`: 最初の呼び出しの関数が block している間に 2 回目の `Once.Do` を呼ぶと、待たずに panic する。unlock 済み `Mutex` の unlock などの誤用は fatal error ではなく recover できる panic。`runtime.Caller` / `Callers` / `Stack` は何も報告せず、`SetFinalizer` は何もしない。
 
 ## 12. 次に実装すべき 3 項目
 
-1. **`runtime` などの target 置換を Go source overlay で導入**し、`errors` / `strconv` / `strings` / `slices` / `maps` / `sync` を Go source のまま通す (`unsafe.String` / `unsafe.Pointer` の最小対応を含む)。stdlib の大半がここで詰まっているため最優先です。
-2. **64-bit 整数の正確な表現** (`int64`/`uint64` は BigInt か hi/lo、`int` の扱いを決める) と complex。golden テストの対象を一気に広げられます。
-3. **goroutine runtime の完成**: deadlock 検出、goroutine-local な panic / recover 状態 (async 境界を跨ぐ recover)、`sync.Mutex` / `WaitGroup` / `time` timer、JS 呼び出し ABI (exported 関数の引数・戻り値の変換)。
+1. **64-bit 整数の正確な表現** (`int64`/`uint64` は BigInt か hi/lo、`int` の扱いを決める) と complex。stdlib が compile できるようになった今、誤った結果の主な原因はここです (`strconv` の 64-bit parse と float format、natives を経由しない `math/bits`)。
+2. **goroutine runtime の完成**: deadlock 検出、goroutine-local な panic / recover 状態 (async 境界を跨ぐ recover)、`time` timer、`iter.Pull`、JS 呼び出し ABI (exported 関数の引数・戻り値の変換)。
+3. **runtime descriptor の上に `reflect` を Go source 置換で実装** (`internal/reflectlite` の置換を拡張)。これで `fmt` と `encoding/json` が通るようになります。

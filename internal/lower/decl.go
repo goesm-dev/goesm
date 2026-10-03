@@ -5,6 +5,9 @@ import (
 	"go/ast"
 	"go/types"
 	"strings"
+
+	"github.com/goesm-dev/goesm/internal/natives"
+	goesmruntime "github.com/goesm-dev/goesm/runtime"
 )
 
 // emitNamedType emits the runtime descriptor (and class, for structs) of a
@@ -158,10 +161,19 @@ func (pe *pkgEmitter) methodWrapper(T types.Type, sel *types.Selection, tp tpSco
 // receiver type (empty otherwise).
 func (pe *pkgEmitter) recvTypeArgs(recvBase types.Type, tp tpScope) string {
 	named, ok := types.Unalias(recvBase).(*types.Named)
-	if !ok || named.TypeArgs().Len() == 0 {
+	if !ok {
 		return ""
 	}
 	var b strings.Builder
+	if named.TypeArgs().Len() == 0 {
+		// The origin of a generic type (its own method tables): the
+		// dictionaries are the type's parameters in scope.
+		for i := 0; i < named.TypeParams().Len(); i++ {
+			b.WriteString(tp.names[named.TypeParams().At(i)])
+			b.WriteString(", ")
+		}
+		return b.String()
+	}
 	for i := 0; i < named.TypeArgs().Len(); i++ {
 		b.WriteString(pe.typeDesc(named.TypeArgs().At(i), tp))
 		b.WriteString(", ")
@@ -257,6 +269,15 @@ func isFieldName(s *types.Struct, name string) bool {
 	return false
 }
 
+// funcDeclName is the JS name of a function or method declaration (not init).
+func (pe *pkgEmitter) funcDeclName(fd *ast.FuncDecl, fn *types.Func) string {
+	if fd.Recv != nil {
+		base, _ := derefType(fn.Signature().Recv().Type())
+		return pe.namedTypeName(types.Unalias(base).(*types.Named).Origin().Obj()) + "$" + fn.Name()
+	}
+	return jsName(fn.Name())
+}
+
 // emitFuncDecl emits a function or method declaration.
 func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	fn := pe.info.Defs[fd.Name].(*types.Func)
@@ -267,15 +288,14 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	var name string
 	switch {
 	case fd.Recv != nil:
-		base, _ := derefType(sig.Recv().Type())
-		name = pe.namedTypeName(types.Unalias(base).(*types.Named).Origin().Obj()) + "$" + fn.Name()
+		name = pe.funcDeclName(fd, fn)
 		pe.export(name, name)
 	case fd.Name.Name == "init":
 		name = pe.fresh("init")
 		pe.inits = append(pe.inits, name)
 		pe.initObjs = append(pe.initObjs, fn)
 	default:
-		name = jsName(fn.Name())
+		name = pe.funcDeclName(fd, fn)
 		if fn.Exported() {
 			pe.export(name, fn.Name())
 		}
@@ -288,9 +308,18 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 			pe.errorf(fd.Pos(), "internal error lowering %s: %v", fn.FullName(), r)
 		}
 	}()
-	if fd.Body == nil {
-		pe.errorf(fd.Pos(), "function %s has no Go body (assembly or linkname); it needs a target-specific Go replacement, which is not implemented yet", fn.FullName())
-		w.ln("%sfunction %s(...a: any[]): any { $rt.runtimePanic(%s); }", pe.tab.mark(fd.Pos()), name, jsString("goesm: "+fn.FullName()+" has no Go body"))
+	if fd.Body == nil || pe.std && natives.Override(fn.FullName()) {
+		// Standard library functions without a Go body (assembly,
+		// linkname, goesm replacements) are implemented by the runtime's
+		// natives.
+		switch {
+		case !pe.std:
+			pe.errorf(fd.Pos(), "function %s has no Go body (assembly or linkname); goesm implements such functions only for the standard library", fn.FullName())
+		case !goesmruntime.HasNative(fn.FullName()):
+			pe.errorf(fd.Pos(), "function %s has no Go body and no native implementation", fn.FullName())
+		}
+		pe.usesNatives = true
+		w.ln("%sfunction %s(...a: any[]): any { return $natives.%s(...a); }", pe.tab.mark(fd.Pos()), name, goesmruntime.NativeName(fn.FullName()))
 		return
 	}
 	fe := pe.newFuncEmitter(w, sig)

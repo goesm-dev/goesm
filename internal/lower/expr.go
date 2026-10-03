@@ -175,7 +175,12 @@ func (fe *funcEmitter) fieldBase(e *ast.SelectorExpr) (string, string) {
 	t := fe.info.TypeOf(e.X)
 	path := sel.Index()
 	for i, idx := range path {
-		base, _ := derefType(t)
+		base, isPtr := derefType(t)
+		if isPtr {
+			// A nil pointer (also an embedded one) is a Go panic, not a
+			// TypeError.
+			obj = "$rt.deref(" + obj + ")"
+		}
 		st := base.Underlying().(*types.Struct)
 		prop := fieldProp(st, idx)
 		if i == len(path)-1 {
@@ -249,6 +254,12 @@ func (fe *funcEmitter) methodTarget(e *ast.SelectorExpr, sel *types.Selection) (
 		t = st.Field(idx).Type()
 	}
 	if isIface(fn.Signature().Recv().Type()) {
+		if _, ok := types.Unalias(t).(*types.TypeParam); ok {
+			// A constraint method on a type-parameter-typed value: the
+			// value is unboxed (erasure), so dispatch through the
+			// dictionary's method table by boxing it with its type.
+			recv = fmt.Sprintf("$rt.box(%s, %s)", fe.desc(t), recv)
+		}
 		return "", recv, true
 	}
 	wantPtr := isPtrRecv(fn)
@@ -569,6 +580,11 @@ func wrap(s string, ii intInfo) string {
 	return s
 }
 
+func isTypeParam(t types.Type) bool {
+	_, ok := types.Unalias(t).(*types.TypeParam)
+	return ok
+}
+
 func isFloat32(t types.Type) bool {
 	b, ok := t.Underlying().(*types.Basic)
 	return ok && b.Kind() == types.Float32
@@ -577,6 +593,11 @@ func isFloat32(t types.Type) bool {
 // arith lowers a binary arithmetic/bitwise operator on lowered operands of
 // type t.
 func (fe *funcEmitter) arith(op token.Token, a, b string, t types.Type) string {
+	if isTypeParam(t) {
+		// The operand kind (and so wrapping, integer division, string
+		// concatenation) is that of the type argument.
+		return fmt.Sprintf("$rt.arithT(%s, %q, %s, %s)", fe.desc(t), op.String(), a, b)
+	}
 	if ii, ok := intKind(t); ok {
 		switch op {
 		case token.ADD, token.SUB:
@@ -612,6 +633,9 @@ func (fe *funcEmitter) arith(op token.Token, a, b string, t types.Type) string {
 }
 
 func (fe *funcEmitter) shift(op token.Token, a, n string, t types.Type) string {
+	if isTypeParam(t) {
+		return fmt.Sprintf("$rt.shiftT(%s, %v, %s, %s)", fe.desc(t), op == token.SHL, a, n)
+	}
 	ii, _ := intKind(t)
 	if ii.bits == 64 {
 		if op == token.SHL {
@@ -690,6 +714,9 @@ func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
 	case token.ADD:
 		return fe.expr(e.X)
 	case token.SUB:
+		if isTypeParam(t) {
+			return fmt.Sprintf("$rt.negT(%s, %s)", fe.desc(t), fe.expr(e.X))
+		}
 		if ii, ok := intKind(t); ok {
 			return wrap("-"+fe.expr(e.X), ii)
 		}
@@ -698,6 +725,9 @@ func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
 		}
 		return "(-" + fe.expr(e.X) + ")"
 	case token.XOR:
+		if isTypeParam(t) {
+			return fmt.Sprintf("$rt.notT(%s, %s)", fe.desc(t), fe.expr(e.X))
+		}
 		ii, _ := intKind(t)
 		if ii.bits == 64 {
 			return fmt.Sprintf("$rt.not64(%s, %v)", fe.expr(e.X), ii.signed)
@@ -722,8 +752,7 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 	}
 	if se, ok := fun.(*ast.SelectorExpr); ok {
 		if b, ok := fe.info.Uses[se.Sel].(*types.Builtin); ok { // unsafe.X
-			fe.errorf(e.Pos(), "unsafe.%s is not supported yet", b.Name())
-			return "undefined"
+			return fe.unsafeCall(e, b.Name())
 		}
 	}
 	sig := under(fe.info.TypeOf(e.Fun)).(*types.Signature)
@@ -763,6 +792,10 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 		callee = fe.expr(fun)
 		if _, ok := fun.(*ast.FuncLit); ok {
 			callee = "(" + callee + ")"
+		} else if !isStaticFunc(fe.info, fun) {
+			// Calling a nil function value panics after the arguments
+			// are evaluated.
+			callee = "(" + callee + " ?? $rt.nilFunc)"
 		}
 	}
 	all := targs
@@ -773,6 +806,24 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 		all += args
 	}
 	return fe.awaitIf(e, fmt.Sprintf("%s%s(%s)", fe.mark(e), callee, all))
+}
+
+// isStaticFunc reports whether fun names a declared function (never nil).
+func isStaticFunc(info *types.Info, fun ast.Expr) bool {
+	var id *ast.Ident
+	switch f := funcIdent(fun).(type) {
+	case *ast.Ident:
+		id = f
+	case *ast.SelectorExpr:
+		if _, ok := info.Selections[f]; ok {
+			return false
+		}
+		id = f.Sel
+	default:
+		return false
+	}
+	_, ok := info.Uses[id].(*types.Func)
+	return ok
 }
 
 func funcIdent(fun ast.Expr) ast.Expr {
@@ -854,6 +905,17 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 		return fe.convert(s, from, to)
 	}
 	tu, fu := under(to), under(from)
+	if isUnsafePointer(tu) || isUnsafePointer(fu) {
+		return fe.unsafeConversion(e, to, from, s)
+	}
+	if isTypeParam(to) || isTypeParam(from) {
+		// Truncation, wrapping and string conversions depend on the type
+		// arguments.
+		if tv := fe.info.Types[arg]; tv.Value != nil && !isTypeParam(from) {
+			from = types.Default(from)
+		}
+		return fmt.Sprintf("$rt.convertT(%s, %s, %s)", fe.desc(to), fe.desc(from), s)
+	}
 	if tb, ok := tu.(*types.Basic); ok {
 		fb, _ := fu.(*types.Basic)
 		switch {
@@ -881,9 +943,6 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 			return "$rt.fround(" + s + ")"
 		case tb.Info()&types.IsFloat != 0:
 			return s
-		case tb.Kind() == types.UnsafePointer:
-			fe.errorf(e.Pos(), "conversion to unsafe.Pointer is not supported yet")
-			return s
 		}
 	}
 	if sl, ok := tu.(*types.Slice); ok {
@@ -907,9 +966,6 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 				return s
 			}
 		}
-	}
-	if fb, ok := fu.(*types.Basic); ok && fb.Kind() == types.UnsafePointer {
-		fe.errorf(e.Pos(), "conversion from unsafe.Pointer is not supported yet")
 	}
 	if st, ok := tu.(*types.Struct); ok && !types.Identical(to, from) && !isGenericType(to) && !isGenericType(from) {
 		// Another struct type: build an instance of its class so the value
@@ -1083,4 +1139,97 @@ func (fe *funcEmitter) elemTypeArg(elem types.Type) string {
 		return ", " + fe.desc(elem)
 	}
 	return ""
+}
+
+// ---- unsafe ----
+//
+// An unsafe.Pointer holds the pointer object itself (see runtime/src/ptr.ts):
+// converting a pointer to unsafe.Pointer and back to the same pointer type is
+// the identity. There is no address space, so reinterpreting memory as
+// another type, pointer arithmetic and conversions to and from uintptr are
+// diagnosed. unsafe.String and unsafe.Slice are supported where their pointer
+// operand is an element of a slice or array (&x[i], unsafe.SliceData(x)).
+
+func isUnsafePointer(t types.Type) bool {
+	b, ok := t.(*types.Basic)
+	return ok && b.Kind() == types.UnsafePointer
+}
+
+func (fe *funcEmitter) unsafeConversion(e *ast.CallExpr, to, from types.Type, s string) string {
+	tu, fu := under(to), under(from)
+	if isUnsafePointer(tu) && isUnsafePointer(fu) {
+		return s
+	}
+	if isUnsafePointer(tu) {
+		if _, ok := fu.(*types.Pointer); ok {
+			return s
+		}
+		fe.errorf(e.Pos(), "conversion from %s to unsafe.Pointer is not supported (goesm has no address space)", from)
+		return s
+	}
+	tp, ok := tu.(*types.Pointer)
+	if !ok {
+		fe.errorf(e.Pos(), "conversion from unsafe.Pointer to %s is not supported (goesm has no address space)", to)
+		return s
+	}
+	// (*T)(unsafe.Pointer(p)) with p of type *U reinterprets U's memory as T.
+	if inner, ok := unparen(e.Args[0]).(*ast.CallExpr); ok && len(inner.Args) == 1 {
+		if tv, ok := fe.info.Types[inner.Fun]; ok && tv.IsType() && isUnsafePointer(under(tv.Type)) {
+			if up, ok := under(fe.info.TypeOf(inner.Args[0])).(*types.Pointer); ok && !types.Identical(under(up.Elem()), under(tp.Elem())) {
+				fe.errorf(e.Pos(), "reinterpreting %s as %s through unsafe.Pointer is not supported", up, to)
+			}
+		}
+	}
+	return s
+}
+
+// unsafeElem matches a pointer operand that addresses an element of a slice
+// or array: &x[i] or unsafe.SliceData(x). It returns the slice or array
+// expression and the index; checked reports whether x[i] must be in range.
+func (fe *funcEmitter) unsafeElem(ptr ast.Expr) (base, idx string, checked, ok bool) {
+	switch p := unparen(ptr).(type) {
+	case *ast.UnaryExpr:
+		if ix, isIdx := unparen(p.X).(*ast.IndexExpr); p.Op == token.AND && isIdx {
+			switch under(fe.info.TypeOf(ix.X)).(type) {
+			case *types.Slice, *types.Array, *types.Pointer:
+				return fe.expr(ix.X), fe.expr(ix.Index), true, true
+			}
+		}
+	case *ast.CallExpr:
+		if se, isSel := unparen(p.Fun).(*ast.SelectorExpr); isSel {
+			if b, isB := fe.info.Uses[se.Sel].(*types.Builtin); isB && b.Name() == "SliceData" {
+				return fe.expr(p.Args[0]), "0", false, true
+			}
+		}
+	}
+	return "", "", false, false
+}
+
+func (fe *funcEmitter) unsafeCall(e *ast.CallExpr, name string) string {
+	m := fe.mark(e)
+	switch name {
+	case "String":
+		if base, idx, checked, ok := fe.unsafeElem(e.Args[0]); ok {
+			return fmt.Sprintf("%s$rt.bytesToString($rt.unsafeSlice(%s, %s, %s, %v))", m, base, idx, fe.expr(e.Args[1]), checked)
+		}
+	case "Slice":
+		if base, idx, checked, ok := fe.unsafeElem(e.Args[0]); ok {
+			return fmt.Sprintf("%s$rt.unsafeSlice(%s, %s, %s, %v)", m, base, idx, fe.expr(e.Args[1]), checked)
+		}
+		if c, ok := unparen(e.Args[0]).(*ast.CallExpr); ok {
+			if se, ok := unparen(c.Fun).(*ast.SelectorExpr); ok {
+				if b, ok := fe.info.Uses[se.Sel].(*types.Builtin); ok && b.Name() == "StringData" {
+					// The bytes of a string are immutable, so a copy is
+					// indistinguishable from an alias.
+					return fmt.Sprintf("%s$rt.stringToBytes($rt.substr(%s, 0, %s))", m, fe.expr(c.Args[0]), fe.expr(e.Args[1]))
+				}
+			}
+		}
+	case "Sizeof", "Alignof": // not constant: the operand's type involves a type parameter
+		return fmt.Sprintf("%s$rt.%sOf(%s)", m, strings.ToLower(name[:len(name)-2]), fe.desc(fe.info.TypeOf(e.Args[0])))
+	case "SliceData":
+		return fmt.Sprintf("%s$rt.sliceData(%s, %v)", m, fe.expr(e.Args[0]), isAggregate(under(fe.info.TypeOf(e.Args[0])).(*types.Slice).Elem()))
+	}
+	fe.errorf(e.Pos(), "unsafe.%s is not supported in this form (goesm has no address space)", name)
+	return "undefined"
 }
