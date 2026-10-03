@@ -74,6 +74,13 @@ export function fmtIface(v: any): string {
   return v === null ? "(0x0,0x0)" : `(${addr},${addr})`;
 }
 
+// fmtComplex formats a complex value for print/println like the Go runtime:
+// strconv.FormatComplex(c, 'g', -1, 2*bits), e.g. (1+2i).
+export function fmtComplex(c: { re: number; im: number }, bits: number): string {
+  const im = fmtFloat(c.im, bits);
+  return "(" + fmtFloat(c.re, bits) + (im[0] === "+" || im[0] === "-" ? im : "+" + im) + "i)";
+}
+
 // fmtFloat formats a float for print/println like the Go runtime does:
 // strconv.FormatFloat(v, 'g', -1, bits).
 export function fmtFloat(v: number, bits: number): string {

@@ -42,18 +42,18 @@ Only tests whose recipe is a bare `// run` are selected. Tests with arguments or
 
 ## Results
 
-Go 1.27.0 `test/` directory, Node.js 22, goesm at #1's head of 2026-10-03 (with `errors`, `strings`, `strconv`, `sort`, `slices`, `maps` and `sync` compiled from Go source):
+Go 1.27.0 `test/` directory, Node.js 22, goesm at main of 2026-10-03 (after #5, which added complex numbers and fixed most of the bugs this suite found first):
 
 | directory | pass rate | skipped |
 |---|---|---|
-| `test/` | 36.0% (49/136) | 9 |
+| `test/` | 46.3% (63/136) | 9 |
 | `chan/` | 58.8% (10/17) | 0 |
-| `fixedbugs/` | 59.4% (366/616) | 30 |
+| `fixedbugs/` | 60.6% (373/616) | 30 |
 | `interface/` | 72.7% (8/11) | 0 |
-| `ken/` | 72.5% (29/40) | 0 |
-| `typeparam/` | 47.5% (67/141) | 0 |
-| **total** | **55.0% (529/961)** | 39 |
-| tests without imports | 89.8% (460/512) | |
+| `ken/` | 82.5% (33/40) | 0 |
+| `typeparam/` | 50.4% (71/141) | 0 |
+| **total** | **58.1% (558/961)** | 39 |
+| tests without imports | 94.7% (485/512) | |
 
 With `GOESM_CONFORMANCE_NATIVE=1`, native `go run` reproduces the `.out` file for every selected test except 11 that shell out to the go command (`os/exec`), which goesm cannot build anyway.
 
@@ -65,33 +65,26 @@ Tests that import a standard library package, by package (a test counts once for
 | `runtime` | 26.4% (29/110) |
 | `reflect` | 0.0% (0/68) |
 | `os` | 0.0% (0/58) |
-| `unsafe` | 21.8% (12/55) |
-| `strings` | 23.8% (10/42) |
-| `math` | 13.8% (4/29) |
+| `unsafe` | 23.6% (13/55) |
+| `strings` | 26.2% (11/42) |
+| `math` | 20.7% (6/29) |
 | `time` | 0.0% (0/19) |
 | `strconv` | 18.8% (3/16) |
 | `sync` | 20.0% (3/15) |
 
 The suite prints this table for every run. The two biggest blockers are:
 
-* **complex numbers**: `fmt` depends on `complex128` (`strconv.FormatComplex`, `%v` of complex values), so every one of the 209 `fmt` tests stops at "unsupported basic type complex128". Supporting complex numbers is the change that unblocks the most tests.
-* **`os` output**: on `js/wasm`, `os.Stdout` writes through `syscall/js`, so 45 tests that use `os` panic with "syscall/js.valueGet is not supported yet".
+* **reflection in `fmt`**: `fmt` now compiles, but every `fmt` test panics at run time with "internal/abi.TypeOf is not supported yet" (246 tests): `fmt` formats through `reflect`, which needs goesm's type descriptors behind `internal/abi`.
+* **`os` output**: on `js/wasm`, `os.Stdout` writes through `syscall/js`, so 50 tests panic with "syscall/js.valueGet is not supported yet".
 
-Among the 512 tests without imports, the 52 failures fall into these groups:
+Among the 512 tests without imports, the 27 failures fall into these groups:
 
 | group | tests |
 |---|---|
-| not supported yet: complex numbers | `convT2X`, `print`, `ken/cplx0`, `cplx1`, `cplx2`, `cplx5`, `fixedbugs/bug329`, `bug401`, `bug491`, `issue5793`, `issue58671`, `issue79812` |
 | not supported yet: backward `goto` | `ken/label`, `fixedbugs/bug005`, `bug178`, `issue40367`, `issue75569` |
 | not supported yet: other | `convert4` (slice to array pointer), `range4` and `fixedbugs/issue71675` (`defer` in a range-over-func body), `typeparam/issue54537` (address of a type-parameter variable) |
 | 64-bit integers (known difference) | `intcvt`, `printbig`, `divmod` (times out), `fixedbugs/issue2615`, `issue4448`, `issue43480`, `issue50854`, `issue70481`, `issue23305` |
 | indirect `recover` (known difference) | `fixedbugs/issue73916`, `issue73916b`, `issue73917`, `issue73920` |
-| goesm crashes (stack overflow) on recursive types (`type S []S`, `type Chan[T any] chan Chan[T]`) | `ddd`, `fixedbugs/issue17039`, `typeparam/issue47901` |
-| generics | `typeparam/typeswitch3` (`reading 'methods'`), `interfacearg` (internal error), `issue50833` (composite literal of type `P`), `issue376214` |
-| method expressions (promoted methods, literal receiver types) | `method`, `method7` |
-| `new(expr)` (Go 1.26) is lowered as `new(T)` | `newexpr` |
-| `defer x.M()` with a nil interface must panic at the defer statement | `fixedbugs/issue15975` |
-| nil dereference that should panic (`&*p`, method value of a nil pointer) | `nilptr2`, `method5` |
-| zero-size values (`[0]int`, `struct{}`) | `zerosize`, `fixedbugs/bug352` |
-| range assignment order: in `for i, x[i] = range y`, `x[i]` must use the old `i` | `range` |
-| too slow (no exit within 20 s) | `fixedbugs/issue13169` (100k channel sends), `issue34395` (100 MiB array literal) |
+| complex numbers | `fixedbugs/issue79812` (`T(0 + 0i)` for a float type parameter yields a complex value), `issue5793` (internal error lowering a multi-value complex call) |
+| generics | `typeparam/typeswitch3` (`reading 'methods'`) |
+| resources | `fixedbugs/issue34395` (a 100 MiB array literal: goesm needs over 4 GB to build it), `issue13169` (100k channel sends, no exit within 20 s) |

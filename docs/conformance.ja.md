@@ -42,18 +42,18 @@ GOTOOLCHAIN=go1.27.0 GOESM_CONFORMANCE=1 GOESM_GOROOT_TEST=/tmp/go/test \
 
 ## 結果
 
-Go 1.27.0 の `test/` ディレクトリ、Node.js 22、2026-10-03 時点の #1 の head（`errors`、`strings`、`strconv`、`sort`、`slices`、`maps`、`sync` を Go ソースからコンパイルする版）での結果です。
+Go 1.27.0 の `test/` ディレクトリ、Node.js 22、2026-10-03 時点の main（このスイートが最初に見つけたバグの大半の修正と複素数のサポートを入れた #5 のあと）での結果です。
 
 | ディレクトリ | 通過率 | skip |
 |---|---|---|
-| `test/` | 36.0% (49/136) | 9 |
+| `test/` | 46.3% (63/136) | 9 |
 | `chan/` | 58.8% (10/17) | 0 |
-| `fixedbugs/` | 59.4% (366/616) | 30 |
+| `fixedbugs/` | 60.6% (373/616) | 30 |
 | `interface/` | 72.7% (8/11) | 0 |
-| `ken/` | 72.5% (29/40) | 0 |
-| `typeparam/` | 47.5% (67/141) | 0 |
-| **合計** | **55.0% (529/961)** | 39 |
-| import のないテスト | 89.8% (460/512) | |
+| `ken/` | 82.5% (33/40) | 0 |
+| `typeparam/` | 50.4% (71/141) | 0 |
+| **合計** | **58.1% (558/961)** | 39 |
+| import のないテスト | 94.7% (485/512) | |
 
 `GOESM_CONFORMANCE_NATIVE=1` で確認すると、native の `go run` は対象テストのすべてで `.out` を再現します。例外は go コマンドを呼び出す（`os/exec`）11 本で、これはどのみち goesm ではビルドできません。
 
@@ -65,33 +65,26 @@ Go 1.27.0 の `test/` ディレクトリ、Node.js 22、2026-10-03 時点の #1 
 | `runtime` | 26.4% (29/110) |
 | `reflect` | 0.0% (0/68) |
 | `os` | 0.0% (0/58) |
-| `unsafe` | 21.8% (12/55) |
-| `strings` | 23.8% (10/42) |
-| `math` | 13.8% (4/29) |
+| `unsafe` | 23.6% (13/55) |
+| `strings` | 26.2% (11/42) |
+| `math` | 20.7% (6/29) |
 | `time` | 0.0% (0/19) |
 | `strconv` | 18.8% (3/16) |
 | `sync` | 20.0% (3/15) |
 
 この表は毎回の実行結果にも出力されます。大きな阻害要因は次の 2 つです。
 
-* **複素数**: `fmt` は `complex128` に依存している（`strconv.FormatComplex`、複素数の `%v`）ため、`fmt` を使う 209 本はすべて "unsupported basic type complex128" で止まります。最も多くのテストを通せるようになる変更は複素数のサポートです。
-* **`os` の出力**: `js/wasm` では `os.Stdout` への書き込みが `syscall/js` を経由するため、`os` を使う 45 本が "syscall/js.valueGet is not supported yet" で panic します。
+* **`fmt` のリフレクション**: `fmt` はコンパイルできるようになりましたが、`fmt` を使うテストはすべて実行時に "internal/abi.TypeOf is not supported yet" で panic します（246 本）。`fmt` は `reflect` を通して書式化するので、`internal/abi` の裏に goesm の型記述子が必要です。
+* **`os` の出力**: `js/wasm` では `os.Stdout` への書き込みが `syscall/js` を経由するため、50 本が "syscall/js.valueGet is not supported yet" で panic します。
 
-import のない 512 本のうち、失敗した 52 本は次のように分類できます。
+import のない 512 本のうち、失敗した 27 本は次のように分類できます。
 
 | 分類 | テスト |
 |---|---|
-| 未実装: 複素数 | `convT2X`、`print`、`ken/cplx0`、`cplx1`、`cplx2`、`cplx5`、`fixedbugs/bug329`、`bug401`、`bug491`、`issue5793`、`issue58671`、`issue79812` |
 | 未実装: 後方への `goto` | `ken/label`、`fixedbugs/bug005`、`bug178`、`issue40367`、`issue75569` |
 | 未実装: その他 | `convert4`（スライスから配列ポインタへの変換）、`range4` と `fixedbugs/issue71675`（range-over-func 本体の `defer`）、`typeparam/issue54537`（型パラメータ変数のアドレス） |
 | 64 ビット整数（既知の差異） | `intcvt`、`printbig`、`divmod`（タイムアウト）、`fixedbugs/issue2615`、`issue4448`、`issue43480`、`issue50854`、`issue70481`、`issue23305` |
 | 間接的な `recover`（既知の差異） | `fixedbugs/issue73916`、`issue73916b`、`issue73917`、`issue73920` |
-| 再帰型（`type S []S`、`type Chan[T any] chan Chan[T]`）で goesm がスタックオーバーフローする | `ddd`、`fixedbugs/issue17039`、`typeparam/issue47901` |
-| generics | `typeparam/typeswitch3`（`reading 'methods'`）、`interfacearg`（internal error）、`issue50833`（型 `P` の複合リテラル）、`issue376214` |
-| メソッド式（昇格メソッド、リテラル型のレシーバ） | `method`、`method7` |
-| `new(expr)`（Go 1.26）が `new(T)` として lower される | `newexpr` |
-| nil interface に対する `defer x.M()` は defer 文の時点で panic すべき | `fixedbugs/issue15975` |
-| panic すべき nil 参照（`&*p`、nil ポインタのメソッド値） | `nilptr2`、`method5` |
-| サイズ 0 の値（`[0]int`、`struct{}`） | `zerosize`、`fixedbugs/bug352` |
-| range の代入順序: `for i, x[i] = range y` の `x[i]` は代入前の `i` を使うべき | `range` |
-| 遅すぎる（20 秒以内に終了しない） | `fixedbugs/issue13169`（10 万回のチャネル送信）、`issue34395`（100 MiB の配列リテラル） |
+| 複素数 | `fixedbugs/issue79812`（float の型パラメータに対する `T(0 + 0i)` が複素数の値になる）、`issue5793`（多値を返す複素数の呼び出しの lowering で internal error） |
+| generics | `typeparam/typeswitch3`（`reading 'methods'`） |
+| リソース | `fixedbugs/issue34395`（100 MiB の配列リテラルのビルドに 4 GB 以上必要）、`issue13169`（10 万回のチャネル送信が 20 秒以内に終わらない） |

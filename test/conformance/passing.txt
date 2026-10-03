@@ -16,6 +16,7 @@ chan/sendstmt.go
 chan/sieve1.go
 chan/sieve2.go
 chan/zerosize.go
+clear.go
 closure.go
 closure1.go
 closure2.go
@@ -25,6 +26,8 @@ complit.go
 compos.go
 const4.go
 const8.go
+convT2X.go
+ddd.go
 decl.go
 defernil.go
 deferprint.go
@@ -129,12 +132,14 @@ fixedbugs/bug317.go
 fixedbugs/bug320.go
 fixedbugs/bug327.go
 fixedbugs/bug328.go
+fixedbugs/bug329.go
 fixedbugs/bug331.go
 fixedbugs/bug333.go
 fixedbugs/bug336.go
 fixedbugs/bug339.go
 fixedbugs/bug341.go
 fixedbugs/bug343.go
+fixedbugs/bug352.go
 fixedbugs/bug355.go
 fixedbugs/bug356.go
 fixedbugs/bug366.go
@@ -143,6 +148,7 @@ fixedbugs/bug370.go
 fixedbugs/bug372.go
 fixedbugs/bug375.go
 fixedbugs/bug378.go
+fixedbugs/bug401.go
 fixedbugs/bug405.go
 fixedbugs/bug406.go
 fixedbugs/bug409.go
@@ -167,6 +173,7 @@ fixedbugs/bug473.go
 fixedbugs/bug474.go
 fixedbugs/bug484.go
 fixedbugs/bug485.go
+fixedbugs/bug491.go
 fixedbugs/bug494.go
 fixedbugs/bug497.go
 fixedbugs/bug498.go
@@ -194,11 +201,13 @@ fixedbugs/issue15042.go
 fixedbugs/issue15252.go
 fixedbugs/issue15550.go
 fixedbugs/issue15902.go
+fixedbugs/issue15975.go
 fixedbugs/issue16249.go
 fixedbugs/issue16515.go
 fixedbugs/issue16760.go
 fixedbugs/issue16948.go
 fixedbugs/issue16985.go
+fixedbugs/issue17039.go
 fixedbugs/issue17752.go
 fixedbugs/issue18410.go
 fixedbugs/issue18595.go
@@ -317,6 +326,7 @@ fixedbugs/issue5704.go
 fixedbugs/issue57309.go
 fixedbugs/issue5753.go
 fixedbugs/issue5820.go
+fixedbugs/issue58671.go
 fixedbugs/issue59338.go
 fixedbugs/issue59367.go
 fixedbugs/issue59404part2.go
@@ -398,6 +408,7 @@ fixedbugs/shrd_zero_count.go
 fixedbugs/splitload_pointer_compare.go
 fixedbugs/walk_bounded_overshift_empty_bound.go
 float_lit.go
+floatcmp.go
 for.go
 func.go
 func5.go
@@ -423,6 +434,10 @@ ken/array.go
 ken/chan1.go
 ken/complit.go
 ken/convert.go
+ken/cplx0.go
+ken/cplx1.go
+ken/cplx2.go
+ken/cplx5.go
 ken/divmod.go
 ken/embed.go
 ken/for.go
@@ -449,10 +464,19 @@ ken/sliceslice.go
 ken/string.go
 ken/strvar.go
 literal.go
+method.go
 method3.go
+method5.go
+method7.go
 named.go
+newexpr.go
+nilptr2.go
+noinit.go
 peano.go
+print.go
+range.go
 range3.go
+recover2.go
 recover3.go
 reorder2.go
 simassign.go
@@ -467,7 +491,9 @@ typeparam/devirtualize2.go
 typeparam/dottype.go
 typeparam/eface.go
 typeparam/equal.go
+typeparam/interfacearg.go
 typeparam/issue23536.go
+typeparam/issue376214.go
 typeparam/issue42758.go
 typeparam/issue44688.go
 typeparam/issue46472.go
@@ -482,6 +508,7 @@ typeparam/issue47708.go
 typeparam/issue47723.go
 typeparam/issue47775b.go
 typeparam/issue47877.go
+typeparam/issue47901.go
 typeparam/issue47925.go
 typeparam/issue47925b.go
 typeparam/issue47925c.go
@@ -508,6 +535,7 @@ typeparam/issue50109b.go
 typeparam/issue50264.go
 typeparam/issue50417.go
 typeparam/issue50417b.go
+typeparam/issue50833.go
 typeparam/issue51236.go
 typeparam/issue51522a.go
 typeparam/issue51522b.go
@@ -530,3 +558,4 @@ typeparam/typeswitch7.go
 unsafe_string.go
 utf.go
 varinit.go
+zerosize.go
