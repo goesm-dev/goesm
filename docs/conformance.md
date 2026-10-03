@@ -55,7 +55,24 @@ Go 1.27.0 `test/` directory, Node.js 22:
 
 With `GOESM_CONFORMANCE_NATIVE=1`, native `go run` reproduces the `.out` file for every selected test except 11 that shell out to the go command (`os/exec`), which goesm cannot build anyway.
 
-Most failures are tests that import the standard library (`fmt` alone accounts for 107; then `runtime`, `reflect`, `os`, `math`), which goesm cannot compile yet (ARCHITECTURE.md §9). Among the 512 tests without imports, the 64 failures fall into these groups:
+Tests that import a standard library package, by package (a test counts once per import; only `unsafe` passes anywhere, when the test uses only `unsafe.Sizeof` and similar constants):
+
+| package | tests | pass |
+|---|---|---|
+| `fmt` | 209 | 0 |
+| `runtime` | 110 | 0 |
+| `reflect` | 68 | 0 |
+| `os` | 58 | 0 |
+| `unsafe` | 55 | 8 |
+| `strings` | 42 | 0 |
+| `math` | 29 | 0 |
+| `time` | 19 | 0 |
+| `strconv` | 16 | 0 |
+| `sync` | 15 | 0 |
+
+The suite prints this table for every run.
+
+Most failures are tests that import the standard library (107 tests import nothing but `fmt`), which goesm cannot compile yet (ARCHITECTURE.md §9). Among the 512 tests without imports, the 64 failures fall into these groups:
 
 | group | tests |
 |---|---|

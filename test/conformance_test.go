@@ -407,12 +407,15 @@ func firstDiff(want, got string) string {
 	return "outputs differ"
 }
 
-// summarize renders pass rates per directory, overall and for the tests
-// without imports, plus the most common failure reasons.
+// summarize renders pass rates per directory, overall, for the tests
+// without imports and per imported package, plus the most common failure
+// reasons. The per-package rates show which parts of the standard library
+// block the most programs.
 func summarize(results []conformanceResult) string {
 	type tally struct{ pass, run, skip int }
 	byDir := map[string]*tally{}
 	var all, noImports tally
+	byImport := map[string]*tally{}
 	statuses := map[string]int{}
 	reasons := map[string]int{}
 	for _, r := range results {
@@ -431,10 +434,22 @@ func summarize(results []conformanceResult) string {
 				t.pass++
 			}
 		}
-		if len(r.Imports) == 0 && !strings.HasPrefix(r.Status, "skip") {
-			noImports.run++
-			if r.Status == statusPass {
-				noImports.pass++
+		if !strings.HasPrefix(r.Status, "skip") {
+			ts := []*tally{&noImports}
+			if len(r.Imports) > 0 {
+				ts = nil
+				for _, p := range r.Imports {
+					if byImport[p] == nil {
+						byImport[p] = &tally{}
+					}
+					ts = append(ts, byImport[p])
+				}
+			}
+			for _, t := range ts {
+				t.run++
+				if r.Status == statusPass {
+					t.pass++
+				}
 			}
 		}
 		if strings.HasPrefix(r.Status, "fail") {
@@ -458,6 +473,17 @@ func summarize(results []conformanceResult) string {
 	}
 	fmt.Fprintf(&b, "  %-12s %s, %d skipped\n", "total", pct(all), all.skip)
 	fmt.Fprintf(&b, "  %-12s %s\n", "no imports", pct(noImports))
+	b.WriteString("  by imported package (top 15 by tests):\n")
+	imports := map[string]int{}
+	for p, t := range byImport {
+		imports[p] = t.run
+	}
+	for i, p := range sortedByCount(imports) {
+		if i == 15 {
+			break
+		}
+		fmt.Fprintf(&b, "    %-14s %s\n", p, pct(*byImport[p]))
+	}
 	b.WriteString("  by status:\n")
 	for _, s := range sortedByCount(statuses) {
 		fmt.Fprintf(&b, "    %4d %s\n", statuses[s], s)
