@@ -100,3 +100,8 @@ func MustPositive(x int) int {
 func Deref(p *int) int {
 	return *p
 }
+
+// IndexArrayPtr indexes p without recovering, for JS callers to observe.
+func IndexArrayPtr(p *[3]int) int {
+	return p[1]
+}

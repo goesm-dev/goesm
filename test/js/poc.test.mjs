@@ -95,7 +95,7 @@ test("panic surfaces as a GoPanic with a .go stack", async () => {
 
 test("a nil dereference surfaces as a GoPanic, not a TypeError", async () => {
   const m = await load("GOESM_PANICS");
-  assert.throws(() => m.Deref(null), (e) => {
+  for (const f of [() => m.Deref(null), () => m.IndexArrayPtr(null)]) assert.throws(f, (e) => {
     assert.ok(e instanceof m.$runtime.GoPanic);
     assert.equal(e.message, "panic: runtime error: invalid memory address or nil pointer dereference");
     return true;
