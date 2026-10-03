@@ -198,7 +198,7 @@ Those need target-specific replacements, like GopherJS's natives. goesm plans to
 * a JS calling ABI (automatic Go ⇔ JS value conversion), DOM / `syscall/js` bindings
 * shared loop variables in range loops for files with `go` < 1.22
 
-**Known differences from native Go** (`TestKnownGaps` asserts they still exist):
+**Known differences from native Go** (`TestKnownGaps` asserts that the first two still differ, via `Uint64Wrap`, `Int64Precision` and `AppendCap`; the rest are not deterministic enough to pin and are documented only):
 * `int`/`int64`/`uint64` are inexact above 2^53 and do not wrap on 64-bit overflow (`uint64(0)-1` is `-1`).
 * `append` capacity growth is approximated (no size-class rounding), so `cap()` can differ from gc.
 * Map range order is insertion order (Go randomises it; both are unspecified).
