@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
+	"path"
 	"strings"
 
 	"github.com/goesm-dev/goesm/internal/natives"
@@ -24,14 +25,20 @@ func (pe *pkgEmitter) emitNamedType(tn *types.TypeName) {
 		pe.export(name, name)
 	}
 	pe.export(name+"$type", name+"$type")
-	pkgPath := jsString(pe.pkg.PkgPath)
+	pkgPath := jsString(goPkgPath(pe.pkg.Types))
+	// Type strings use the package name (yaml.Node for gopkg.in/yaml.v3),
+	// which the runtime takes from the path unless told otherwise.
+	namedExtra, genericExtra := "", ""
+	if n := pe.pkg.Types.Name(); n != path.Base(goPkgPath(pe.pkg.Types)) {
+		namedExtra, genericExtra = ", [], "+jsString(n), ", "+jsString(n)
+	}
 	ctor := "undefined"
 	if isStruct {
 		ctor = name
 	}
 
 	if !generic {
-		pe.phase1.ln("%sconst %s$type: $rt.Type = $rt.named(%s, %s);", pe.tab.mark(tn.Pos()), name, pkgPath, jsString(tn.Name()))
+		pe.phase1.ln("%sconst %s$type: $rt.Type = $rt.named(%s, %s%s);", pe.tab.mark(tn.Pos()), name, pkgPath, jsString(tn.Name()), namedExtra)
 		var under string
 		if isStruct {
 			under = pe.structDesc(st, name, tpScope{})
@@ -63,7 +70,7 @@ func (pe *pkgEmitter) emitNamedType(tn *types.TypeName) {
 	w.ln("$rt.setUnderlying(t, %s, %s);", under, ctor)
 	pe.methodTables(w, "t", named, tp)
 	w.indent--
-	w.ln("});")
+	w.ln("}%s);", genericExtra)
 }
 
 // methodTables registers the method sets of T and *T on the descriptor.
@@ -78,25 +85,7 @@ func (pe *pkgEmitter) methodTables(w *writer, desc string, named *types.Named, t
 			T = types.NewPointer(named)
 			target = "$rt.ptrTo(" + desc + ")"
 		}
-		ms := types.NewMethodSet(T)
-		var entries []string
-		for i := 0; i < ms.Len(); i++ {
-			sel := ms.At(i)
-			fn := sel.Obj().(*types.Func)
-			if fn.Signature().TypeParams().Len() > 0 {
-				continue // generic methods cannot satisfy interfaces
-			}
-			mtp := tp
-			if rtp := fn.Origin().Signature().RecvTypeParams(); rtp != nil {
-				for j := 0; j < rtp.Len() && j < named.TypeParams().Len(); j++ {
-					mtp = mtp.with(rtp.At(j), tp.names[named.TypeParams().At(j)])
-				}
-			}
-			s := fn.Signature()
-			sig := types.NewSignatureType(nil, nil, nil, s.Params(), s.Results(), s.Variadic())
-			entries = append(entries, fmt.Sprintf("%s: [%s, %s]", jsString(methodKey(fn)), pe.methodWrapper(T, sel, tp), pe.typeDesc(sig, mtp)))
-		}
-		if len(entries) > 0 {
+		if entries := pe.methodEntries(T, named, tp); len(entries) > 0 {
 			w.ln("$rt.addMethods(%s, {", target)
 			w.indent++
 			for _, e := range entries {
@@ -106,6 +95,44 @@ func (pe *pkgEmitter) methodTables(w *writer, desc string, named *types.Named, t
 			w.ln("});")
 		}
 	}
+}
+
+// methodEntries returns the addMethods entries for the method set of T.
+// named is T's defined type (nil for unnamed struct types, whose methods
+// are promoted from embedded fields).
+func (pe *pkgEmitter) methodEntries(T types.Type, named *types.Named, tp tpScope) []string {
+	ms := types.NewMethodSet(T)
+	var entries []string
+	for i := 0; i < ms.Len(); i++ {
+		sel := ms.At(i)
+		fn := sel.Obj().(*types.Func)
+		if fn.Signature().TypeParams().Len() > 0 {
+			continue // generic methods cannot satisfy interfaces
+		}
+		mtp := tp
+		if rtp := fn.Origin().Signature().RecvTypeParams(); rtp != nil && named != nil {
+			for j := 0; j < rtp.Len() && j < named.TypeParams().Len(); j++ {
+				mtp = mtp.with(rtp.At(j), tp.names[named.TypeParams().At(j)])
+			}
+		}
+		s := fn.Signature()
+		sig := types.NewSignatureType(nil, nil, nil, s.Params(), s.Results(), s.Variadic())
+		entries = append(entries, fmt.Sprintf("%s: [%s, %s]", jsString(methodKey(fn)), pe.methodWrapper(T, sel, tp), pe.typeDesc(sig, mtp)))
+	}
+	return entries
+}
+
+// promotedMethods reports whether t is an unnamed struct type, or a pointer
+// to one, whose method set (promoted from embedded fields) is not empty.
+func promotedMethods(t types.Type) bool {
+	base := t
+	if p, ok := t.(*types.Pointer); ok {
+		base = types.Unalias(p.Elem())
+	}
+	if _, ok := base.(*types.Struct); !ok {
+		return false
+	}
+	return types.NewMethodSet(t).Len() > 0
 }
 
 func derefType(t types.Type) (types.Type, bool) {
@@ -337,7 +364,17 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 			pe.errorf(fd.Pos(), "function %s has no Go body and no native implementation", fn.FullName())
 		}
 		pe.usesNatives = true
-		w.ln("%sfunction %s(...a: any[]): any { return ($natives.%s as any)(...a); }", pe.tab.mark(fd.Pos()), name, goesmruntime.NativeName(fn.FullName()))
+		// Type parameters are declared (unused) so calls may pass TS
+		// type arguments like any other generic function.
+		generics := ""
+		if tps := fn.Signature().TypeParams(); tps.Len() > 0 {
+			var ns []string
+			for i := 0; i < tps.Len(); i++ {
+				ns = append(ns, "_"+jsName(tps.At(i).Obj().Name()))
+			}
+			generics = "<" + strings.Join(ns, ", ") + ">"
+		}
+		w.ln("%sfunction %s%s(...a: any[]): any { return ($natives.%s as any)(...a); }", pe.tab.mark(fd.Pos()), name, generics, goesmruntime.NativeName(fn.FullName()))
 		return
 	}
 	fe := pe.newFuncEmitter(w, sig)
@@ -389,7 +426,7 @@ func panicwrapMsg(fn *types.Func, recvBase types.Type) string {
 	}
 	pkg := ""
 	if fn.Pkg() != nil {
-		pkg = fn.Pkg().Path() + "."
+		pkg = goPkgPath(fn.Pkg()) + "."
 	}
 	return fmt.Sprintf("value method %s%s.%s called using nil *%s pointer", pkg, name, fn.Name(), name)
 }

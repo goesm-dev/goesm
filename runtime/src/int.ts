@@ -8,6 +8,7 @@
 
 import { runtimePanic } from "./panic.ts";
 import { bytesToString, encodeRune, runesToString, stringToBytes, stringToRunes } from "./string.ts";
+import { c64, cadd, cdiv, cmul, cneg, csub } from "./complex.ts";
 import { Kind, Type } from "./types.ts";
 
 export function div(a: number, b: number): number {
@@ -119,6 +120,10 @@ export function wrapT(t: Type, x: any): any {
 export function arithT(t: Type, op: string, a: any, b: any): any {
   const k = t.kind;
   if (k === Kind.String) return a + b;
+  if (k === Kind.Complex64 || k === Kind.Complex128) {
+    const c = op === "+" ? cadd(a, b) : op === "-" ? csub(a, b) : op === "*" ? cmul(a, b) : cdiv(a, b);
+    return k === Kind.Complex64 ? c64(c) : c;
+  }
   if (!isInteger(k)) {
     switch (op) {
       case "+": return wrapT(t, a + b);
@@ -147,6 +152,7 @@ export function shiftT(t: Type, left: boolean, a: any, n: number): any {
 }
 
 export function negT(t: Type, x: any): any {
+  if (t.kind === Kind.Complex64 || t.kind === Kind.Complex128) return cneg(x);
   return wrapT(t, -x);
 }
 
@@ -168,5 +174,6 @@ export function convertT(to: Type, from: Type, x: any): any {
   }
   if (isInteger(tk)) return wrapT(to, isInteger(fk) ? x : Math.trunc(x));
   if (tk === Kind.Float32 || tk === Kind.Float64) return wrapT(to, x);
+  if (tk === Kind.Complex64 && fk !== Kind.Complex64) return c64(x);
   return x;
 }
