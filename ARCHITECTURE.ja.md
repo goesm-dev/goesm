@@ -198,7 +198,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * JS からの呼び出し ABI (Go の値 ⇔ JS 値の自動変換)、DOM / `syscall/js` binding
 * `go 1.22` 未満の file における共有 loop 変数の range 意味論
 
-**native Go との既知の差分** (`TestKnownGaps` で差分が存在することを固定):
+**native Go との既知の差分** (最初の 2 項目は `TestKnownGaps` の `Uint64Wrap`・`Int64Precision`・`AppendCap` で差分が存在することを固定。残りは決定的に比較できないため文書のみ):
 * `int`/`int64`/`uint64` が 2^53 を超えると不正確、64-bit overflow で wrap しない (`uint64(0)-1` が `-1`)。
 * `append` の capacity 拡張は近似 (size class の丸めなし)。`cap()` の値が gc と異なることがある。
 * map の range 順は挿入順 (Go はランダム)。どちらも仕様上未定義。
