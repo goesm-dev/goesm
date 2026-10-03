@@ -12,12 +12,15 @@
 // derived pointer objects. A pointer is not an integer here; unsafe.Pointer
 // arithmetic would need the planned ArrayBuffer-backed memory model.
 
-import { plainPanic, runtimePanic } from "./panic";
-import { Slice } from "./slice";
-import { Type, isAggregate } from "./types";
+import { plainPanic, runtimePanic } from "./panic.ts";
+import { Slice } from "./slice.ts";
+import { Type, isAggregate } from "./types.ts";
 
 export class Cell<T> {
-  constructor(public v: T) {}
+  v: T;
+  constructor(v: T) {
+    this.v = v;
+  }
 }
 
 export function cell<T>(v: T): Cell<T> {
@@ -25,13 +28,23 @@ export function cell<T>(v: T): Cell<T> {
 }
 
 class FieldPtr {
-  constructor(private o: any, private k: string) {}
+  private o: any;
+  private k: string;
+  constructor(o: any, k: string) {
+    this.o = o;
+    this.k = k;
+  }
   get v(): any { return this.o[this.k]; }
   set v(x: any) { this.o[this.k] = x; }
 }
 
 class IndexPtr {
-  constructor(private a: any[], private i: number) {}
+  private a: any[];
+  private i: number;
+  constructor(a: any[], i: number) {
+    this.a = a;
+    this.i = i;
+  }
   get v(): any { return this.a[this.i]; }
   set v(x: any) { this.a[this.i] = x; }
 }

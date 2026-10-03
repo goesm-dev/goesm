@@ -6,9 +6,9 @@
 // wrap-around. This is a documented gap (see ARCHITECTURE.md); the helpers
 // below are where a BigInt or hi/lo representation would plug in.
 
-import { runtimePanic } from "./panic";
-import { bytesToString, encodeRune, runesToString, stringToBytes, stringToRunes } from "./string";
-import { Kind, Type } from "./types";
+import { runtimePanic } from "./panic.ts";
+import { bytesToString, encodeRune, runesToString, stringToBytes, stringToRunes } from "./string.ts";
+import { Kind, Type } from "./types.ts";
 
 export function div(a: number, b: number): number {
   if (b === 0) runtimePanic("integer divide by zero");

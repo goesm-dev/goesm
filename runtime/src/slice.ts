@@ -6,18 +6,22 @@
 // private to this module, which leaves room for TypedArray/ArrayBuffer backed
 // slices (needed for unsafe and efficient []byte) later.
 
-import { copy } from "./iface";
-import { runtimePanic } from "./panic";
-import { arrayElemPtr, assign } from "./ptr";
-import { isAggregate, Type } from "./types";
+import { copy } from "./iface.ts";
+import { runtimePanic } from "./panic.ts";
+import { arrayElemPtr, assign } from "./ptr.ts";
+import { isAggregate, Type } from "./types.ts";
 
 export class Slice<T> {
-  constructor(
-    public $array: T[],
-    public $offset: number,
-    public $length: number,
-    public $capacity: number,
-  ) {}
+  $array: T[];
+  $offset: number;
+  $length: number;
+  $capacity: number;
+  constructor($array: T[], $offset: number, $length: number, $capacity: number) {
+    this.$array = $array;
+    this.$offset = $offset;
+    this.$length = $length;
+    this.$capacity = $capacity;
+  }
 }
 
 export type S<T> = Slice<T> | null;

@@ -6,13 +6,16 @@
 // Programs may not depend on either, but tests comparing against native Go
 // must not depend on order.
 
-import { hashKey } from "./iface";
-import { plainPanic, runtimePanic } from "./panic";
-import { Type } from "./types";
+import { hashKey } from "./iface.ts";
+import { plainPanic, runtimePanic } from "./panic.ts";
+import { Type } from "./types.ts";
 
 export class GoMap<K, V> {
   entries = new Map<any, [K, V]>();
-  constructor(public keyType: Type) {}
+  keyType: Type;
+  constructor(keyType: Type) {
+    this.keyType = keyType;
+  }
 }
 
 export type M<K, V> = GoMap<K, V> | null;
