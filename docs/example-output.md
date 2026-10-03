@@ -30,6 +30,7 @@ export { Add, $goesm };
 // This TypeScript is an intermediate representation: Go semantics were
 // checked by go/types; esbuild only strips types and bundles.
 import * as $rt from "@goesm/runtime";
+import "go:example.com/app/mathx";
 import * as mathx from "go:example.com/app/mathx";
 export * as $runtime from "@goesm/runtime";
 const $t1 = $rt.funcOf([], [$rt.types.int], false);
@@ -66,6 +67,7 @@ export {
 ```js
 // go/example.com/app/main.ts
 import * as $rt from "../../@goesm/runtime.js";
+import "./mathx.js";
 import * as mathx from "./mathx.js";
 import * as $runtime from "../../@goesm/runtime.js";
 var $t1 = $rt.funcOf([], [$rt.types.int], false);

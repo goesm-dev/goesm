@@ -252,8 +252,11 @@ func (p *Program) scanUnit(info *types.Info, key any, sig *types.Signature, isMe
 				u.blocking = true
 			}
 		case *ast.RangeStmt:
-			if _, ok := info.TypeOf(n.X).Underlying().(*types.Chan); ok {
+			switch info.TypeOf(n.X).Underlying().(type) {
+			case *types.Chan:
 				u.blocking = true
+			case *types.Signature: // range-over-func calls the iterator
+				p.classifyFunc(info, n.X, u)
 			}
 		case *ast.CallExpr:
 			// A `go` call's callee runs on its own goroutine; its arguments
@@ -269,7 +272,13 @@ func (p *Program) classifyCall(info *types.Info, call *ast.CallExpr, u *unit, is
 	if isGo {
 		return
 	}
-	fun := unparen(call.Fun)
+	p.classifyFunc(info, call.Fun, u)
+}
+
+// classifyFunc records a call of the function expression fun in u.
+func (p *Program) classifyFunc(info *types.Info, fun ast.Expr, u *unit) {
+	callee := fun
+	fun = unparen(fun)
 	if tv, ok := info.Types[fun]; ok && tv.IsType() {
 		return // conversion
 	}
@@ -319,7 +328,7 @@ func (p *Program) classifyCall(info *types.Info, call *ast.CallExpr, u *unit, is
 			return
 		}
 	}
-	if sig, ok := info.TypeOf(call.Fun).Underlying().(*types.Signature); ok {
+	if sig, ok := info.TypeOf(callee).Underlying().(*types.Signature); ok {
 		u.dynSigs = append(u.dynSigs, sig)
 	}
 }
@@ -404,6 +413,14 @@ func hasTypeParam(t types.Type) bool {
 func (p *Program) CallBlocks(info *types.Info, call *ast.CallExpr) bool {
 	u := &unit{}
 	p.classifyCall(info, call, u, false)
+	return p.unitBlocks(u, p.units)
+}
+
+// RangeBlocks reports whether a range-over-func statement's call of its
+// iterator may block (and must be awaited).
+func (p *Program) RangeBlocks(info *types.Info, s *ast.RangeStmt) bool {
+	u := &unit{}
+	p.classifyFunc(info, s.X, u)
 	return p.unitBlocks(u, p.units)
 }
 

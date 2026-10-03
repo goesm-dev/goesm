@@ -397,25 +397,30 @@ func (fe *funcEmitter) compositeLit(e *ast.CompositeLit) string {
 		for i := range vals {
 			vals[i] = fe.zero(u.Field(i).Type())
 		}
+		var elems []elemVal
 		for i, el := range e.Elts {
 			if kv, ok := el.(*ast.KeyValueExpr); ok {
 				name := kv.Key.(*ast.Ident).Name
 				for j := 0; j < u.NumFields(); j++ {
 					if u.Field(j).Name() == name {
-						vals[j] = fe.valueOf(kv.Value, u.Field(j).Type())
+						elems = append(elems, elemVal{j, fe.valueOf(kv.Value, u.Field(j).Type())})
 					}
 				}
 				continue
 			}
-			vals[i] = fe.valueOf(el, u.Field(i).Type())
+			elems = append(elems, elemVal{i, fe.valueOf(el, u.Field(i).Type())})
 		}
-		return fmt.Sprintf("%snew %s(%s)", m, fe.pe.structClass(t), strings.Join(vals, ", "))
+		pre := fe.spillOutOfOrder(elems)
+		for _, ev := range elems {
+			vals[ev.slot] = ev.val
+		}
+		return wrapPre(pre, fmt.Sprintf("%snew %s(%s)", m, fe.pe.structClass(t), strings.Join(vals, ", ")))
 	case *types.Array:
-		vals := fe.indexedElems(e, u.Elem(), int(u.Len()))
-		return m + "[" + strings.Join(vals, ", ") + "]"
+		pre, vals := fe.indexedElems(e, u.Elem(), int(u.Len()))
+		return wrapPre(pre, m+"["+strings.Join(vals, ", ")+"]")
 	case *types.Slice:
-		vals := fe.indexedElems(e, u.Elem(), -1)
-		return m + "$rt.sliceLit([" + strings.Join(vals, ", ") + "])"
+		pre, vals := fe.indexedElems(e, u.Elem(), -1)
+		return wrapPre(pre, m+"$rt.sliceLit(["+strings.Join(vals, ", ")+"])")
 	case *types.Map:
 		var kvs []string
 		for _, el := range e.Elts {
@@ -430,8 +435,8 @@ func (fe *funcEmitter) compositeLit(e *ast.CompositeLit) string {
 
 // indexedElems lowers array/slice literal elements, honouring explicit
 // indices; n < 0 means "as long as needed".
-func (fe *funcEmitter) indexedElems(e *ast.CompositeLit, elem types.Type, n int) []string {
-	vals := map[int]string{}
+func (fe *funcEmitter) indexedElems(e *ast.CompositeLit, elem types.Type, n int) (string, []string) {
+	var elems []elemVal
 	idx, max := 0, 0
 	for _, el := range e.Elts {
 		v := el
@@ -441,11 +446,16 @@ func (fe *funcEmitter) indexedElems(e *ast.CompositeLit, elem types.Type, n int)
 			idx = int(i)
 			v = kv.Value
 		}
-		vals[idx] = fe.valueOf(v, elem)
+		elems = append(elems, elemVal{idx, fe.valueOf(v, elem)})
 		idx++
 		if idx > max {
 			max = idx
 		}
+	}
+	pre := fe.spillOutOfOrder(elems)
+	vals := map[int]string{}
+	for _, ev := range elems {
+		vals[ev.slot] = ev.val
 	}
 	if n < 0 {
 		n = max
@@ -458,7 +468,45 @@ func (fe *funcEmitter) indexedElems(e *ast.CompositeLit, elem types.Type, n int)
 			out[i] = fe.zero(elem)
 		}
 	}
-	return out
+	return pre, out
+}
+
+// elemVal is a composite literal element: its lowered value and the slot
+// (field or index) it initializes.
+type elemVal struct {
+	slot int
+	val  string
+}
+
+// spillOutOfOrder keeps Go's lexical evaluation order for literal elements
+// whose slots are not in source order (S{B: f(), A: g()}): it evaluates them
+// into temporaries, returning the comma-expression prefix that does so.
+func (fe *funcEmitter) spillOutOfOrder(elems []elemVal) string {
+	ordered := true
+	for i := 1; i < len(elems); i++ {
+		if elems[i].slot < elems[i-1].slot {
+			ordered = false
+		}
+	}
+	if ordered {
+		return ""
+	}
+	var names, parts []string
+	for i := range elems {
+		t := fe.tmp()
+		names = append(names, t)
+		parts = append(parts, t+" = "+elems[i].val)
+		elems[i].val = t
+	}
+	fe.w.ln("let %s;", strings.Join(names, ", "))
+	return strings.Join(parts, ", ")
+}
+
+func wrapPre(pre, s string) string {
+	if pre == "" {
+		return s
+	}
+	return "(" + pre + ", " + s + ")"
 }
 
 // ---- operators ----

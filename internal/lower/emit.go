@@ -275,6 +275,20 @@ func (pe *pkgEmitter) emit() *Module {
 	out.ln("// This TypeScript is an intermediate representation: Go semantics were")
 	out.ln("// checked by go/types; esbuild only strips types and bundles.")
 	out.ln("import * as $rt from %s;", jsString(RuntimeSpecifier))
+	// Evaluate every dependency, not only referenced ones: a blank import, or
+	// one used only through folded constants, must still run its variable
+	// initializers and init functions (Go orders them by import path). A
+	// bare import is needed because esbuild drops unused TS namespace imports.
+	var deps []string
+	for path := range pkg.Imports {
+		if path != "unsafe" {
+			deps = append(deps, path)
+		}
+	}
+	sort.Strings(deps)
+	for _, path := range deps {
+		out.ln("import %s;", jsString(GoSpecifier(path)))
+	}
 	for _, ip := range pe.importOrder {
 		out.ln("import * as %s from %s;", pe.imports[ip], jsString(GoSpecifier(ip.Path())))
 	}
@@ -390,6 +404,10 @@ func constLit(v constant.Value, t types.Type) string {
 			s = v.ExactString()
 		} else {
 			f, _ := constant.Float64Val(v)
+			if b, ok := t.Underlying().(*types.Basic); ok && b.Kind() == types.Float32 {
+				f32, _ := constant.Float32Val(v)
+				f = float64(f32)
+			}
 			s = formatFloat(f)
 		}
 		if strings.HasPrefix(s, "-") {
