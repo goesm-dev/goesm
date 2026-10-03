@@ -2,7 +2,7 @@
 
 [日本語](ARCHITECTURE.ja.md)
 
-goesm is a proof of concept for producing ES Modules from real Go packages: the current Go toolchain is the frontend, goesm lowers Go semantics to TypeScript, and esbuild is the backend.
+goesm is a proof of concept for producing ES Modules from real Go packages: the current Go toolchain is the frontend, and goesm lowers Go semantics to a tree of ESM-ready TypeScript files, one per Go package, plus its runtime as TypeScript. Any ESM bundler (Vite, Rolldown, esbuild) or TypeScript-aware runtime (Bun, Node.js with type stripping) consumes that tree; `goesm build` bundles it with esbuild as a convenience.
 It is not "a Go-like language compiled to JavaScript". There is no custom syntax, no custom module system and no custom type system.
 
 ## 1. Pipeline and responsibilities
@@ -17,10 +17,11 @@ parse / package load / type check  ── go/parser, go/types (Go is the languag
 Go semantic lowering                ── internal/lower   (the core of goesm)
         │
         ▼
-TypeScript (IR) + @goesm/runtime    ── runtime/src/*.ts
-        │  esbuild Go API            (internal/build)
+TypeScript tree + @goesm/runtime    ── goesm emit-ts: <dir>/<import path>.ts, <dir>/@goesm/runtime/*.ts
+        │  any ESM bundler (Vite / Rolldown / esbuild) or TS-aware runtime (Bun, Node.js)
+        │  goesm build: esbuild Go API (internal/build), a convenience
         ▼
-JavaScript ESM (+ source maps pointing at .go)
+JavaScript ESM (+ source maps pointing at .go with goesm build)
 ```
 
 | layer | owns | does not own |
@@ -28,7 +29,7 @@ JavaScript ESM (+ source maps pointing at .go)
 | Go toolchain (`go list` / go/packages / go/types) | module and package resolution, go.mod / go.sum / go.work / GOPROXY, build constraints, parsing, type checking, constant folding, init order | — |
 | goesm (`internal/lower`) | mapping Go semantics to TS + runtime calls, type metadata, blocking analysis, the first source map hop (TS→Go) | parsing, type checking, module resolution, JS printing |
 | `@goesm/runtime` | Go semantics JS lacks (slices, maps, pointers, interfaces, panic, defer, channels, select, integer wrapping, type descriptors) | typing decisions (go/types settled them at compile time) |
-| esbuild (Go API) | TS syntax stripping, JS printing, target lowering, bundling, tree shaking, minification, code splitting, final source maps (composing the TS→Go maps) | any Go-semantic decision |
+| the host bundler or runtime (`goesm build`: esbuild's Go API) | TS syntax stripping, JS printing, target lowering, bundling, tree shaking, minification, code splitting, final source maps | any Go-semantic decision |
 
 ## 2. Repository layout
 
@@ -43,8 +44,8 @@ internal/lower/       typed AST → TypeScript lowering
   expr.go types.go    expressions, conversions, operators, type descriptors / zero values
   writer.go           code writer with position markers (source locations kept during codegen)
 internal/sourcemap/   TS→Go Source Map v3 builder
-internal/build/       pipeline wiring, esbuild Go API, go: specifier resolver
-runtime/              @goesm/runtime (TypeScript), embedded into the goesm binary
+internal/build/       pipeline wiring, writing the TS tree, esbuild Go API (goesm build) and its split-mode resolver
+runtime/              @goesm/runtime (TypeScript), embedded into the goesm binary and written to <dir>/@goesm/runtime/
 test/                 end-to-end tests (run in Node.js, golden comparison with native Go)
 testdata/             fixture modules (plain Go modules: gofmt / go vet / go test work as usual)
 docs/                 GopherJS comparison, example output
@@ -73,13 +74,14 @@ The weakness in 2 is covered by spilling to temporaries in the lowering where ev
 
 ## 5. Lowering
 
-* **One Go package = one TypeScript module = one ES module.** A Go import becomes `import * as mathx from "go:example.com/app/mathx"`. The `go:` scheme only separates Go packages from npm packages; the import path itself is kept.
-  * `goesm build` (default) has esbuild produce one bundle (`dist/main.js`).
-  * `goesm build -split` emits one module per package, e.g. `dist/example.com/app/mathx.js`, and Go imports remain ESM dependencies such as `import * as mathx from "./mathx.js"` (the runtime is `dist/@goesm/runtime.js`, plus `dist/@goesm/runtime/natives.js`).
+* **One Go package = one TypeScript module = one ES module.** `goesm emit-ts -o <dir>` writes the module of Go package `p` to `<dir>/<p>.ts` (`example.com/app/main.ts`, `strings.ts`, `internal/bytealg.ts`) and the runtime to `<dir>/@goesm/runtime/index.ts`, with the natives in `natives.ts` and the other runtime files next to them. This tree is goesm's primary output.
+  * Modules import each other with relative specifiers ending in `.ts`: a Go import becomes `import * as mathx from "./mathx.ts"`, and the runtime is `import * as $rt from "../../@goesm/runtime/index.ts"` (`import * as $natives from "../@goesm/runtime/natives.ts"` in `internal/bytealg.ts`). A Go import path cannot start with `@`, so the runtime never collides with a package. No resolver is needed: TypeScript (`allowImportingTsExtensions`), Vite, Rolldown, esbuild, Bun and Node.js type stripping resolve these specifiers as they are.
+  * `goesm build` (default) has esbuild bundle the tree into one file (`dist/main.js`), with no plugin.
+  * `goesm build -split` emits one module per package, e.g. `dist/example.com/app/mathx.js`, plus `dist/@goesm/runtime/index.js` and `dist/@goesm/runtime/natives.js`. A small built-in resolver marks imports of other entry points (package modules and the runtime) as external and rewrites `.ts` to `.js`, so Go imports remain ESM dependencies such as `import * as mathx from "./mathx.js"`.
 * Names: Go identifiers never contain `$`, so every name goesm introduces does (`User$type`, `User$Adult`, `$rt`, `$t3`). Each Go object within a function declaration gets a unique JS name, so Go shadowing never has to be reproduced with JS scoping rules.
 * Constant expressions are emitted as the values go/types computed (iota, typed constants, `unsafe.Sizeof`, ...).
 * Package variables are initialised in `types.Info.InitOrder` order, then `init()` runs, then `main()` if the entry package has `func main`.
-* TypeScript annotations in the generated code are for readability and debugging only; nothing type-checks them (esbuild does not).
+* The generated code carries TypeScript types; Go typing is decided by go/types, and the types follow it. The whole tree (generated modules and runtime) type-checks under tsc in strict mode with `verbatimModuleSyntax` and `erasableSyntaxOnly`, so it also runs under type-stripping runtimes (Node.js 22.18+, Bun). `TestTSC` is a required CI check: it type-checks the fixtures and examples together with a consumer whose `@ts-expect-error` cases prove that exported Go APIs carry their Go types (`Total(items: $rt.S<Item>): number`, a blocking function returns `Promise<number>`). Exported signatures and struct classes are typed precisely; internal temporaries and wrappers are `any`, and a type parameter is typed by its constraint (core type, or `number` / `string`). Comparing results with native Go stays the semantic gate.
 
 ### Value representation
 
@@ -138,7 +140,7 @@ function F() {
 * So "converting to async/await makes it Go" is not the assumption. Blocking semantics live at the runtime boundary (the wait queues); async/await is only the mechanism to suspend and resume a goroutine. `runtime.Goexit` (deferred calls run, `recover` does not stop it) and the `sync` replacement (§9) are built on it; deadlock detection, goroutine-local panic state and timers will be too.
 * JS boundary: a blocking exported function returns a Promise (`await Example()` is 42).
 
-## 6. Runtime (`runtime/src`)
+## 6. Runtime (`runtime/src`, emitted as `<dir>/@goesm/runtime/*.ts`)
 
 | file | responsibility |
 |---|---|
@@ -151,7 +153,7 @@ function F() {
 | `int.ts` | integer division and remainder (divide-by-zero panic), shifts, 64-bit bitwise ops, min / max |
 | `panic.ts` | GoPanic, runtime error types, Defers, recover |
 | `chan.ts` | channels, select, goroutine start and count |
-| `natives.ts` | standard library functions without a Go body (§9); a separate module, `@goesm/runtime/natives`, with one export per function so esbuild drops the unused ones |
+| `natives.ts` | standard library functions without a Go body (§9); a separate module, imported only by the standard library modules that need it, with one export per function so tree shaking drops the unused ones |
 | `interop.ts` | Go value → JSON-shaped JS value guided by descriptors (golden tests, future JS ABI) |
 
 Only what the fixtures need is implemented; no scheduler or reflect was built ahead of time.
@@ -169,12 +171,12 @@ Only what the fixtures need is implemented; no scheduler or reflect was built ah
 ## 8. Source maps and diagnostics
 
 * The lowering embeds Go position markers in expression and statement strings; the writer records a mapping once the output column is known. Location information is never dropped during codegen.
-* Each generated TS module carries an inline TS→Go Source Map v3. esbuild reads it and composes the final **JS→.go** map (with Go source in `sourcesContent`). A test checks that with Node's `--enable-source-maps` a panic's stack points at `panics.go:NN`.
+* Each generated TS module carries an inline TS→Go Source Map v3 (`emit-ts` also writes it next to the module as `<p>.ts.map`). In `goesm build`, esbuild reads it and composes the final **JS→.go** map (with Go source in `sourcesContent`). Other bundlers do not necessarily compose it: with Vite 8.3 and Bun 1.3 the final map points at the generated `.ts` files. A test checks that with Node's `--enable-source-maps` a panic's stack points at `panics.go:NN`.
 * Diagnostics are tagged by layer:
   * `file.go:4:17: ... [go/types]` / `[go/parser]` / `[go list]` — errors from the Go frontend, at the original `.go` position.
   * `file.go:8:3: backward goto is not supported yet [goesm lowering]` — a goesm limitation, shown separately from Go compile errors.
-  * In standard library packages, a function goesm cannot lower yet is not an error: it becomes a stub that panics if called (`goesm: <func> is not supported yet`), and the CLI reports how many there are (`-v` lists them with the first reason). Most programs never reach them (`internal/abi`'s gc type layout, complex numbers, ...); esbuild drops the unreached ones.
-  * `internal error: esbuild rejected TypeScript generated by goesm ... [esbuild]` — a goesm bug, never disguised as a Go error.
+  * In standard library packages, a function goesm cannot lower yet is not an error: it becomes a stub that panics if called (`goesm: <func> is not supported yet`), and the CLI reports how many there are (`-v` lists them with the first reason). Most programs never reach them (`internal/abi`'s gc type layout, complex numbers, ...); tree shaking drops the unreached ones.
+  * `internal error: esbuild rejected TypeScript generated by goesm ... [esbuild]` (`goesm build`) — a goesm bug, never disguised as a Go error.
 
 ## 9. Standard library
 
@@ -202,7 +204,7 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 ## 10. Tooling compatibility and security
 
 * `.go` files are plain Go: no goesm-specific syntax, directives or magic comments. The fixtures pass `go vet` / `go build` / `go run`, and the golden tests compare against exactly that native execution. The package graph is the one the go command resolved, so call graphs for govulncheck and similar tools are unchanged.
-* Importing a dependency never runs code inside goesm. There is no compiler plugin or extension mechanism; the only esbuild plugin is goesm's built-in resolver (`go:` and `@goesm/runtime`). The standard library replacements and natives (§9) are a fixed set inside goesm that applies only to `$GOROOT/src`; a Go function without a body outside the standard library is an error, never a hook.
+* Importing a dependency never runs code inside goesm. There is no compiler plugin or third-party extension mechanism; the only esbuild plugin is goesm's own split-mode resolver in `goesm build -split`, and the emitted tree needs none. The standard library replacements and natives (§9) are a fixed set inside goesm that applies only to `$GOROOT/src`; a Go function without a body outside the standard library is an error, never a hook.
 * Concerns: (1) go/packages runs `go list`, so goesm inherits the go command's trust boundary for its environment (`GOFLAGS` etc.), `go.work` and fetching modules from `GOPROXY` (goesm does not widen it). (2) Generated code relies on Go's type safety; a lowering bug shows up as wrong behaviour, not memory unsafety (JS itself is memory safe). (3) Generated ESM uses host APIs such as `globalThis.reportError`; DOM API bindings are not implemented. (4) `GoPanic` messages and the source map's `sourcesContent` include Go source, so a published bundle ships the source (an option to drop `SourcesContent` is not implemented).
 
 ## 11. Implemented / not implemented / differences from native Go
