@@ -31,7 +31,9 @@ type funcEmitter struct {
 	hasDefer bool
 	results  []string // JS references to the result variables, when materialised
 	resultTs []types.Type
-	named    bool // results are named Go variables (their address may escape)
+	named    bool                     // results are named Go variables (their address may escape)
+	gotos    map[*ast.BranchStmt]bool // forward gotos, lowered to labelled breaks
+	rangeFn  *rangeFuncCtx            // the range-over-func body being lowered
 }
 
 func (pe *pkgEmitter) newFuncEmitter(w *writer, sig *types.Signature) *funcEmitter {
@@ -167,15 +169,21 @@ func (fe *funcEmitter) paramList(fields *ast.FieldList, recv *types.Var) []strin
 }
 
 func (fe *funcEmitter) resultTSType(sig *types.Signature) string {
+	return fe.pe.resultTSType(sig, fe.tp)
+}
+
+// resultTSType is the TypeScript result type of a function: void, the
+// type, or a tuple for several results.
+func (pe *pkgEmitter) resultTSType(sig *types.Signature, tp tpScope) string {
 	switch sig.Results().Len() {
 	case 0:
 		return "void"
 	case 1:
-		return fe.ts(sig.Results().At(0).Type())
+		return pe.tsType(sig.Results().At(0).Type(), tp)
 	}
 	var ts []string
 	for i := 0; i < sig.Results().Len(); i++ {
-		ts = append(ts, fe.ts(sig.Results().At(i).Type()))
+		ts = append(ts, pe.tsType(sig.Results().At(i).Type(), tp))
 	}
 	return "[" + strings.Join(ts, ", ") + "]"
 }
@@ -195,8 +203,10 @@ func containsDefer(body *ast.BlockStmt) bool {
 }
 
 // mutatesVar reports whether body may modify (part of) the value of v in
-// place: assignment to v or its fields/array elements, &v, or a pointer
-// method call on v. Used to decide whether a value receiver must be copied.
+// place, or keep a reference to it beyond the call: assignment to v or its
+// fields/array elements, &v, a pointer method call on v, slicing an array
+// in v, or a reference to v from a function literal. Used to decide whether
+// a value receiver must be copied (otherwise it aliases the caller's value).
 func (fe *funcEmitter) mutatesVar(body *ast.BlockStmt, v *types.Var) bool {
 	root := func(e ast.Expr) bool {
 		for {
@@ -224,6 +234,15 @@ func (fe *funcEmitter) mutatesVar(body *ast.BlockStmt, v *types.Var) bool {
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch n := n.(type) {
+		case *ast.FuncLit:
+			ast.Inspect(n.Body, func(n ast.Node) bool {
+				if id, ok := n.(*ast.Ident); ok && fe.info.Uses[id] == v {
+					found = true
+				}
+				return !found
+			})
+		case *ast.SliceExpr:
+			found = found || root(n.X)
 		case *ast.AssignStmt:
 			for _, l := range n.Lhs {
 				if root(l) {
@@ -279,7 +298,9 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 					rv, _ = fe.info.Defs[id].(*types.Var)
 				}
 			}
-			if rv != nil && fe.mutatesVar(body, rv) {
+			// An async method may observe the caller's changes made while
+			// it is blocked.
+			if rv != nil && (fe.async || fe.mutatesVar(body, rv)) {
 				n := fe.nameOf(rv)
 				w.ln("%s = %s;", n, fe.pe.copyExpr(n, rv.Type(), fe.tp))
 			}
@@ -300,21 +321,33 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 			}
 			init := fe.zero(r.Type())
 			ref := n
+			tsT := fe.ts(r.Type())
 			if fe.boxed(r) {
 				init = "$rt.cell(" + init + ")"
 				ref = n + ".v"
+				tsT = "$rt.Cell<" + tsT + ">"
 			}
-			w.ln("let %s: %s = %s;", n, fe.ts(r.Type()), init)
+			w.ln("let %s: %s = %s;", n, tsT, init)
 			fe.results = append(fe.results, ref)
 			fe.resultTs = append(fe.resultTs, r.Type())
 		}
 	}
 	if !fe.hasDefer {
 		fe.stmts(body.List)
+		if sig.Results().Len() > 0 && fe.mayFallOff(body.List) {
+			// go/types guarantees a terminating statement; TypeScript's
+			// flow analysis cannot always see it (a switch or type switch
+			// whose every case returns).
+			w.ln("throw new Error(\"goesm: unreachable\");")
+		}
 		return
 	}
 	w.ln("const $d = new $rt.Defers();")
-	w.ln("$body: try {")
+	if containsReturn(body) {
+		w.ln("$body: try {") // returns break out to run the deferred calls
+	} else {
+		w.ln("try {")
+	}
 	w.indent++
 	fe.stmts(body.List)
 	w.indent--
@@ -357,6 +390,9 @@ func (fe *funcEmitter) setResults(m string, vals []string) {
 		}
 	}
 	for i, v := range vals {
+		if stripMarks(v) == fe.results[i] {
+			continue // return of the named result itself
+		}
 		if fe.named && isAggregate(fe.resultTs[i]) {
 			fe.w.ln("%s%s;", m, fe.aggregateSet(fe.results[i], fe.resultTs[i], v))
 		} else {
@@ -394,12 +430,42 @@ func (fe *funcEmitter) stable(s string) string {
 		return s
 	}
 	t := fe.tmp()
-	fe.w.ln("const %s = %s;", t, s)
+	// Temporaries are internal: typed any so that a constant tag or an
+	// untyped tuple does not narrow what later code may do with them.
+	fe.w.ln("const %s: any = %s;", t, s)
 	return t
 }
 
 func (fe *funcEmitter) forceTmp(s string) string {
 	t := fe.tmp()
-	fe.w.ln("const %s = %s;", t, s)
+	// Temporaries are internal: typed any so that a constant tag or an
+	// untyped tuple does not narrow what later code may do with them.
+	fe.w.ln("const %s: any = %s;", t, s)
 	return t
+}
+
+// mayFallOff reports whether TypeScript may consider the end of a lowered
+// function body reachable although Go's terminating-statement rule holds:
+// the body does not end in a return, a panic call or an infinite for loop.
+func (fe *funcEmitter) mayFallOff(list []ast.Stmt) bool {
+	if len(list) == 0 {
+		return true
+	}
+	switch s := list[len(list)-1].(type) {
+	case *ast.ReturnStmt:
+		return false
+	case *ast.ForStmt:
+		return s.Cond != nil
+	case *ast.ExprStmt:
+		if call, ok := unparen(s.X).(*ast.CallExpr); ok {
+			if id, ok := unparen(call.Fun).(*ast.Ident); ok {
+				if b, ok := fe.info.Uses[id].(*types.Builtin); ok && b.Name() == "panic" {
+					return false
+				}
+			}
+		}
+	case *ast.BlockStmt:
+		return fe.mayFallOff(s.List)
+	}
+	return true
 }

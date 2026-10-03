@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": { "correctness": "error" },
+  "rules": {
+    "no-unused-vars": "off",
+    "no-constant-condition": "off",
+    "no-unused-expressions": "off",
+    "unicorn/no-new-array": "off"
+  }
+}

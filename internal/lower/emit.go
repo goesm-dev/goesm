@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"go/types"
 	"os"
+	"path"
 	"sort"
 	"strings"
 
@@ -16,13 +17,42 @@ import (
 	"github.com/goesm-dev/goesm/internal/sourcemap"
 )
 
-// RuntimeSpecifier is the module specifier of the runtime.
-const RuntimeSpecifier = "@goesm/runtime"
+// Layout of the generated TypeScript: the module of Go package p is the file
+// p + ".ts" below the output root (example.com/app/cart.ts, strings.ts), and
+// the runtime is @goesm/runtime/index.ts (natives: natives.ts) next to them.
+// Modules import each other with relative specifiers ending in .ts, which
+// TypeScript (allowImportingTsExtensions), Vite, Rolldown, esbuild and Bun
+// resolve without configuration. A Go import path cannot start with "@", so
+// the runtime never collides with a Go package.
+const (
+	RuntimeFile = "@goesm/runtime/index.ts"
+	NativesFile = "@goesm/runtime/natives.ts"
+)
 
-// GoSpecifier is the ES module specifier for a Go package. The Go import
-// path is kept verbatim; the "go:" scheme keeps Go packages in their own
-// namespace so they can never be confused with npm packages.
-func GoSpecifier(importPath string) string { return "go:" + importPath }
+// ModuleFile is the path of the module of a Go package below the root.
+func ModuleFile(importPath string) string { return importPath + ".ts" }
+
+// relSpecifier is the specifier for importing file `to` from the module of
+// Go package `from` (both relative to the output root).
+func relSpecifier(from, to string) string {
+	dir := strings.Split(path.Dir(ModuleFile(from)), "/")
+	if dir[0] == "." {
+		dir = nil
+	}
+	target := strings.Split(to, "/")
+	i := 0
+	for i < len(dir) && i < len(target)-1 && dir[i] == target[i] {
+		i++
+	}
+	parts := []string{"."}
+	for range dir[i:] {
+		parts = append(parts, "..")
+	}
+	if len(parts) > 1 {
+		parts = parts[1:]
+	}
+	return strings.Join(append(parts, target[i:]...), "/")
+}
 
 // Module is the lowering result for one Go package.
 type Module struct {
@@ -74,6 +104,13 @@ type pkgEmitter struct {
 
 	lastPos token.Pos
 
+	// std is set for standard library packages, whose functions that goesm
+	// cannot lower yet become stubs that panic when called (a warning, not
+	// an error: most programs never reach them).
+	std bool
+	// usesNatives: the module imports the runtime's natives ($natives).
+	usesNatives bool
+
 	inits    []string
 	initObjs []any
 }
@@ -86,7 +123,7 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		info:       pkg.TypesInfo,
 		tab:        tab,
 		isEntry:    entry,
-		reserved:   map[string]bool{"$rt": true},
+		reserved:   map[string]bool{"$rt": true, "$natives": true},
 		imports:    map[*types.Package]string{},
 		localTypes: map[*types.TypeName]string{},
 		classes:    newWriter(tab),
@@ -96,12 +133,41 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		funcs:      newWriter(tab),
 		vars:       newWriter(tab),
 		exportSet:  map[string]bool{},
+		std:        p.std[pkg],
 	}
 	scope := pkg.Types.Scope()
 	for _, name := range scope.Names() {
 		pe.reserved[jsName(name)] = true
 	}
 	return pe
+}
+
+// emitStdFuncDecl lowers a standard library function. If goesm cannot lower
+// it yet, the diagnostics become one warning and the function a stub that
+// panics when called.
+func (pe *pkgEmitter) emitStdFuncDecl(file *ast.File, fd *ast.FuncDecl) {
+	n := len(pe.prog.Diags)
+	funcs := pe.funcs
+	pe.funcs = newWriter(pe.tab)
+	pe.emitFuncDecl(file, fd)
+	body := pe.funcs
+	pe.funcs = funcs
+	if len(pe.prog.Diags) == n {
+		funcs.append(body)
+		return
+	}
+	first := pe.prog.Diags[n]
+	pe.prog.Diags = pe.prog.Diags[:n]
+	fn := pe.info.Defs[fd.Name].(*types.Func)
+	pe.prog.Warns = append(pe.prog.Warns, Diagnostic{
+		Pos: pe.prog.Fset.Position(fd.Pos()),
+		Msg: fmt.Sprintf("%s is not lowered and panics if called: %s", fn.FullName(), first.Msg),
+	})
+	name := pe.funcDeclName(fd, fn)
+	if fd.Name.Name == "init" {
+		name = pe.inits[len(pe.inits)-1]
+	}
+	funcs.ln("%sfunction %s(...a: any[]): any { $rt.plainPanic(%s); }", pe.tab.mark(fd.Pos()), name, jsString("goesm: "+fn.FullName()+" is not supported yet"))
 }
 
 func (pe *pkgEmitter) errorf(pos token.Pos, format string, args ...any) {
@@ -219,7 +285,11 @@ func (pe *pkgEmitter) emit() *Module {
 	for _, f := range files {
 		for _, d := range f.Decls {
 			if fd, ok := d.(*ast.FuncDecl); ok {
-				pe.emitFuncDecl(f, fd)
+				if pe.std {
+					pe.emitStdFuncDecl(f, fd)
+				} else {
+					pe.emitFuncDecl(f, fd)
+				}
 			}
 		}
 	}
@@ -262,6 +332,9 @@ func (pe *pkgEmitter) emit() *Module {
 	// test harness and future JS ABI work).
 	var meta []string
 	for _, name := range scope.Names() {
+		if pe.std {
+			break
+		}
 		if fn, ok := scope.Lookup(name).(*types.Func); ok && fn.Exported() && fn.Signature().TypeParams().Len() == 0 {
 			meta = append(meta, fmt.Sprintf("%s: { fn: %s, type: %s, async: %v }", jsPropName(name), jsName(name), pe.typeDesc(fn.Type(), tpScope{}), pe.prog.IsAsync(fn)))
 		}
@@ -272,28 +345,31 @@ func (pe *pkgEmitter) emit() *Module {
 	// Assemble.
 	out := newWriter(pe.tab)
 	out.ln("// Code generated by goesm from Go package %s. DO NOT EDIT.", pkg.PkgPath)
-	out.ln("// This TypeScript is an intermediate representation: Go semantics were")
-	out.ln("// checked by go/types; esbuild only strips types and bundles.")
-	out.ln("import * as $rt from %s;", jsString(RuntimeSpecifier))
+	out.ln("// Go semantics were checked by go/types and lowered by goesm; any ESM")
+	out.ln("// bundler (or TypeScript-aware runtime) can consume this module.")
+	out.ln("import * as $rt from %s;", jsString(relSpecifier(pkg.PkgPath, RuntimeFile)))
+	if pe.usesNatives {
+		out.ln("import * as $natives from %s;", jsString(relSpecifier(pkg.PkgPath, NativesFile)))
+	}
 	// Evaluate every dependency, not only referenced ones: a blank import, or
 	// one used only through folded constants, must still run its variable
 	// initializers and init functions (Go orders them by import path). A
-	// bare import is needed because esbuild drops unused TS namespace imports.
+	// bare import is needed because bundlers drop unused TS namespace imports.
 	var deps []string
-	for path := range pkg.Imports {
-		if path != "unsafe" {
-			deps = append(deps, path)
+	for _, ip := range pkg.Types.Imports() { // after goesm replacements
+		if ip.Path() != "unsafe" {
+			deps = append(deps, ip.Path())
 		}
 	}
 	sort.Strings(deps)
 	for _, path := range deps {
-		out.ln("import %s;", jsString(GoSpecifier(path)))
+		out.ln("import %s;", jsString(relSpecifier(pkg.PkgPath, ModuleFile(path))))
 	}
 	for _, ip := range pe.importOrder {
-		out.ln("import * as %s from %s;", pe.imports[ip], jsString(GoSpecifier(ip.Path())))
+		out.ln("import * as %s from %s;", pe.imports[ip], jsString(relSpecifier(pkg.PkgPath, ModuleFile(ip.Path()))))
 	}
 	if pe.isEntry {
-		out.ln("export * as $runtime from %s;", jsString(RuntimeSpecifier))
+		out.ln("export * as $runtime from %s;", jsString(relSpecifier(pkg.PkgPath, RuntimeFile)))
 	}
 	for _, sec := range []*writer{pe.classes, pe.phase1, pe.consts, pe.phase2, pe.funcs, pe.vars} {
 		out.append(sec)
@@ -362,19 +438,24 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 			v := in.Lhs[0]
 			rhs := fe.valueOf(in.Rhs, v.Type())
 			if v.Name() == "_" {
-				pe.vars.ln("%s%s;", mark, rhs)
+				fe.discard(mark, rhs)
 			} else {
 				pe.vars.ln("%s%s = %s;", mark, fe.varRef(v), rhs)
 			}
 			continue
 		}
+		// f() or a comma-ok form (v, ok = m[k], <-ch, x.(T)).
+		e, tt, ok := fe.commaOk(in.Rhs)
+		if !ok {
+			e, tt = fe.expr(in.Rhs), fe.info.TypeOf(in.Rhs)
+		}
 		t := fe.tmp()
-		pe.vars.ln("%sconst %s = %s;", mark, t, fe.expr(in.Rhs))
+		pe.vars.ln("%sconst %s = %s;", mark, t, e)
 		for i, v := range in.Lhs {
 			if v.Name() == "_" {
 				continue
 			}
-			pe.vars.ln("%s = %s;", fe.varRef(v), fe.convert(fmt.Sprintf("%s[%d]", t, i), tupleAt(fe.info.TypeOf(in.Rhs), i), v.Type()))
+			pe.vars.ln("%s = %s;", fe.varRef(v), fe.convertCopy(fmt.Sprintf("%s[%d]", t, i), tupleAt(tt, i), v.Type()))
 		}
 	}
 }

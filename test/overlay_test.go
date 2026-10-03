@@ -27,12 +27,12 @@ func TestOverlayPackageWithLineDirectives(t *testing.T) {
 			"}\n")}
 	}
 
-	mods, _, err := build.LowerOverlay(dir, src("mathx.Add(1, 2)"), []string{"./web/_gen/widget"})
+	l, err := build.LowerOverlay(dir, src("mathx.Add(1, 2)"), []string{"./web/_gen/widget"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var found bool
-	for _, m := range mods {
+	for _, m := range l.Mods {
 		if m.Path == "example.com/app/web/_gen/widget" {
 			found = true
 			if !strings.Contains(string(m.Map), "Widget.vue") {
@@ -44,7 +44,7 @@ func TestOverlayPackageWithLineDirectives(t *testing.T) {
 		t.Fatalf("overlay package was not lowered")
 	}
 
-	_, _, err = build.LowerOverlay(dir, src(`mathx.Add(1, "x")`), []string{"./web/_gen/widget"})
+	_, err = build.LowerOverlay(dir, src(`mathx.Add(1, "x")`), []string{"./web/_gen/widget"})
 	var de *build.DiagError
 	if !errors.As(err, &de) {
 		t.Fatalf("expected diagnostics, got %v", err)
