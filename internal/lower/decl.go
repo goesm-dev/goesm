@@ -141,10 +141,13 @@ func (pe *pkgEmitter) methodWrapper(T types.Type, sel *types.Selection, tp tpSco
 			recv = fmt.Sprintf("$rt.fieldPtr(%s, %s)", parent, jsString(parentProp))
 		}
 	case !wantPtr && havePtr:
-		if isAggregate(base) {
-			recv = "$rt.deref(" + recv + ")" // the object is the pointer
+		if len(path) == 1 {
+			recv = fmt.Sprintf("$rt.derefMethod(%s, %s)", recv, jsString(panicwrapMsg(fn, base)))
 		} else {
-			recv += ".v"
+			recv = "$rt.deref(" + recv + ")"
+		}
+		if !isAggregate(base) {
+			recv += ".v" // otherwise the object is the pointer
 		}
 	}
 	args := pe.recvTypeArgs(base, tp)
@@ -328,4 +331,18 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	fe.funcBody(fd.Recv, fd.Type, fd.Body, sig)
 	w.indent--
 	w.ln("}")
+}
+
+// panicwrapMsg is Go's panic message for a value method called through a nil
+// pointer by a method expression or interface method table.
+func panicwrapMsg(fn *types.Func, recvBase types.Type) string {
+	name := types.TypeString(recvBase, func(*types.Package) string { return "" })
+	if n, ok := types.Unalias(recvBase).(*types.Named); ok {
+		name = n.Obj().Name()
+	}
+	pkg := ""
+	if fn.Pkg() != nil {
+		pkg = fn.Pkg().Path() + "."
+	}
+	return fmt.Sprintf("value method %s%s.%s called using nil *%s pointer", pkg, name, fn.Name(), name)
 }

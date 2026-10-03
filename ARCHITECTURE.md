@@ -193,7 +193,7 @@ Those need target-specific replacements, like GopherJS's natives. goesm plans to
 **Not implemented** (produces a goesm diagnostic or does not work):
 * exact 64-bit integers (BigInt or hi/lo), complex64/128
 * `unsafe`, `reflect`, the `runtime` replacement, `sync` / `sync/atomic`, `time`, and most of the stdlib including `fmt` / `strconv` / `strings`
-* `goto`; blocking, defer or labeled branches inside a range-over-func body; taking the address of type-parameter-typed variables; local types depending on type parameters
+* `goto`; blocking, defer or labeled branches inside a range-over-func body; taking the address of type-parameter-typed variables; local types depending on type parameters; conversion from a slice to an array pointer (`(*[N]T)(s)`)
 * deadlock detection ("all goroutines are asleep"), goroutine preemption, `runtime.Goexit`, goroutine-local recover state
 * a JS calling ABI (automatic Go ⇔ JS value conversion), DOM / `syscall/js` bindings
 * shared loop variables in range loops for files with `go` < 1.22

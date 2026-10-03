@@ -725,3 +725,56 @@ func SliceToArrayShort() (out string) {
 }
 
 func fmt2(i int) string { return string(rune('0' + i)) }
+
+// ---- round 4: evaluation of operands, more nil dereferences ----
+
+func recoverMsg(f func()) (msg string) {
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(error); ok {
+				msg = e.Error()
+			} else {
+				msg = "non-error panic"
+			}
+		}
+	}()
+	f()
+	return "no panic"
+}
+
+func MakeMapHint() []any {
+	calls := 0
+	hint := func() int { calls++; return 4 }
+	m := make(map[int]int, hint())
+	n := -1
+	msg := recoverMsg(func() { _ = make(map[int]int, n) })
+	return []any{len(m), calls, msg}
+}
+
+func LenOfArrayCall() []int {
+	calls := 0
+	arr := func() [3]int { calls++; return [3]int{} }
+	parr := func() *[4]int { calls++; return nil }
+	return []int{len(arr()), cap(arr()), len(parr()), calls}
+}
+
+func AppendOverlapAggregates() []Key {
+	a := []Key{{1}, {2}, {3}}
+	return append(a[:1], a[:2]...)
+}
+
+func MethodExprNilAggregate() string {
+	f := (*Empty).Hello
+	var p *Empty
+	return recoverMsg(func() { f(p) })
+}
+
+func NilScalarDeref() string {
+	var p *int
+	return recoverMsg(func() { _ = *p })
+}
+
+func NilAggregateDeref() string {
+	var p *Key
+	return recoverMsg(func() { k := *p; _ = k })
+}

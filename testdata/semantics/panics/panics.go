@@ -95,3 +95,8 @@ func MustPositive(x int) int {
 	}
 	return x
 }
+
+// Deref dereferences p without recovering, for JS callers to observe.
+func Deref(p *int) int {
+	return *p
+}

@@ -54,9 +54,9 @@ func (fe *funcEmitter) expr(e ast.Expr) string {
 			return fmt.Sprintf("$rt.load(%s, %s)", fe.desc(t), p)
 		}
 		if isAggregate(t) {
-			return p
+			return fe.mark(e) + "$rt.deref(" + p + ")"
 		}
-		return fe.mark(e) + p + ".v"
+		return fe.mark(e) + "$rt.deref(" + p + ").v"
 	case *ast.UnaryExpr:
 		return fe.unary(e)
 	case *ast.BinaryExpr:
@@ -216,8 +216,11 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 		}
 		base, havePtr := derefType(recvT)
 		recv := "r"
-		if !isPtrRecv(fn) && havePtr && !isAggregate(base) {
-			recv = "r.v"
+		if !isPtrRecv(fn) && havePtr {
+			recv = fmt.Sprintf("$rt.derefMethod(r, %s)", jsString(panicwrapMsg(fn, base)))
+			if !isAggregate(base) {
+				recv += ".v"
+			}
 		}
 		return fmt.Sprintf("((r: any, ...a: any[]) => %s(%s%s, ...a))", fe.pe.methodFuncName(fn), fe.pe.recvTypeArgs(base, fe.tp), recv)
 	}
@@ -895,6 +898,14 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 			return fmt.Sprintf("$rt.sliceToArray(%s, %d)", s, n)
 		}
 	}
+	if p, ok := tu.(*types.Pointer); ok {
+		if _, ok := under(p.Elem()).(*types.Array); ok {
+			if _, ok := fu.(*types.Slice); ok {
+				fe.errorf(e.Pos(), "conversion from slice to array pointer is not supported yet")
+				return s
+			}
+		}
+	}
 	if fb, ok := fu.(*types.Basic); ok && fb.Kind() == types.UnsafePointer {
 		fe.errorf(e.Pos(), "conversion from unsafe.Pointer is not supported yet")
 	}
@@ -926,6 +937,10 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		case *types.Slice:
 			return "$rt." + name + "(" + arg(0) + ")"
 		case *types.Array:
+			if tv := fe.info.Types[e]; tv.Value == nil {
+				// Not constant: the operand has calls or receives to evaluate.
+				return fmt.Sprintf("(%s, %d)", arg(0), u.Len())
+			}
 			return fmt.Sprint(u.Len())
 		case *types.Map:
 			return "$rt.mapLen(" + arg(0) + ")"
@@ -970,6 +985,9 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			}
 			return fmt.Sprintf("%s$rt.makeSlice(%s, %s, %s)", m, l, c, fe.zeroFn(u.Elem()))
 		case *types.Map:
+			if len(e.Args) > 1 { // the size hint is evaluated, then unused
+				return fmt.Sprintf("%s(%s, $rt.makeMap(%s))", m, arg(1), fe.desc(u.Key()))
+			}
 			return fmt.Sprintf("%s$rt.makeMap(%s)", m, fe.desc(u.Key()))
 		case *types.Chan:
 			c := "0"
