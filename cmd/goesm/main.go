@@ -2,6 +2,7 @@
 //
 //	goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-v] ./main
 //	goesm emit-ts [-o dir] [-v] ./main
+//	goesm version
 //
 // Arguments are ordinary Go package patterns resolved by the go command.
 package main
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	"github.com/goesm-dev/goesm/internal/build"
 )
@@ -19,7 +21,8 @@ import (
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
   goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-v] <package>
-  goesm emit-ts [-o dir] [-v] <package>`)
+  goesm emit-ts [-o dir] [-v] <package>
+  goesm version`)
 	os.Exit(2)
 }
 
@@ -68,9 +71,32 @@ func main() {
 		for _, m := range l.Mods {
 			fmt.Printf("%s/go/%s.ts\n", *out, m.Path)
 		}
+	case "version", "-version", "--version":
+		fmt.Println("goesm", goesmVersion())
 	default:
 		usage()
 	}
+}
+
+// version is set by release builds (-ldflags "-X main.version=...").
+var version string
+
+// goesmVersion reports the release version, or the module version recorded
+// by go install / go get -tool, followed by the Go toolchain goesm was built
+// with (its go/types decides which Go it accepts).
+func goesmVersion() string {
+	v := version
+	info, ok := debug.ReadBuildInfo()
+	if v == "" && ok && info.Main.Version != "" {
+		v = info.Main.Version
+	}
+	if v == "" {
+		v = "(devel)"
+	}
+	if ok {
+		v += " " + info.GoVersion
+	}
+	return v
 }
 
 // warn summarises the standard library functions that panic if called.

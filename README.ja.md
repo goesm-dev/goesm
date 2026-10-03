@@ -182,6 +182,28 @@ total := cart.Total(items)
 
 この repository の PoC は go/packages + go/types で package を読み込み、TypeScript と小さな runtime (`@goesm/runtime`) に lowering し、esbuild の Go API で ES module を生成します。設計と実装済み・未実装の範囲は [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md)、GopherJS との違いは [docs/gopherjs-comparison.ja.md](docs/gopherjs-comparison.ja.md)、生成される TypeScript / JavaScript は [docs/example-output.ja.md](docs/example-output.ja.md) を参照してください。
 
+### インストール
+
+goesm は Go toolchain (package の読み込みに `go list` を使います) の Go 1.27 以上が必要です。古い `go` でも `GOTOOLCHAIN` により 1.27 が自動でダウンロードされます。Node.js や npm は不要です。runtime (`@goesm/runtime`) は binary に embed され、`goesm build` の出力に bundle されるので、npm package をインストールする必要はありません。
+
+おすすめは module の tool として追加する方法です。コードと同じ toolchain で goesm が build されます。
+
+```sh
+go get -tool github.com/goesm-dev/goesm/cmd/goesm@latest
+go tool goesm build ./cart       # dist/cart.js
+```
+
+`PATH` にインストールする場合:
+
+```sh
+go install github.com/goesm-dev/goesm/cmd/goesm@latest
+goesm build ./cart
+```
+
+Linux / macOS / Windows (amd64 と arm64) の build 済み binary を各 [GitHub release](https://github.com/goesm-dev/goesm/releases) に添付しています。これらは Go 1.27 で build しているので、module がより新しい Go を使う場合は `go get -tool` を使ってください。`goesm version` は goesm の version と、build に使った Go を表示します。
+
+goesm が実験段階のあいだ、release は `v0.0.1-beta.N` という名前の prerelease です。`@latest` は最新のものに解決され、`@v0.0.1-beta.1` のように固定もできます。
+
 ### 使い方
 
 入力は普通の Go module の中の、普通の Go package pattern です。

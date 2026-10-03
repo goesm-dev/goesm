@@ -182,6 +182,28 @@ The initial work focuses on proving that ordinary, type-checked Go packages can 
 
 The proof of concept in this repository loads packages with go/packages + go/types, lowers them to TypeScript plus a small runtime (`@goesm/runtime`), and uses esbuild's Go API to produce the ES modules. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design, what is implemented and what is not, [docs/gopherjs-comparison.md](docs/gopherjs-comparison.md) for how it differs from GopherJS, and [docs/example-output.md](docs/example-output.md) for generated TypeScript and JavaScript.
 
+### Install
+
+goesm needs the Go toolchain (it loads packages with `go list`), Go 1.27 or later; an older `go` downloads 1.27 by itself through `GOTOOLCHAIN`. It does not need Node.js or npm: the runtime (`@goesm/runtime`) is embedded in the binary and bundled into the output of `goesm build`, so there is no npm package to install.
+
+The recommended way is to add goesm as a tool of your module, so that it is built with the same toolchain as your code:
+
+```sh
+go get -tool github.com/goesm-dev/goesm/cmd/goesm@latest
+go tool goesm build ./cart       # dist/cart.js
+```
+
+Or install it on your `PATH`:
+
+```sh
+go install github.com/goesm-dev/goesm/cmd/goesm@latest
+goesm build ./cart
+```
+
+Prebuilt binaries for Linux, macOS and Windows (amd64 and arm64) are attached to each [GitHub release](https://github.com/goesm-dev/goesm/releases). They are built with Go 1.27; if your module uses a newer Go, prefer `go get -tool`. `goesm version` prints the goesm version and the Go it was built with.
+
+While goesm is experimental, releases are prereleases named `v0.0.1-beta.N`; `@latest` resolves to the newest one, and `@v0.0.1-beta.1` pins one.
+
 ### Usage
 
 Inputs are ordinary Go package patterns in an ordinary Go module:
