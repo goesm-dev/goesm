@@ -254,6 +254,8 @@ goesm uses go/types from the toolchain it was built with, so build it with the t
 
 ### Tests
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, the principles and what a pull request needs.
+
 ```sh
 mise install           # Go, Node.js and Bun at the versions pinned in mise.toml (CI uses the same)
 npm ci --prefix test   # tsc and oxlint for TestTSC / TestOxlint (optional locally; required in CI)
