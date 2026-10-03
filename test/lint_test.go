@@ -29,11 +29,11 @@ import (
 //     new Array(n).
 //
 // The test is skipped when oxlint is not installed, unless
-// GOESM_REQUIRE_OXLINT is set (as in CI).
+// GOESM_REQUIRE_TOOLS is set (as in CI).
 func TestOxlint(t *testing.T) {
 	bin, _ := filepath.Abs(filepath.Join("node_modules", ".bin", "oxlint"))
 	if _, err := os.Stat(bin); err != nil {
-		if os.Getenv("GOESM_REQUIRE_OXLINT") != "" {
+		if os.Getenv("GOESM_REQUIRE_TOOLS") != "" {
 			t.Fatalf("oxlint is not installed: run npm ci in test/")
 		}
 		t.Skip("oxlint is not installed (run npm ci in test/)")

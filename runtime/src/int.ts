@@ -103,7 +103,7 @@ function isInteger(k: number): boolean {
 }
 
 // wrapT wraps x to the width of integer kind t (and rounds float32).
-export function wrapT(t: Type, x: number): number {
+export function wrapT(t: Type, x: any): any {
   switch (t.kind) {
     case Kind.Int8: return (x << 24) >> 24;
     case Kind.Int16: return (x << 16) >> 16;
@@ -141,16 +141,16 @@ export function arithT(t: Type, op: string, a: any, b: any): any {
   throw new Error("goesm: unknown operator " + op);
 }
 
-export function shiftT(t: Type, left: boolean, a: number, n: number): number {
+export function shiftT(t: Type, left: boolean, a: any, n: number): any {
   if (is64(t.kind)) return left ? shl64(a, n, isSigned(t.kind)) : shr64(a, n, isSigned(t.kind));
   return wrapT(t, left ? shl32(a, n) : shr32(a, n, isSigned(t.kind)));
 }
 
-export function negT(t: Type, x: number): number {
+export function negT(t: Type, x: any): any {
   return wrapT(t, -x);
 }
 
-export function notT(t: Type, x: number): number {
+export function notT(t: Type, x: any): any {
   return is64(t.kind) ? not64(x, isSigned(t.kind)) : wrapT(t, ~x);
 }
 

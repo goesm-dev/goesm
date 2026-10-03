@@ -23,7 +23,7 @@ export class Cell<T> {
   }
 }
 
-export function cell<T>(v: T): Cell<T> {
+export function cell<T = any>(v: T): Cell<T> {
   return new Cell(v);
 }
 
@@ -109,7 +109,7 @@ export function assign(t: Type, dst: any, src: any): void {
 
 // deref is the implicit dereference of a *struct / *array, which is the
 // aggregate object itself: it only checks for nil.
-export function deref<T>(p: T | null): T {
+export function deref<T = any>(p: T | null): T {
   if (p === null) runtimePanic("invalid memory address or nil pointer dereference");
   return p;
 }
@@ -117,7 +117,7 @@ export function deref<T>(p: T | null): T {
 // derefMethod is the receiver dereference of a value method called through a
 // method expression or method table with a *T receiver; a nil pointer panics
 // like Go's panicwrap.
-export function derefMethod<T>(p: T | null, msg: string): T {
+export function derefMethod<T = any>(p: T | null, msg: string): T {
   if (p === null) plainPanic(msg);
   return p;
 }
