@@ -778,3 +778,54 @@ func NilAggregateDeref() string {
 	var p *Key
 	return recoverMsg(func() { k := *p; _ = k })
 }
+
+// ---- round 5: named aggregate results, clear, range, loop variables ----
+
+var escapedKey *Key
+
+func namedResultNaked() (r Key) {
+	escapedKey = &r
+	r.A = 5
+	return
+}
+
+func namedResultExplicit() (r Key) {
+	escapedKey = &r
+	return Key{A: 1}
+}
+
+func NamedAggregateResults() []int {
+	x := namedResultNaked()
+	x.A = 1
+	a := escapedKey.A
+	namedResultExplicit()
+	return []int{a, escapedKey.A}
+}
+
+func ClearAggregateInPlace() int {
+	s := []Key{{7}}
+	p := &s[0]
+	clear(s)
+	return p.A
+}
+
+func RangeNilArrayPointerKeys() int {
+	var p *[3]int
+	n := 0
+	for i := range *p {
+		n += i
+	}
+	return n
+}
+
+func LoopVarAggregatePerIteration() []int {
+	var fs []func() int
+	for s := (Key{}); s.A < 2; s.A++ {
+		fs = append(fs, func() int { return s.A })
+	}
+	var out []int
+	for _, f := range fs {
+		out = append(out, f())
+	}
+	return out
+}

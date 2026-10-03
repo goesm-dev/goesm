@@ -170,9 +170,14 @@ export function sliceCopy<T>(dst: S<T>, src: S<T> | string, et?: Type): number {
   return n;
 }
 
-export function sliceClear<T>(s: S<T>, zero: () => T): void {
+export function sliceClear<T>(s: S<T>, zero: () => T, et?: Type): void {
   if (s === null) return;
-  for (let i = 0; i < s.$length; i++) s.$array[s.$offset + i] = zero();
+  const agg = et !== undefined && isAggregate(et);
+  for (let i = 0; i < s.$length; i++) {
+    // Aggregates are zeroed in place: &s[i] is the element object.
+    if (agg) assign(et!, s.$array[s.$offset + i], zero());
+    else s.$array[s.$offset + i] = zero();
+  }
 }
 
 // Operations on values whose static type is a type parameter without a core

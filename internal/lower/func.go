@@ -30,6 +30,8 @@ type funcEmitter struct {
 	async    bool
 	hasDefer bool
 	results  []string // JS references to the result variables, when materialised
+	resultTs []types.Type
+	named    bool // results are named Go variables (their address may escape)
 }
 
 func (pe *pkgEmitter) newFuncEmitter(w *writer, sig *types.Signature) *funcEmitter {
@@ -286,7 +288,7 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 
 	fe.hasDefer = containsDefer(body)
 	named := sig.Results().Len() > 0 && sig.Results().At(0).Name() != ""
-	fe.results = nil
+	fe.results, fe.resultTs, fe.named = nil, nil, named
 	if named || fe.hasDefer {
 		for i := 0; i < sig.Results().Len(); i++ {
 			r := sig.Results().At(i)
@@ -304,6 +306,7 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 			}
 			w.ln("let %s: %s = %s;", n, fe.ts(r.Type()), init)
 			fe.results = append(fe.results, ref)
+			fe.resultTs = append(fe.resultTs, r.Type())
 		}
 	}
 	if !fe.hasDefer {
@@ -325,14 +328,41 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 	}
 }
 
+// resultsExpr returns the result variables as the function's return value.
+// Named aggregate results are copied out: a pointer to the variable may
+// have escaped and must not alias the caller's value.
 func (fe *funcEmitter) resultsExpr() string {
-	switch len(fe.results) {
+	var rs []string
+	for i, r := range fe.results {
+		if fe.named && isAggregate(fe.resultTs[i]) {
+			r = fe.pe.copyExpr(r, fe.resultTs[i], fe.tp)
+		}
+		rs = append(rs, r)
+	}
+	switch len(rs) {
 	case 0:
 		return ""
 	case 1:
-		return fe.results[0]
+		return rs[0]
 	}
-	return "[" + strings.Join(fe.results, ", ") + "]"
+	return "[" + strings.Join(rs, ", ") + "]"
+}
+
+// setResults stores return values into the result variables (named
+// aggregates in place, so escaped pointers observe them).
+func (fe *funcEmitter) setResults(m string, vals []string) {
+	if len(vals) > 1 {
+		for i, v := range vals {
+			vals[i] = fe.forceTmp(v)
+		}
+	}
+	for i, v := range vals {
+		if fe.named && isAggregate(fe.resultTs[i]) {
+			fe.w.ln("%s%s;", m, fe.aggregateSet(fe.results[i], fe.resultTs[i], v))
+		} else {
+			fe.w.ln("%s%s = %s;", m, fe.results[i], v)
+		}
+	}
 }
 
 // funcLit lowers a function literal to a JS arrow function.
