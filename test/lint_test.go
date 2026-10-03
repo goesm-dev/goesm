@@ -52,7 +52,8 @@ func TestOxlint(t *testing.T) {
 		targets = append(targets, target{testdata("semantics"), "./" + p, false})
 	}
 	targets = append(targets, target{testdata("semantics"), "./stdlibuse", true})
-	targets = append(targets, target{testdata("programs"), "./pipe", false}, target{testdata("programs"), "./stdio", false})
+	targets = append(targets, target{testdata("programs"), "./pipe", false}, target{testdata("programs"), "./stdio", false},
+		target{testdata("programs"), "./ifacevalues", false}, target{testdata("programs"), "./condwait", false})
 	examples, _ := filepath.Abs(filepath.Join("..", "examples"))
 	for _, p := range []string{"cart", "textstats", "workers"} {
 		targets = append(targets, target{examples, "./" + p, false})

@@ -136,12 +136,12 @@ function F() {
 ### goroutine / channel / select
 
 * **blocking 解析** (whole program): channel 操作、default 無しの select、channel の range、blocking 関数の呼び出し/defer、blocking し得る動的呼び出しを含む関数を blocking とし、`async function` に lowering します。blocking 点はすべて `await`。それ以外は同期関数のままです (await のコストを払わない)。動的呼び出しは保守的に解決します。関数値経由の呼び出しは、同じ signature を持ち、どこかで値として使われる関数 (その場で呼ばれない関数 literal、callee 以外の位置で参照される関数や method) に届き得るとみなします。interface method の呼び出しは、interface 値に格納され得て、その interface を実装する型の同名 method に届き得るとみなします。格納され得る型とは、どこかで interface 型へ変換される型 (代入、引数、return、composite literal の要素、send、map の key、明示的な変換、`append`、`panic`)、すべての instantiation の型引数、そしてそれらから field・要素・pointer で辿れる型 (reflection 用) です。このため block する `io.PipeWriter.Write` があっても `io.Writer.Write` の呼び出しすべてが async になることはなく、program が pipe を `io.Writer` に格納しない限り `fmt.Println` は同期のままです。
-* **Mutex**: goroutine が `sync.Mutex` を lock 済みで見つけるのは、保持者が block しているときだけです。そこで `Lock` は同期関数で、待ちません。goesm は block し得る critical section (`Lock` 文から同じ block 内の対応する `Unlock` まで、`defer Unlock` なら末尾まで) を見つけ、そこで lock される変数や struct field を「block を跨いで保持される mutex」とします。program 中のその mutex の `Lock` / `RLock` はすべて待機する (async な) `lockSlow` / `rLockSlow` になります。これを blocking 解析と交互に、変化がなくなるまで繰り返します。別名で lock される mutex (pointer 経由、`f().Lock()` のように名前が無いもの) は待たないので、競合した `Lock` は panic します。stdlib 以外のそのような section には、build 時に block する操作の位置へ警告を出します。
+* **Mutex**: goroutine が `sync.Mutex` を lock 済みで見つけるのは、保持者が block しているときだけです。そこで `Lock` は同期関数で、待ちません。goesm は block した goroutine が保持し得る critical section を見つけます。`Lock` から同じ block 内の対応する `Unlock` まで (`defer Unlock` なら末尾まで) の間に block する操作があるもの、そして対応する `Unlock` の無い `Lock` です。section は mutex を直接 (変数や struct field の path、これを mutex の key と呼びます) か、間接的に (pointer 経由、`sync.Locker` 経由、`f().Lock()` のように名前が無いもの) lock します。直接の `Lock` / `RLock` は、その key にそのような section があるとき、または間接的な section があり、かつその key の mutex が escape する (address を取られる、method value や `RLocker` で使われる、interface に格納される型に埋め込まれている) とき、待機する (async な) `lockSlow` / `rLockSlow` になります。間接的なものは、間接的な section があるか、保持される key が escape するときに待ちます。このとき `Locker.Lock` は `lockerSlow` になり、`sync` package の mutex なら待ち、それ以外の Locker は呼び出して、それが埋め込まれた mutex の Lock で lock 済みだった場合は次の unlock の後に再試行します。これを blocking 解析と交互に、変化がなくなるまで繰り返します。`sync` package 自身の lock (`Cond.Wait`、`RLocker`) は解析の対象外です。
 * `go f(x)` は関数値と引数をその場で評価し、`$rt.go(closure)` が microtask として起動します。
 * channel は runtime 内の buffer と送受信 wait queue で表現し、即時完了できる場合は同期的に値を返し、block する場合だけ Promise を返します。unbuffered の handoff、close (待機中 sender への panic を含む)、`select` (ready な case から一様ランダム、default、nil channel は永久 block) を実装しています。
 * つまり「async/await に変換すれば Go と同じ」とは扱っていません。blocking の意味論は wait queue という runtime 側の境界にあり、async/await は「goroutine を中断・再開する手段」に限定しています。`runtime.Goexit` (deferred 呼び出しは実行され、`recover` では止まらない) と `sync` の置換 (§9) はこの境界の上に実装しました。deadlock 検出、goroutine-local な panic 状態、timer も同様に載せます。
 * JS 境界: blocking する exported 関数は Promise を返します (例: `await Example()` は 42)。
-* **プログラム**: main package の module は `$rt.runMain` で `main` を実行します。Go と同じく、`main` が return すると (他の goroutine が動いていても) process は終了し、`os.Exit` は deferred 呼び出しを実行せずにその code で終了し、どこでも recover されない panic は `panic: ...` と `goroutine 1 [running]:`、JS の stack を標準エラーに出して status 2 で終了します。`main` が block したまま host の event loop が空になると、もう goroutine を起こせるものはないので、Go と同じ `fatal error: all goroutines are asleep - deadlock!` を出して status 2 で終了します。process の無い browser では、recover されない panic は `reportError` で報告し、block した `main` はそのまま block し続けます。
+* **プログラム**: main package の module は `$rt.runMain` で `main` を実行します。Go と同じく、`main` が return すると (他の goroutine が動いていても) process は終了し、`os.Exit` は deferred 呼び出しを実行せずにその code で終了し、どこでも recover されない panic は `panic: ...` と `goroutine 1 [running]:`、JS の stack を標準エラーに出して status 2 で終了します。`main` が block したまま host の event loop が空になると (Node と Bun の `beforeExit`。JavaScript のコードが求めた終了は含まない)、もう goroutine を起こせるものはないので、Go と同じ `fatal error: all goroutines are asleep - deadlock!` を出して status 2 で終了します。process の無い browser では、recover されない panic は `reportError` で報告し、block した `main` はそのまま block し続け、`os.Exit` は deferred 呼び出しを実行せずに goroutine を巻き戻します (recover はできません)。
 
 ## 6. runtime 構成 (`runtime/src`、`<dir>/@goesm/runtime/*.ts` として出力)
 
@@ -193,7 +193,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 | `runtime` | 他の package が使う exported API (`GOOS`、`Error`、`Goexit`、`Gosched`、`KeepAlive`、`Caller`、`MemStats` など)。scheduling とメモリは `@goesm/runtime` 側 |
 | `internal/reflectlite` | `Type` = runtime の型 descriptor、`Value` = (descriptor, 値 or pointer)。`errors.Is` / `errors.As`、`sort.Slice`、`context` に足りる範囲 |
 | `sync` | `Mutex` と `RWMutex` は同期的に lock し、block を跨いで保持される mutex (§5) だけ待つ (async)。`WaitGroup` と `Cond` は channel で待つ。`Once`、`Map`、`Pool` は普通の Go |
-| `syscall/js` | js/wasm の `syscall/js` API を JS の値そのものの上に実装 (`Value` が値を持つ)。goesm は stdlib を js/wasm 向けに compile するので、`os`・`syscall`・`time` はこれを通じて host に届く。`globalThis.fs` と `process` は Node のもの (Bun・Deno も同じ)、browser では console を使う最小限の代替で、`os.Stdout` と `os.Stderr` はどこでも動く |
+| `syscall/js` | js/wasm の `syscall/js` API を JS の値そのものの上に実装 (`Value` が値を持つ)。goesm は stdlib を js/wasm 向けに compile するので、`os`・`syscall`・`time` はこれを通じて host に届く。`js.Global().Get("fs")` は `globalThis.fs` が何であっても常に goesm 自身の file system で、`syscall` package が期待する callback API を持ち、return する前に callback を呼ぶ (Node・Bun・Deno では `node:fs` の上に、browser では console を使う代替)。そのため `os.Stdout` と `os.Stderr` はどこでも動き、呼び出し側を async にしない。`process` は host のもの、browser では最小限の代替 |
 
 仕組み:
 
@@ -236,7 +236,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * goroutine は blocking 点でしか切り替わらない (協調的)。blocking する exported 関数は JS からは Promise を返す。
 * 動的呼び出しの blocking 判定は保守的 (§5) なので、不要な `await` が入ることがある (意味は変わらない)。
 * `print` / `println` は address を固定の `0xc000010000` で表示する (Go の address も再現性はない)。
-* `sync`: block を跨いで保持され、かつ別名でも lock される mutex (§5) は、競合すると panic する。最初の呼び出しの関数が block している間に 2 回目の `Once.Do` を呼ぶと、待たずに panic する。unlock 済み `Mutex` の unlock などの誤用は fatal error ではなく recover できる panic。`runtime.Caller` / `Callers` / `Stack` は何も報告せず、`SetFinalizer` は何もしない。
+* `sync`: 解析 (§5) が同期のままにした `Lock` は、待つ必要があると panic する。解析はこれを起こさないはずなので、goesm の bug である。最初の呼び出しの関数が block している間に 2 回目の `Once.Do` を呼ぶと、待たずに panic する。unlock 済み `Mutex` の unlock などの誤用は fatal error ではなく recover できる panic。`runtime.Caller` / `Callers` / `Stack` は何も報告せず、`SetFinalizer` は何もしない。
 
 ## 12. 次に実装すべき 3 項目
 

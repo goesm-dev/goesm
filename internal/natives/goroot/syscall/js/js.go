@@ -55,9 +55,11 @@ func (v Value) IsNull() bool { return v.ref == nullRef() }
 func (v Value) IsNaN() bool { return valueIsNaN(v.ref) }
 
 // Global returns the JavaScript global object, usually "window" or
-// "global". As with Go's wasm_exec.js, its "fs" and "process" properties
-// fall back to minimal implementations where the host has none (in
-// browsers), without changing the real global object.
+// "global". Its "fs" property is goesm's file system (node:fs where the host
+// has it, the console otherwise) with the callback API package syscall uses,
+// whatever the global object holds; "process" falls back to a minimal
+// implementation where the host has none (in browsers). Neither changes the
+// real global object.
 func Global() Value { return makeValue(globalRef()) }
 
 // ValueOf returns x as a JavaScript value:

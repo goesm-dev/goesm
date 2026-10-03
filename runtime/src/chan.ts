@@ -253,17 +253,17 @@ export function runMain(main: () => void | Promise<void>): void {
     done();
     return;
   }
-  let finished = false;
-  if (typeof proc?.on === "function") {
-    proc.on("exit", () => {
-      if (!finished && !exiting) {
-        writeStd(2, "fatal error: all goroutines are asleep - deadlock!\n\ngoroutine 1 [running]:\nmain.main()\n");
-        proc.exitCode = 2;
-      }
-    });
-  }
+  // beforeExit fires only when the event loop has run dry: not for an exit
+  // the program or a JavaScript callback asked for, nor for an uncaught
+  // JavaScript exception.
+  const deadlock = () => {
+    if (exiting) return;
+    writeStd(2, "fatal error: all goroutines are asleep - deadlock!\n\ngoroutine 1 [running]:\nmain.main()\n");
+    exitProcess(2);
+  };
+  if (typeof proc?.once === "function") proc.once("beforeExit", deadlock);
   r.then(() => {
-    finished = true;
+    proc?.off?.("beforeExit", deadlock);
     done();
   }, crash);
 }

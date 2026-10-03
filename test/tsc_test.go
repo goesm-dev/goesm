@@ -76,6 +76,8 @@ func TestTSC(t *testing.T) {
 		{testdata("semantics"), "./stdlibuse"},
 		{testdata("programs"), "./pipe"},
 		{testdata("programs"), "./stdio"},
+		{testdata("programs"), "./ifacevalues"},
+		{testdata("programs"), "./condwait"},
 		{examples, "./cart"},
 		{examples, "./textstats"},
 		{examples, "./workers"},

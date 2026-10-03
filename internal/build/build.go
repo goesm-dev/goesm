@@ -39,7 +39,6 @@ type Result struct {
 	Outputs  []string // written JS files
 	TSDir    string
 	Warnings []string // see Lowered.Warnings
-	Notes    []string // see Lowered.Notes
 }
 
 // DiagError carries diagnostics from one pipeline layer.
@@ -57,9 +56,6 @@ type Lowered struct {
 	// Warnings name standard library functions that goesm cannot lower yet;
 	// they were replaced by stubs that panic when called.
 	Warnings []string
-	// Notes point at code that compiles but may fail at run time under
-	// goesm, such as a mutex held across a blocking operation.
-	Notes []string
 }
 
 // Lower runs the Go frontend and the semantic lowering.
@@ -96,9 +92,6 @@ func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) (*Lo
 	l := &Lowered{Mods: mods, Entry: entry}
 	for _, d := range lp.SortedWarns() {
 		l.Warnings = append(l.Warnings, d.String())
-	}
-	for _, d := range lp.SortedNotes() {
-		l.Notes = append(l.Notes, fmt.Sprintf("%s: warning: %s [goesm]", d.Pos, d.Msg))
 	}
 	return l, nil
 }
@@ -270,7 +263,7 @@ func Build(opts Options) (*Result, error) {
 		}
 		return nil, &DiagError{Layer: "esbuild", Lines: lines}
 	}
-	r := &Result{TSDir: opts.TSDir, Warnings: l.Warnings, Notes: l.Notes}
+	r := &Result{TSDir: opts.TSDir, Warnings: l.Warnings}
 	for _, f := range res.OutputFiles {
 		r.Outputs = append(r.Outputs, f.Path)
 	}
