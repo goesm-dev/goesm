@@ -210,3 +210,4 @@ go test ./...   # Go 1.27 以上と Node.js 22 以上が必要
 - `TestJS` は build した bundle に対して `test/js/*.test.mjs` (node:test) を実行します。
 - `TestKnownGaps` は文書化した native Go との差分がまだ存在することを固定します。
 - `TestStdlibStatus -v` は標準 library の package がどこまで通るかを報告します。
+- `TestGoConformance`（`GOESM_CONFORMANCE=1` で有効）は Go 本体の `test/` ディレクトリにある `// run` テストを goesm で実行し、native Go が出すべき出力と照合します。[docs/conformance.ja.md](docs/conformance.ja.md) を参照してください。
