@@ -355,8 +355,10 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 		return fmt.Sprintf("%s$rt.index(%s, %s)", m, fe.expr(e.X), fe.expr(e.Index))
 	case *types.Map:
 		return fmt.Sprintf("%s$rt.mapGet(%s, %s, %s)", m, fe.expr(e.X), fe.valueOf(e.Index, u.Key()), fe.zeroFn(u.Elem()))
-	case *types.Array, *types.Pointer:
+	case *types.Array:
 		return fmt.Sprintf("%s%s[%s]", m, fe.expr(e.X), fe.arrayIndex(e))
+	case *types.Pointer: // *array: the array object, nil-checked
+		return fmt.Sprintf("%s$rt.deref(%s)[%s]", m, fe.expr(e.X), fe.arrayIndex(e))
 	case *types.Interface:
 		// Type parameter without a core type, e.g. ~string | ~[]byte: the
 		// representation is chosen at run time.

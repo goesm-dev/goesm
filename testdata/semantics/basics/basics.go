@@ -829,3 +829,25 @@ func LoopVarAggregatePerIteration() []int {
 	}
 	return out
 }
+
+// ---- round 6: comma-ok var declarations, nil array pointer index ----
+
+func CommaOkVarDecls() []any {
+	m := map[string]int{"a": 1}
+	var v, ok = m["a"]
+	var w, ok2 = m["z"]
+	var x any = 3
+	var n, isInt = x.(int)
+	var s, isStr = x.(string)
+	ch := make(chan int, 1)
+	ch <- 9
+	close(ch)
+	var r, rok = <-ch
+	var r2, rok2 = <-ch
+	return []any{v, ok, w, ok2, n, isInt, s, isStr, r, rok, r2, rok2}
+}
+
+func NilArrayPointerIndex() string {
+	var p *[3]int
+	return recoverMsg(func() { _ = p[1] })
+}

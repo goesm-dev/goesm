@@ -139,9 +139,12 @@ func (fe *funcEmitter) declStmt(s *ast.DeclStmt) {
 			for i, v := range vars {
 				fe.defineVar(m, v, vals[i])
 			}
-		default: // tuple
-			t := fe.forceTmp(fe.expr(vs.Values[0]))
-			tt := fe.info.TypeOf(vs.Values[0])
+		default: // tuple: f() or a comma-ok form (v, ok = m[k], <-ch, x.(T))
+			e, tt, ok := fe.commaOk(vs.Values[0])
+			if !ok {
+				e, tt = fe.expr(vs.Values[0]), fe.info.TypeOf(vs.Values[0])
+			}
+			t := fe.forceTmp(e)
 			for i, v := range vars {
 				fe.defineVar(m, v, fe.convert(fmt.Sprintf("%s[%d]", t, i), tupleAt(tt, i), v.Type()))
 			}
@@ -376,7 +379,11 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 			}
 			return lvalue{get: get, set: func(rhs string) string { return fmt.Sprintf("%s$rt.setIndex(%s, %s, %s)", fe.mark(x), s, i, rhs) }}
 		default:
-			a := stab(fe.expr(x.X))
+			a := fe.expr(x.X)
+			if _, isPtr := under(xt).(*types.Pointer); isPtr {
+				a = "$rt.deref(" + a + ")"
+			}
+			a = stab(a)
 			i := stab(fe.arrayIndex(x))
 			return fe.simpleLvalue(a+"["+i+"]", t)
 		}
