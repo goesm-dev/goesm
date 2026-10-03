@@ -466,6 +466,9 @@ func (fe *funcEmitter) forStmt(s *ast.ForStmt, label string) {
 				renew = append(renew, fmt.Sprintf("%s = $rt.cell(%s.v)", n, n))
 			} else {
 				decls = append(decls, fmt.Sprintf("%s: %s = %s", n, fe.ts(v.Type()), val))
+				if isAggregate(v.Type()) { // the next iteration gets its own copy
+					renew = append(renew, fmt.Sprintf("%s = %s", n, fe.pe.copyExpr(n, v.Type(), fe.tp)))
+				}
 			}
 		}
 		if decls != nil {
@@ -574,9 +577,14 @@ func (fe *funcEmitter) rangeStmt(s *ast.RangeStmt, label string) {
 		w.ln("}")
 	case *types.Array:
 		arr, i := fe.tmp(), fe.tmp()
-		src := fe.expr(s.X)
-		if _, isPtr := xt.Underlying().(*types.Pointer); !isPtr && hasVal {
-			src = fe.pe.copyExpr(src, xt, fe.tp) // the range expression is a copy
+		src := "null"
+		// With at most one iteration variable and a constant length, Go does
+		// not evaluate the range expression (for i := range *nilPtr is fine).
+		if hasVal || hasCallOrRecv(s.X) {
+			src = fe.expr(s.X)
+			if _, isPtr := xt.Underlying().(*types.Pointer); !isPtr && hasVal {
+				src = fe.pe.copyExpr(src, xt, fe.tp) // the range expression is a copy
+			}
 		}
 		w.ln("%s%sfor (let %s = %s, %s = 0; %s < %d; %s++) {", m, lp, arr, src, i, i, u.Len(), i)
 		w.indent++
@@ -1085,19 +1093,15 @@ func (fe *funcEmitter) returnStmt(s *ast.ReturnStmt) {
 	m := fe.mark(s)
 	vals := fe.returnValues(s)
 	if fe.hasDefer {
-		if len(vals) == 1 {
-			w.ln("%s%s = %s;", m, fe.results[0], vals[0])
-		} else if len(vals) > 1 {
-			var tmps []string
-			for _, v := range vals {
-				tmps = append(tmps, fe.forceTmp(v))
-			}
-			for i, t := range tmps {
-				w.ln("%s = %s;", fe.results[i], t)
-			}
-		}
+		fe.setResults(m, vals)
 		w.ln("%sbreak $body;", m)
 		return
+	}
+	if fe.named && len(vals) > 0 {
+		// Go assigns the result variables before returning; an escaped
+		// pointer to one observes the value.
+		fe.setResults(m, vals)
+		vals = nil
 	}
 	switch len(vals) {
 	case 0:
@@ -1181,4 +1185,24 @@ func (fe *funcEmitter) deferredCall(call *ast.CallExpr) string {
 		return "async () => { " + body + "; }"
 	}
 	return "() => { " + body + "; }"
+}
+
+// hasCallOrRecv reports whether e contains a function call or a channel
+// receive, which makes len(e) non-constant for an array operand.
+func hasCallOrRecv(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.CallExpr:
+			found = true
+		case *ast.UnaryExpr:
+			if n.Op == token.ARROW {
+				found = true
+			}
+		case *ast.FuncLit:
+			return false
+		}
+		return !found
+	})
+	return found
 }

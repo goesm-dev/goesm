@@ -1020,7 +1020,7 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 	case "clear":
 		t := fe.info.TypeOf(e.Args[0])
 		if sl, ok := under(t).(*types.Slice); ok {
-			return fmt.Sprintf("%s$rt.sliceClear(%s, %s)", m, arg(0), fe.zeroFn(sl.Elem()))
+			return fmt.Sprintf("%s$rt.sliceClear(%s, %s%s)", m, arg(0), fe.zeroFn(sl.Elem()), fe.elemTypeArg(sl.Elem()))
 		}
 		return m + "$rt.mapClear(" + arg(0) + ")"
 	case "min", "max":
