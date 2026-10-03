@@ -146,8 +146,14 @@ export function sliceToArray<T = any>(s: S<T>, n: number): T[] {
   return toArray(slice(s, 0, n));
 }
 
-export function toArray<T = any>(s: S<T>): T[] {
+export function toArray<T = any>(s: S<T> | string): T[] {
   if (s === null) return [];
+  if (typeof s === "string") {
+    // append(b, s...) with s of a type parameter like ~string | ~[]byte.
+    const a = new Array<number>(s.length);
+    for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
+    return a as T[];
+  }
   return s.$array.slice(s.$offset, s.$offset + s.$length);
 }
 

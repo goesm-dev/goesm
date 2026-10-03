@@ -131,7 +131,11 @@ func (pe *pkgEmitter) typeDesc(t types.Type, tp tpScope) string {
 		return pe.namedDesc(named)
 	}
 	if tp.inline || hasTypeParam(t) {
-		return pe.buildDesc(t, tp)
+		d := pe.buildDesc(t, tp)
+		if promotedMethods(t) {
+			d = "$rt.withMethods(" + d + ", {" + strings.Join(pe.methodEntries(t, nil, tp), ", ") + "})"
+		}
+		return d
 	}
 	if name, ok := pe.typeConsts.At(t).(string); ok {
 		return name
@@ -140,6 +144,11 @@ func (pe *pkgEmitter) typeDesc(t types.Type, tp tpScope) string {
 	name := pe.fresh("t")
 	pe.typeConsts.Set(t, name)
 	pe.consts.ln("const %s = %s;", name, expr)
+	if promotedMethods(t) {
+		// After the const, so method signatures may refer to t itself.
+		entries := pe.methodEntries(t, nil, tp)
+		pe.consts.ln("$rt.addMethods(%s, {%s});", name, strings.Join(entries, ", "))
+	}
 	return name
 }
 

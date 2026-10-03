@@ -205,8 +205,8 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 	case types.MethodVal:
 		fn, recv, iface := fe.methodTarget(e, sel)
 		r := fe.tmp()
-		if iface {
-			return fmt.Sprintf("((%s: any) => (...a: any[]) => $rt.icall(%s, %s, ...a))(%s)", r, r, jsString(methodKey(sel.Obj().(*types.Func))), recv)
+		if iface { // a nil interface panics when the method value is taken
+			return fmt.Sprintf("%s((%s: any) => (...a: any[]) => $rt.icall(%s, %s, ...a))($rt.deref(%s))", fe.mark(e), r, r, jsString(methodKey(sel.Obj().(*types.Func))), recv)
 		}
 		// Method value: the receiver is evaluated (and copied) now.
 		if fnT := sel.Obj().(*types.Func); !isPtrRecv(fnT) {
@@ -219,13 +219,32 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 	case types.MethodExpr:
 		fn := sel.Obj().(*types.Func)
 		recvT := sel.Recv()
+		if isTypeParam(recvT) { // T.M for a type parameter: dispatch on the type argument
+			return fmt.Sprintf("((r: any, ...a: any[]) => $rt.icall($rt.box(%s, r), %s, ...a))", fe.desc(recvT), jsString(methodKey(fn)))
+		}
 		if isIface(recvT) {
 			return fmt.Sprintf("((r: any, ...a: any[]) => $rt.icall(r, %s, ...a))", jsString(methodKey(fn)))
 		}
-		base, havePtr := derefType(recvT)
-		recv := "r"
+		// Promoted methods walk the embedded fields from the receiver.
+		recv, t := "r", recvT
+		parent, parentProp := "", ""
+		path := sel.Index()
+		for _, idx := range path[:len(path)-1] {
+			base, isPtr := derefType(t)
+			if isPtr {
+				recv = "$rt.deref(" + recv + ")"
+			}
+			st := base.Underlying().(*types.Struct)
+			parent, parentProp = recv, fieldProp(st, idx)
+			recv += "." + parentProp
+			t = st.Field(idx).Type()
+		}
+		base, havePtr := derefType(t)
+		if isPtrRecv(fn) && !havePtr && !isAggregate(base) && parent != "" {
+			recv = fmt.Sprintf("$rt.fieldPtr(%s, %s)", parent, jsString(parentProp))
+		}
 		if !isPtrRecv(fn) && havePtr {
-			recv = fmt.Sprintf("$rt.derefMethod(r, %s)", jsString(panicwrapMsg(fn, base)))
+			recv = fmt.Sprintf("$rt.derefMethod(%s, %s)", recv, jsString(panicwrapMsg(fn, base)))
 			if !isAggregate(base) {
 				recv += ".v"
 			}
@@ -334,8 +353,8 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 			return fmt.Sprintf("%s[%s]", fe.expr(x.X), fe.arrayIndex(x))
 		}
 		return fmt.Sprintf("%s$rt.arrayElemPtr(%s, %s)", fe.mark(x), fe.expr(x.X), fe.expr(x.Index))
-	case *ast.StarExpr:
-		return fe.expr(x.X)
+	case *ast.StarExpr: // &*p is p, but a nil p still panics
+		return fe.mark(x) + "$rt.deref(" + fe.expr(x.X) + ")"
 	case *ast.CompositeLit:
 		if isAggregate(t) {
 			return fe.compositeLit(x)
@@ -407,8 +426,17 @@ func (fe *funcEmitter) sliceExpr(e *ast.SliceExpr) string {
 }
 
 func (fe *funcEmitter) compositeLit(e *ast.CompositeLit) string {
+	if isTypeParam(fe.info.TypeOf(e)) {
+		// A literal of a type parameter's core type (P with core type *S
+		// in []P{{f: 1}}) is a value of P only in Go's type system.
+		return "(" + fe.compositeLitOf(e) + " as any)"
+	}
+	return fe.compositeLitOf(e)
+}
+
+func (fe *funcEmitter) compositeLitOf(e *ast.CompositeLit) string {
 	t := fe.info.TypeOf(e)
-	if p, ok := t.Underlying().(*types.Pointer); ok { // elided &T in nested literals
+	if p, ok := under(t).(*types.Pointer); ok { // elided &T in nested literals
 		t = p.Elem()
 	}
 	m := fe.mark(e)
@@ -675,7 +703,32 @@ func (fe *funcEmitter) eqExpr(a string, at types.Type, b string, bt types.Type) 
 	if isAggregate(at) {
 		return fmt.Sprintf("$rt.equal(%s, %s, %s)", fe.desc(at), a, b)
 	}
+	if p, ok := under(at).(*types.Pointer); ok && zeroSize(p.Elem()) && !isNil(at) && !isNil(bt) {
+		// Like gc, all zero-size values share one address (runtime.zerobase),
+		// so two non-nil pointers to them are equal.
+		return "$rt.zeroSizePtrEq(" + a + ", " + b + ")"
+	}
 	return "(" + a + " === " + b + ")"
+}
+
+// zeroSize reports whether values of t occupy no memory, like struct{} or
+// [0]int.
+func zeroSize(t types.Type) bool {
+	if isTypeParam(t) {
+		return false
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Array:
+		return u.Len() == 0 || zeroSize(u.Elem())
+	case *types.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if !zeroSize(u.Field(i).Type()) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func isNil(t types.Type) bool {
@@ -788,6 +841,13 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 			if fn, ok := fe.info.Uses[id].(*types.Func); ok {
 				callee = fe.nameOf(fn)
 				targs = strings.Join(fe.typeArgList(inst.TypeArgs), ", ")
+				// TS cannot infer type parameters used only in the result
+				// (func New[T any]() []T); pass them.
+				var ts []string
+				for i := 0; i < inst.TypeArgs.Len(); i++ {
+					ts = append(ts, fe.ts(inst.TypeArgs.At(i)))
+				}
+				callee += "<" + strings.Join(ts, ", ") + ">"
 			}
 		}
 	}
@@ -818,8 +878,8 @@ func isStaticFunc(info *types.Info, fun ast.Expr) bool {
 	case *ast.Ident:
 		id = f
 	case *ast.SelectorExpr:
-		if _, ok := info.Selections[f]; ok {
-			return false
+		if sel, ok := info.Selections[f]; ok {
+			return sel.Kind() == types.MethodExpr // T.M is a function literal
 		}
 		id = f.Sel
 	default:
@@ -1023,6 +1083,8 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			src := arg(1)
 			if b, ok := under(fe.info.TypeOf(e.Args[1])).(*types.Basic); ok && b.Info()&types.IsString != 0 {
 				src = "$rt.stringToBytes(" + src + ")"
+			} else if isTypeParam(fe.info.TypeOf(e.Args[1])) {
+				src += " as any" // ~string | ~[]byte: toArray handles both
 			}
 			return fmt.Sprintf("%s$rt.append<%s>(%s, $rt.toArray(%s), %s%s)", m, fe.ts(elem), arg(0), src, fe.zeroFn(elem), fe.elemTypeArg(elem))
 		}

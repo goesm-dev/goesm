@@ -253,6 +253,13 @@ export function addMethods(t: Type, methods: Record<string, [(recv: any, ...args
   }
 }
 
+// withMethods registers methods promoted into an unnamed struct type (or a
+// pointer to one) and returns the descriptor.
+export function withMethods(t: Type, methods: Record<string, [(recv: any, ...args: any[]) => any, Type]>): Type {
+  addMethods(t, methods);
+  return t;
+}
+
 // generic memoizes instantiations of a generic named type by the identity of
 // its type arguments. The instance is cached before init runs so recursive
 // references (type List[T] struct{ next *List[T] }) resolve to itself.
