@@ -3,8 +3,8 @@ package lower
 import (
 	"fmt"
 	"go/ast"
-	"path"
 	"go/types"
+	"path"
 	"strings"
 
 	"github.com/goesm-dev/goesm/internal/natives"
