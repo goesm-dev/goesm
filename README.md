@@ -198,16 +198,23 @@ import { Result } from "./dist/main.js";
 Result(); // 3
 ```
 
+[examples/](examples) has runnable examples (the cart above, standard library use, goroutines) with the JS that imports them.
+
+Standard library packages are compiled from their own Go source; the few tied to the gc runtime (`runtime`, `internal/reflectlite`, `sync`) are replaced by goesm's own Go source. A standard library function goesm cannot lower yet becomes a stub that panics if called, and `build` / `emit-ts` print how many there are (`-v` lists them).
+
 goesm uses go/types from the toolchain it was built with, so build it with the toolchain your module uses (for example via a `tool` directive and `go tool goesm`). This repository's fixtures use Go 1.27.
 
 ### Tests
 
 ```sh
-go test ./...   # needs Go 1.27+ and Node.js 22+
+npm ci --prefix test   # oxlint for TestOxlint (optional locally; required in CI)
+go test ./...          # needs Go 1.27+ and Node.js 22+
 ```
 
 - `TestGolden` runs every parameterless exported function of the fixtures under native Go and in the goesm-built ESM (Node) and requires equal results.
 - `TestJS` runs `test/js/*.test.mjs` (node:test) against built bundles.
 - `TestKnownGaps` pins the documented differences from native Go.
-- `TestStdlibStatus -v` reports how far standard library packages get.
+- `TestExamples` builds `examples/*`, runs each `index.mjs` under Node (and Bun when installed) and compares with its `output.txt`.
+- `TestOxlint` lints the ESM built from the fixtures (bundle and split) with oxlint's correctness rules and fails on any finding; `test/lint_test.go` lists the four rules turned off for generated code and why.
+- `TestStdlibStatus -v` reports which standard library packages lower and how many of their functions are stubs.
 - `TestGoConformance` (opt-in, `GOESM_CONFORMANCE=1`) runs the `// run` tests of the Go distribution's own `test/` directory through goesm and checks them against the output native Go must produce. See [docs/conformance.md](docs/conformance.md).

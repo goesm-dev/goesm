@@ -15,7 +15,10 @@ jobs:
           node-version: "22"
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
+      - run: npm ci --prefix test
       - run: go test ./...
+        env:
+          GOESM_REQUIRE_OXLINT: "1"
   conformance:
     # Go's own test/ directory (`// run` tests) through goesm, against the
     # baseline in test/conformance/passing.txt.

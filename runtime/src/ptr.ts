@@ -108,3 +108,9 @@ export function derefMethod<T>(p: T | null, msg: string): T {
   if (p === null) plainPanic(msg);
   return p;
 }
+
+// nilFunc stands in for a nil function value at a call: calling it is the
+// nil dereference panic (after the arguments were evaluated, as in Go).
+export function nilFunc(): never {
+  runtimePanic("invalid memory address or nil pointer dereference");
+}
