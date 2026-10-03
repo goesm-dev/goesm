@@ -198,3 +198,31 @@ func GoexitRunsDefers() []any {
 	runtime.Gosched()
 	return log
 }
+
+// ---- blocking methods called through method expression values ----
+
+type Mailer struct{ ch chan int }
+
+func (m Mailer) Post(v int) { m.ch <- v }
+
+type Poster interface{ Post(int) }
+
+func MethodExprBlocking() []int {
+	ch := make(chan int)
+	done := make(chan []int)
+	go func() {
+		var got []int
+		for v := range ch {
+			got = append(got, v)
+		}
+		done <- got
+	}()
+	post := Mailer.Post
+	post(Mailer{ch}, 1)
+	ipost := Poster.Post
+	ipost(Mailer{ch}, 2)
+	ppost := (*Mailer).Post
+	ppost(&Mailer{ch}, 3)
+	close(ch)
+	return <-done
+}

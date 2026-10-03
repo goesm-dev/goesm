@@ -197,8 +197,10 @@ func containsDefer(body *ast.BlockStmt) bool {
 }
 
 // mutatesVar reports whether body may modify (part of) the value of v in
-// place: assignment to v or its fields/array elements, &v, or a pointer
-// method call on v. Used to decide whether a value receiver must be copied.
+// place, or keep a reference to it beyond the call: assignment to v or its
+// fields/array elements, &v, a pointer method call on v, slicing an array
+// in v, or a reference to v from a function literal. Used to decide whether
+// a value receiver must be copied (otherwise it aliases the caller's value).
 func (fe *funcEmitter) mutatesVar(body *ast.BlockStmt, v *types.Var) bool {
 	root := func(e ast.Expr) bool {
 		for {
@@ -226,6 +228,15 @@ func (fe *funcEmitter) mutatesVar(body *ast.BlockStmt, v *types.Var) bool {
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch n := n.(type) {
+		case *ast.FuncLit:
+			ast.Inspect(n.Body, func(n ast.Node) bool {
+				if id, ok := n.(*ast.Ident); ok && fe.info.Uses[id] == v {
+					found = true
+				}
+				return !found
+			})
+		case *ast.SliceExpr:
+			found = found || root(n.X)
 		case *ast.AssignStmt:
 			for _, l := range n.Lhs {
 				if root(l) {
@@ -281,7 +292,9 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 					rv, _ = fe.info.Defs[id].(*types.Var)
 				}
 			}
-			if rv != nil && fe.mutatesVar(body, rv) {
+			// An async method may observe the caller's changes made while
+			// it is blocked.
+			if rv != nil && (fe.async || fe.mutatesVar(body, rv)) {
 				n := fe.nameOf(rv)
 				w.ln("%s = %s;", n, fe.pe.copyExpr(n, rv.Type(), fe.tp))
 			}
