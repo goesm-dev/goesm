@@ -1,212 +1,214 @@
 # goesm architecture
 
-goesm は、現在の Go toolchain を frontend とし、本物の Go package と Go semantics を TypeScript へ lowering し、esbuild を backend として ES Modules を生成する基盤の PoC です。
-「Go っぽい言語を JavaScript に変換する」ものではありません。独自 syntax・独自 module system・独自 type system は持ちません。
+[日本語](ARCHITECTURE.ja.md)
 
-## 1. Pipeline と責務
+goesm is a proof of concept for producing ES Modules from real Go packages: the current Go toolchain is the frontend, goesm lowers Go semantics to TypeScript, and esbuild is the backend.
+It is not "a Go-like language compiled to JavaScript". There is no custom syntax, no custom module system and no custom type system.
+
+## 1. Pipeline and responsibilities
 
 ```
 .go / go.mod / go.sum / go.work
         │  go command + golang.org/x/tools/go/packages   (internal/loader)
         ▼
-parse / package load / type check  ── go/parser, go/types (Go が言語仕様の authority)
+parse / package load / type check  ── go/parser, go/types (Go is the language authority)
         │
         ▼
-Go semantic lowering                ── internal/lower   (goesm の本体)
+Go semantic lowering                ── internal/lower   (the core of goesm)
         │
         ▼
 TypeScript (IR) + @goesm/runtime    ── runtime/src/*.ts
         │  esbuild Go API            (internal/build)
         ▼
-JavaScript ESM (+ .go を指す source map)
+JavaScript ESM (+ source maps pointing at .go)
 ```
 
-| layer | 担当 | 担当しないこと |
+| layer | owns | does not own |
 |---|---|---|
-| Go toolchain (`go list` / go/packages / go/types) | module・package 解決、go.mod / go.sum / go.work / GOPROXY、build constraints、parse、type check、定数畳み込み、init order | — |
-| goesm (`internal/lower`) | Go の意味論を TS + runtime 呼び出しへ写像、type metadata、blocking 解析、source map の第一段 (TS→Go) | parse、型検査、module 解決、JS printing |
-| `@goesm/runtime` | JS にない Go 意味論 (slice / map / pointer / interface / panic / defer / channel / select / 整数 wrap / 型 descriptor) | 型の判定 (すべて compile 時に go/types が済ませている) |
-| esbuild (Go API) | TS syntax stripping、JS printer、target lowering、bundling、tree shaking、minify、code splitting、最終 source map (TS→Go map を合成) | Go 意味論の判断 |
+| Go toolchain (`go list` / go/packages / go/types) | module and package resolution, go.mod / go.sum / go.work / GOPROXY, build constraints, parsing, type checking, constant folding, init order | — |
+| goesm (`internal/lower`) | mapping Go semantics to TS + runtime calls, type metadata, blocking analysis, the first source map hop (TS→Go) | parsing, type checking, module resolution, JS printing |
+| `@goesm/runtime` | Go semantics JS lacks (slices, maps, pointers, interfaces, panic, defer, channels, select, integer wrapping, type descriptors) | typing decisions (go/types settled them at compile time) |
+| esbuild (Go API) | TS syntax stripping, JS printing, target lowering, bundling, tree shaking, minification, code splitting, final source maps (composing the TS→Go maps) | any Go-semantic decision |
 
-## 2. Repository 構成
+## 2. Repository layout
 
 ```
 cmd/goesm/            CLI: goesm build / goesm emit-ts
-internal/loader/      go/packages による frontend と診断 (go list / go/parser / go/types の layer 付き)
+internal/loader/      go/packages frontend and diagnostics (tagged go list / go/parser / go/types)
 internal/lower/       typed AST → TypeScript lowering
-  program.go          whole-program 解析 (address-taken 変数、blocking 解析)
-  emit.go decl.go     package = 1 TS module、型 descriptor、struct class、method table
-  func.go stmt.go     関数本体・文 (defer、switch、select、range、range-over-func ...)
-  expr.go types.go    式、変換、演算子、型 descriptor / zero value
-  writer.go           位置 marker 付き code writer (source location を codegen 中に保持)
-internal/sourcemap/   TS→Go の Source Map v3 builder
-internal/build/       pipeline 結合、esbuild Go API 呼び出し、go: specifier resolver
-runtime/              @goesm/runtime (TypeScript)。goesm binary に embed
-test/                 end-to-end テスト (Node.js 実行、native Go との golden 比較)
-testdata/             fixture module (普通の Go module。gofmt / go vet / go test がそのまま通る)
-docs/                 GopherJS 比較、生成物の実例
+  program.go          whole-program analysis (address-taken variables, blocking analysis)
+  emit.go decl.go     package = one TS module, type descriptors, struct classes, method tables
+  func.go stmt.go     function bodies and statements (defer, switch, select, range, range-over-func ...)
+  expr.go types.go    expressions, conversions, operators, type descriptors / zero values
+  writer.go           code writer with position markers (source locations kept during codegen)
+internal/sourcemap/   TS→Go Source Map v3 builder
+internal/build/       pipeline wiring, esbuild Go API, go: specifier resolver
+runtime/              @goesm/runtime (TypeScript), embedded into the goesm binary
+test/                 end-to-end tests (run in Node.js, golden comparison with native Go)
+testdata/             fixture modules (plain Go modules: gofmt / go vet / go test work as usual)
+docs/                 GopherJS comparison, example output
 ```
 
-## 3. Frontend: Go toolchain をそのまま使う
+## 3. Frontend: the Go toolchain as is
 
-* `golang.org/x/tools/go/packages` で `NeedSyntax|NeedTypes|NeedTypesInfo|NeedDeps` を読み込みます。module 解決・`go.work`・`GOPROXY`・`go.sum` 検証はすべて go command の仕事で、goesm は一切再実装していません。
-* 入力は Go の package pattern (`./main`, `example.com/app/...`)。`import "./foo.go"` のような独自 import はありません。
-* target の build constraints は `GOOS=js GOARCH=wasm` (既存 port のうち JS host に最も近いもの)。`int` は 64-bit として型検査されます。
-* **Go version を固定しない**: go/parser と go/types は goesm binary にリンクされるため、goesm が理解できる最新 syntax は「goesm を build した toolchain」の syntax です。そこで goesm は `go tool goesm` (go.mod の `tool` directive) や `go run` で、その module が選ぶ toolchain により都度 build される前提にしています。toolchain の方が新しい場合は `loader.VersionHint` がそれを診断します。この PoC 自体 Go 1.27 で build し、Go 1.27 の generic methods を fixture で通しています (`testdata/semantics/generics`)。
+* Packages are loaded with `golang.org/x/tools/go/packages` (`NeedSyntax|NeedTypes|NeedTypesInfo|NeedDeps`). Module resolution, `go.work`, `GOPROXY` and `go.sum` verification are all the go command's job; goesm reimplements none of it.
+* Inputs are Go package patterns (`./main`, `example.com/app/...`). There are no custom imports such as `import "./foo.go"`.
+* Target build constraints are `GOOS=js GOARCH=wasm`, the existing port closest to a JS host. `int` is type-checked as 64-bit.
+* **No pinned Go version**: go/parser and go/types are linked into the goesm binary, so the newest syntax goesm understands is that of the toolchain goesm was built with. goesm is therefore meant to be built by the toolchain the module selects, via `go tool goesm` (a `tool` directive in go.mod) or `go run`. When the toolchain is newer than goesm, `loader.VersionHint` reports it. This PoC is built with Go 1.27 and its fixtures use Go 1.27 generic methods (`testdata/semantics/generics`).
 
-## 4. AST から直接 lowering するか、x/tools/go/ssa か
+## 4. Lowering from the AST or from x/tools/go/ssa
 
-**判断: typed AST (go/ast + go/types) から直接 lowering する。** SSA は採用しません。
+**Decision: lower directly from the typed AST (go/ast + go/types).** SSA is not used.
 
-| 基準 | typed AST | go/ssa |
+| criterion | typed AST | go/ssa |
 |---|---|---|
-| 1. 最新 Go syntax への追従 | go/types が受理すれば即使える。新構文は lowering 1 箇所の追加で済む | x/tools の SSA builder 側の対応待ちが発生する (generic methods、range-over-func 等は SSA 側の実装が先に必要) |
-| 2. Go semantics の正確性 | 評価順・defer・named result 等は lowering で明示的に扱う必要がある | SSA は評価順を明示化済みで有利 |
-| 3. 実装量 | 構造化制御フローを JS の制御構文へそのまま写せる | basic block + phi を JS に戻す relooper/stackifier が必要で大きい |
-| 4. source location | AST node の位置をそのまま marker として埋め込める | 命令単位の位置は粗く、構造化後に再対応が必要 |
-| 5. runtime semantics の将来実装 | async/await、try/finally、label 付き break が JS の構造に素直に乗る | goroutine の再開点などは state machine 化が前提になる |
+| 1. keeping up with new Go syntax | anything go/types accepts is usable at once; a new construct needs one lowering case | waits for x/tools' SSA builder (generic methods, range-over-func etc. must be implemented there first) |
+| 2. Go semantic accuracy | evaluation order, defer, named results must be handled explicitly | SSA already makes evaluation order explicit (an advantage) |
+| 3. implementation size | structured control flow maps onto JS control flow directly | basic blocks + phis need a relooper/stackifier to get back to JS, which is large |
+| 4. source locations | AST node positions are embedded as markers directly | positions per instruction are coarse and must be re-associated after restructuring |
+| 5. future runtime semantics | async/await, try/finally and labeled break fit JS structure naturally | goroutine resume points push toward state machines |
 
-2. の不利は、評価順に関わる箇所 (多値代入、defer の引数評価、range 式の一回評価など) を lowering 側で temp に落とすことで補っています。GopherJS も同じく typed AST ベースです。
+The weakness in 2 is covered by spilling to temporaries in the lowering where evaluation order matters (multi-assignment, defer argument evaluation, evaluating a range expression once, ...). GopherJS also works from the typed AST.
 
-## 5. Lowering 方式
+## 5. Lowering
 
-* **1 Go package = 1 TypeScript module = 1 ES module**。Go の import は `import * as mathx from "go:example.com/app/mathx"` として表現します。`go:` scheme は npm package と名前空間を分けるためのもので、import path 自体は Go のまま保持します。
-  * `goesm build` (既定) は esbuild が 1 bundle (`dist/main.js`) にまとめます。
-  * `goesm build -split` は package ごとに `dist/example.com/app/mathx.js` を出し、Go の import が `import * as mathx from "./mathx.js"` という ESM dependency として残ります (runtime は `dist/@goesm/runtime.js`)。
-* 名前: Go の識別子は `$` を含まないので、goesm が導入する名前はすべて `$` を含みます (`User$type`, `User$Adult`, `$rt`, `$t3`)。1 つの関数宣言内の Go object には一意な JS 名を振るため、Go の shadowing を JS の scope 規則で再現する必要がありません。
-* 定数式は go/types が評価した値をそのまま出力します (iota、型付き定数、`unsafe.Sizeof` 等)。
-* package 変数は `types.Info.InitOrder` の順で初期化し、次に `init()`、entry package に `func main` があれば最後に `main()` を実行します。
-* 生成 TS の型注釈は可読性・debug 用で、型検査には使いません (esbuild は検査しない)。
+* **One Go package = one TypeScript module = one ES module.** A Go import becomes `import * as mathx from "go:example.com/app/mathx"`. The `go:` scheme only separates Go packages from npm packages; the import path itself is kept.
+  * `goesm build` (default) has esbuild produce one bundle (`dist/main.js`).
+  * `goesm build -split` emits one module per package, e.g. `dist/example.com/app/mathx.js`, and Go imports remain ESM dependencies such as `import * as mathx from "./mathx.js"` (the runtime is `dist/@goesm/runtime.js`).
+* Names: Go identifiers never contain `$`, so every name goesm introduces does (`User$type`, `User$Adult`, `$rt`, `$t3`). Each Go object within a function declaration gets a unique JS name, so Go shadowing never has to be reproduced with JS scoping rules.
+* Constant expressions are emitted as the values go/types computed (iota, typed constants, `unsafe.Sizeof`, ...).
+* Package variables are initialised in `types.Info.InitOrder` order, then `init()` runs, then `main()` if the entry package has `func main`.
+* TypeScript annotations in the generated code are for readability and debugging only; nothing type-checks them (esbuild does not).
 
-### 値の表現
+### Value representation
 
-| Go | JS 表現 | 備考 |
+| Go | JS representation | notes |
 |---|---|---|
 | bool, float64 | boolean, number | |
-| float32 | number (`Math.fround` で丸め) | |
-| int8/16/32, uint8/16/32 | number、演算ごとに wrap (`\|0`, `>>>0`, `<<24>>24`, `Math.imul`) | 正確 |
-| int, int64, uint, uint64, uintptr | number | **2^53 を超えると不正確、64-bit wrap なし** (既知の差分) |
-| string | JS string、1 code unit = 1 byte | `len`、index、slice、比較、不正 UTF-8 が Go と一致。JS 境界で `toJSString` / `fromJSString` |
-| struct | 生成 class の instance (`$clone` / `$set`) | 値 copy は lowering が挿入。object identity がそのまま address |
-| array | JS array | struct と同じく copy は明示的 |
-| slice | `Slice{$array,$offset,$length,$capacity}`、nil は `null` | append / re-slice の aliasing が Go と同じ |
-| map | `GoMap` (JS `Map` + Go equality の hash key)、nil は `null` | struct / interface / NaN key、nil map の panic |
-| pointer | `*struct` / `*array` は object 自体。それ以外は `.v` を持つ object (`Cell` / `FieldPtr` / `IndexPtr`) | `&x == &x`、`&s.f == &s.f` を cache で保証 |
-| interface | `Iface{t: 型 descriptor, v: 値}`、nil は `null` | 動的型を保持。`MyInt(1)` と `int(1)` を区別、nil `*T` を入れた interface は non-nil |
+| float32 | number (rounded with `Math.fround`) | |
+| int8/16/32, uint8/16/32 | number, wrapped after every operation (`\|0`, `>>>0`, `<<24>>24`, `Math.imul`) | exact |
+| int, int64, uint, uint64, uintptr | number | **inexact above 2^53, no 64-bit wrap-around** (known difference) |
+| string | JS string with one code unit per byte | `len`, indexing, slicing, comparison and invalid UTF-8 match Go; converted at the JS boundary with `toJSString` / `fromJSString` |
+| struct | instance of a generated class (`$clone` / `$set`) | value copies are inserted by the lowering; the object identity is the address |
+| array | JS array | copied explicitly, like structs |
+| slice | `Slice{$array,$offset,$length,$capacity}`, nil is `null` | append / re-slice aliasing as in Go |
+| map | `GoMap` (JS `Map` + hash keys with Go equality), nil is `null` | struct / interface / NaN keys, nil-map panics |
+| pointer | `*struct` / `*array` is the object itself; otherwise an object with a `.v` accessor (`Cell` / `FieldPtr` / `IndexPtr`) | `&x == &x` and `&s.f == &s.f` guaranteed by caching |
+| interface | `Iface{t: type descriptor, v: value}`, nil is `null` | keeps the dynamic type: `MyInt(1)` ≠ `int(1)`, an interface holding a nil `*T` is non-nil |
 | func | JS function | |
 | chan | runtime `Chan` | |
-| 型 parameter | 型引数の表現そのもの (erasure) | 型 descriptor を dictionary 引数で受け取る |
+| type parameter | the representation of its type argument (erasure) | type descriptors arrive as dictionary parameters |
 
-### 型 metadata
+### Type metadata
 
-すべての named type は runtime descriptor (`$rt.named(pkgPath, name)`) を持ち、underlying 型、field (名前・pkgPath・tag・embedded)、value / pointer の method set (method 名と signature descriptor) を登録します。複合型 (`[]T`, `map[K]V`, `func(...)`, `struct{...}`, `interface{...}`) は構造で memoize されるため、**descriptor の同一性 = Go の type identity** です。interface 判定はこの method table で行い、TypeScript の structural typing には依存しません。unexported method は pkgPath で修飾されます。
+Every named type has a runtime descriptor (`$rt.named(pkgPath, name)`) with its underlying type, fields (name, pkgPath, tag, embedded) and value / pointer method sets (method names and signature descriptors). Composite types (`[]T`, `map[K]V`, `func(...)`, `struct{...}`, `interface{...}`) are memoized by structure, so **descriptor identity is Go type identity**. Interface checks use these method tables and never rely on TypeScript structural typing. Unexported methods are qualified with their pkgPath.
 
-### Generics: type erasure + runtime type dictionary
+### Generics: type erasure + runtime type dictionaries
 
-* 関数・method のコードは 1 つだけ生成し (erasure)、型引数は runtime 型 descriptor の **dictionary 引数**として先頭に渡します: `First($T_T, values)`。
-* descriptor があるので、zero value (`var x T`)、interface 変換 (`any(x)`)、`==`、aggregate の copy、`new(T)`、`make([]T)` を型引数に応じて正しく行えます。
-* generic type の instance (`Stack[Pair[string,int]]`) も memoize された descriptor になり、`a.(Pair[string,int])` と `a.(Pair[string,string])` を区別します。
-* Go 1.27 の generic methods は、receiver の型引数 → method の型引数の順に dictionary を渡します。interface を満たさないため method table には載りません。
-* 理由: specialization はコード量が型引数の数だけ増え、JS bundle では不利です。TS generics に残すだけでは runtime に型情報が無く、zero value・interface 変換・reflect が実装できません。erasure + dictionary は Go の gc (GC-shape stenciling + dictionaries) と同じ考え方で、最も単純かつ reflect に繋がります。TS 側には可読性のため `<T>` を残しますが、意味は持たせていません。
+* One copy of each function or method is generated (erasure); type arguments are passed as leading **dictionary parameters** holding runtime type descriptors: `First($T_T, values)`.
+* With descriptors available, zero values (`var x T`), interface conversion (`any(x)`), `==`, aggregate copies, `new(T)` and `make([]T)` all behave correctly for each type argument.
+* Instances of generic types (`Stack[Pair[string,int]]`) are memoized descriptors too, so `a.(Pair[string,int])` and `a.(Pair[string,string])` are told apart.
+* Go 1.27 generic methods receive the receiver's type arguments, then the method's own. They cannot satisfy interfaces, so they are not in method tables.
+* Why: specialization multiplies code per type argument, which is bad for JS bundles. Keeping only TS generics leaves no type information at run time, so zero values, interface conversion and reflect would be impossible. Erasure + dictionaries is the same idea as gc's GC-shape stenciling with dictionaries; it is the simplest option and leads to reflect. `<T>` is kept in the TS for readability only.
 
 ### defer / panic / recover
 
 ```ts
 function F() {
-  let $r0 = zero;                 // 結果変数 (named result はその名前)
+  let $r0 = zero;                 // result variables (named results keep their names)
   const $d = new $rt.Defers();
   $body: try {
-    ...; $r0 = expr; break $body; // return は結果を代入してから defer へ
+    ...; $r0 = expr; break $body; // return assigns results, then defers run
   } catch ($e) { $d.fail($e); } finally { $d.run(); }
-  return $r0;                     // defer が named result を書き換えた値を返す
+  return $r0;                     // returns values the defers may have changed
 }
 ```
 
-* panic は `GoPanic` (JS Error) を throw。値は interface 値として保持し、runtime error は `runtime.Error` を実装する型 (`Error()` / `RuntimeError()`) を持ちます。JS の `TypeError` (nil 参照) は nil pointer dereference の runtime error に変換します。
-* defer の関数値と引数は defer 文の時点で評価し、closure に閉じ込めます。
-* recover は「現在 deferred call を同期的に実行している frame」を見ます。
-* JS 側から見ると、捕捉されない panic は `GoPanic` 例外になり、`--enable-source-maps` で stack が `.go` の行を指します (テスト済み)。
+* A panic throws a `GoPanic` (a JS Error). The panic value is kept as an interface value; runtime errors have types implementing `runtime.Error` (`Error()` / `RuntimeError()`). A JS `TypeError` (touching null) becomes the nil pointer dereference runtime error.
+* The function value and arguments of a deferred call are evaluated at the defer statement and captured in a closure.
+* recover looks at the frame whose deferred call is currently running synchronously.
+* From JS, an unrecovered panic is a `GoPanic` exception; with `--enable-source-maps` its stack points at `.go` lines (tested).
 
-### goroutine / channel / select
+### goroutines / channels / select
 
-* **blocking 解析** (whole program): channel 操作、default 無しの select、channel の range、blocking 関数の呼び出し/defer、blocking し得る動的呼び出しを含む関数を blocking とし、`async function` に lowering します。blocking 点はすべて `await`。それ以外は同期関数のままです (await のコストを払わない)。動的呼び出しは signature (関数値) / method 名 (interface) で保守的に解決します。
-* `go f(x)` は関数値と引数をその場で評価し、`$rt.go(closure)` が microtask として起動します。
-* channel は runtime 内の buffer と送受信 wait queue で表現し、即時完了できる場合は同期的に値を返し、block する場合だけ Promise を返します。unbuffered の handoff、close (待機中 sender への panic を含む)、`select` (ready な case から一様ランダム、default、nil channel は永久 block) を実装しています。
-* つまり「async/await に変換すれば Go と同じ」とは扱っていません。blocking の意味論は wait queue という runtime 側の境界にあり、async/await は「goroutine を中断・再開する手段」に限定しています。deadlock 検出、Goexit、goroutine-local な panic 状態、timer、`sync` は今後この境界の上に実装します。
-* JS 境界: blocking する exported 関数は Promise を返します (例: `await Example()` は 42)。
+* **Blocking analysis** (whole program): a function is blocking if it contains channel operations, a select without default, a range over a channel, a call or defer of a blocking function, or a dynamic call that may reach one. Blocking functions become `async function`s and every blocking point is an `await`; all other functions stay synchronous (no await cost). Dynamic calls are resolved conservatively by signature (function values) or method name (interfaces).
+* `go f(x)` evaluates the function value and arguments in place; `$rt.go(closure)` starts it as a microtask.
+* Channels are a buffer plus send/receive wait queues in the runtime. An operation that can complete immediately returns synchronously; only a blocking one returns a Promise. Implemented: unbuffered handoff, close (including panicking blocked senders), and `select` (uniformly random among ready cases, default, nil channels block forever).
+* So "converting to async/await makes it Go" is not the assumption. Blocking semantics live at the runtime boundary (the wait queues); async/await is only the mechanism to suspend and resume a goroutine. Deadlock detection, Goexit, goroutine-local panic state, timers and `sync` will be built on that boundary.
+* JS boundary: a blocking exported function returns a Promise (`await Example()` is 42).
 
-## 6. runtime 構成 (`runtime/src`)
+## 6. Runtime (`runtime/src`)
 
-| file | 責務 |
+| file | responsibility |
 |---|---|
-| `types.ts` | 型 descriptor (reflect.Kind 準拠の kind、named / 複合型の memoize、method table、generic instance、`error`) |
-| `iface.ts` | interface 値、box / assert / type switch、`==`、map 用 hash key |
-| `slice.ts` | slice、append / copy / bounds check、core type を持たない型 parameter への index |
-| `map.ts` | Go map |
-| `ptr.ts` | Cell / field pointer / element pointer、型 parameter 経由の load / store |
-| `string.ts` | byte string ⇔ UTF-8 / rune、JS 境界変換 |
-| `int.ts` | 整数除算・剰余 (0 除算 panic)、shift、64-bit bit 演算、min / max |
-| `panic.ts` | GoPanic、runtime error 型、Defers、recover |
-| `chan.ts` | channel、select、goroutine 起動 |
-| `interop.ts` | 型 descriptor に従う Go 値 → JSON 形 JS 値 (golden テスト・将来の JS ABI) |
+| `types.ts` | type descriptors (reflect.Kind numbering, memoized named / composite types, method tables, generic instances, `error`) |
+| `iface.ts` | interface values, box / assert / type switch, `==`, map hash keys |
+| `slice.ts` | slices, append / copy / bounds checks, indexing type parameters without a core type |
+| `map.ts` | Go maps |
+| `ptr.ts` | Cell / field pointers / element pointers, load / store through type parameters |
+| `string.ts` | byte strings ⇔ UTF-8 / runes, JS boundary conversion |
+| `int.ts` | integer division and remainder (divide-by-zero panic), shifts, 64-bit bitwise ops, min / max |
+| `panic.ts` | GoPanic, runtime error types, Defers, recover |
+| `chan.ts` | channels, select, goroutine start |
+| `interop.ts` | Go value → JSON-shaped JS value guided by descriptors (golden tests, future JS ABI) |
 
-fixture を通すのに必要なものから実装しており、scheduler や reflect の先行実装はしていません。
+Only what the fixtures need is implemented; no scheduler or reflect was built ahead of time.
 
-## 7. reflect / unsafe / メモリ表現の方針
+## 7. reflect / unsafe / memory representation
 
-* **reflect**: codegen は named type identity、field 名・tag・embedded、method set (名前・signature)、型引数を runtime descriptor として常に残しています。`reflect.TypeOf` は interface 値の `t`、`reflect.Value` は (descriptor, 値 or pointer object) で実装でき、`Kind` は reflect と同じ番号です。reflect package 自体は Go source を target 置換 (後述) し、`internal/abi` 依存部分を descriptor に差し替える計画です。
-* **pointer 表現**: 現在は「aggregate は object 自体、他は accessor object」。`unsafe.Pointer` との相互変換を将来入れるため、pointer 生成は `ptr.ts` の関数に集約してあり、表現を差し替えられます。
-* **unsafe / linear memory**: 「JS に pointer は無いので非対応」とはしません。予定している方向は、(1) `[]byte` 等の数値 slice を TypedArray backing にする (slice の backing store は `slice.ts` の private な表現)、(2) `unsafe.Pointer` を (ArrayBuffer, byte offset) または (object, field) の tagged 表現にし、`unsafe.Slice` / `unsafe.String` / `unsafe.Add` を DataView 上で実装する、(3) 必要な package だけ linear memory (ArrayBuffer) 上に struct を layout する、の段階的導入です。現状 `unsafe` を使う箇所は「not supported yet」の goesm 診断になります。
+* **reflect**: codegen always keeps named type identity, field names, tags and embedding, method sets (names and signatures) and type arguments in runtime descriptors. `reflect.TypeOf` can be the `t` of an interface value, `reflect.Value` a pair of (descriptor, value or pointer object), and `Kind` already uses reflect's numbering. The reflect package itself is planned as a target replacement of its Go source (see below), swapping its `internal/abi` dependencies for descriptors.
+* **Pointer representation**: currently "aggregates are the object itself, everything else is an accessor object". All pointer creation goes through `ptr.ts`, so the representation can be replaced when `unsafe.Pointer` interop arrives.
+* **unsafe / linear memory**: the architecture does not close with "JS has no pointers, so unsupported". The planned direction, step by step: (1) back numeric slices such as `[]byte` with TypedArrays (the slice backing store is private to `slice.ts`); (2) represent `unsafe.Pointer` as a tagged (ArrayBuffer, byte offset) or (object, field) value and implement `unsafe.Slice` / `unsafe.String` / `unsafe.Add` on DataView; (3) lay out structs in linear memory (ArrayBuffer) only for packages that need it. Today, uses of `unsafe` produce a "not supported yet" goesm diagnostic.
 
-## 8. Source maps と diagnostics
+## 8. Source maps and diagnostics
 
-* lowering は式・文の文字列に Go の位置 marker を埋め込み、writer が出力列を確定させた時点で mapping を記録します。codegen の途中で位置情報を捨てません。
-* 生成 TS ごとに TS→Go の Source Map v3 を作り、TS に inline で添付します。esbuild はそれを読み込んで最終的な **JS→.go** の map を合成します (`sourcesContent` に Go source を含む)。Node の `--enable-source-maps` で panic の stack が `panics.go:NN` を指すことをテストしています。
-* 診断は layer を区別します:
-  * `file.go:4:17: ... [go/types]` / `[go/parser]` / `[go list]` — Go frontend の error。元の `.go` 位置。
-  * `file.go:8:3: goto is not supported yet [goesm lowering]` — goesm の未対応。Go の compile error とは別物として表示。
-  * `internal error: esbuild rejected TypeScript generated by goesm ... [esbuild]` — goesm の bug。Go の error に見せかけません。
+* The lowering embeds Go position markers in expression and statement strings; the writer records a mapping once the output column is known. Location information is never dropped during codegen.
+* Each generated TS module carries an inline TS→Go Source Map v3. esbuild reads it and composes the final **JS→.go** map (with Go source in `sourcesContent`). A test checks that with Node's `--enable-source-maps` a panic's stack points at `panics.go:NN`.
+* Diagnostics are tagged by layer:
+  * `file.go:4:17: ... [go/types]` / `[go/parser]` / `[go list]` — errors from the Go frontend, at the original `.go` position.
+  * `file.go:8:3: goto is not supported yet [goesm lowering]` — a goesm limitation, shown separately from Go compile errors.
+  * `internal error: esbuild rejected TypeScript generated by goesm ... [esbuild]` — a goesm bug, never disguised as a Go error.
 
-## 9. stdlib
+## 9. Standard library
 
-方針は「通常の Go source をそのまま compile する」です。TS への手移植から始めません。
+The policy is to compile the ordinary Go source, not to start by porting packages to TS by hand.
 
-現状 (`go test ./test -run TestStdlibStatus -v` で再現):
+Current status (reproduce with `go test ./test -run TestStdlibStatus -v`):
 
-* `unicode`、`unicode/utf8`、`math/bits` は Go source のまま compile でき、golden テストで native Go と一致します (`testdata/semantics/stdlibuse`)。
-* `strings`、`strconv`、`slices`、`maps`、`encoding/json` は自 package 内の未対応箇所は少数 (goto、`unsafe.String`、`unsafe.Pointer`、`maps.clone` の linkname など) ですが、`errors` → `internal/reflectlite`、`iter` → `runtime` などを経由して **`runtime`・`internal/abi`・`internal/reflectlite`・`internal/runtime/*`・`sync/atomic`** に依存し、ここで数千件の診断になります。
+* `unicode`, `unicode/utf8` and `math/bits` compile from Go source and match native Go in the golden tests (`testdata/semantics/stdlibuse`).
+* `strings`, `strconv`, `slices`, `maps` and `encoding/json` have few problems in their own code (goto, `unsafe.String`, `unsafe.Pointer`, the `maps.clone` linkname, ...), but through `errors` → `internal/reflectlite`, `iter` → `runtime` and so on they depend on **`runtime`, `internal/abi`, `internal/reflectlite`, `internal/runtime/*` and `sync/atomic`**, which produce thousands of diagnostics.
 
-これらは GopherJS の natives と同様に target 固有の置換が必要です。goesm では置換も **Go source** として持ち、`packages.Config.Overlay` で go/packages に渡す方針です (package graph は Go tooling から見えるまま、置換は goesm 自身が持つ固定の file 群で、依存 package から拡張されることはありません)。
+Those need target-specific replacements, like GopherJS's natives. goesm plans to keep the replacements as **Go source** too and pass them to go/packages through `packages.Config.Overlay`: the package graph stays visible to Go tooling, and the replacements are a fixed set of files owned by goesm that dependencies can never extend.
 
-## 10. Tooling compatibility と security
+## 10. Tooling compatibility and security
 
-* `.go` file は普通の Go で、goesm 専用 syntax・directive・magic comment はありません。fixture は `go vet` / `go build` / `go run` がそのまま通り、golden テストはまさに native Go 実行と比較しています。package graph は go command が解決したもので、govulncheck 等の call graph も変わりません。
-* 依存 package を import しても goesm 側でコードは実行されません。compiler plugin / extension 機構はありません。esbuild の plugin は goesm 内蔵の resolver (`go:` と `@goesm/runtime` の解決) だけです。
-* 懸念点: (1) go/packages は `go list` を実行するので、`GOFLAGS` などの環境、`go.work`、`GOPROXY` からの module 取得について go command と同じ trust 境界を継承します (goesm がそれを広げることはありません)。(2) 生成コードは Go の型安全性に依存しており、goesm の lowering bug は JS 上の memory safety ではなく誤動作として現れます (JS 自体は memory safe)。(3) 生成 ESM は `globalThis.reportError` 等の host API を使いますが、DOM API binding は未実装です。(4) `GoPanic` の message や source map の `sourcesContent` は Go source を含むため、公開 bundle に Go source が載ります (`SourcesContent` を外すオプションは未実装)。
+* `.go` files are plain Go: no goesm-specific syntax, directives or magic comments. The fixtures pass `go vet` / `go build` / `go run`, and the golden tests compare against exactly that native execution. The package graph is the one the go command resolved, so call graphs for govulncheck and similar tools are unchanged.
+* Importing a dependency never runs code inside goesm. There is no compiler plugin or extension mechanism; the only esbuild plugin is goesm's built-in resolver (`go:` and `@goesm/runtime`).
+* Concerns: (1) go/packages runs `go list`, so goesm inherits the go command's trust boundary for its environment (`GOFLAGS` etc.), `go.work` and fetching modules from `GOPROXY` (goesm does not widen it). (2) Generated code relies on Go's type safety; a lowering bug shows up as wrong behaviour, not memory unsafety (JS itself is memory safe). (3) Generated ESM uses host APIs such as `globalThis.reportError`; DOM API bindings are not implemented. (4) `GoPanic` messages and the source map's `sourcesContent` include Go source, so a published bundle ships the source (an option to drop `SourcesContent` is not implemented).
 
-## 11. 実装済み / 未実装 / native Go との差分
+## 11. Implemented / not implemented / differences from native Go
 
-**実装済み (native Go との golden テストで確認)**: package import、関数、多値返却、named result、closure、struct (値 copy、method、pointer method、embedding と promotion、比較)、array、slice (aliasing、append、copy、re-slice、nil)、map (struct / interface key、comma-ok、delete、nil map、range)、pointer (変数・field・要素・`new`、identity)、defer (評価順・named result の変更・LIFO)、panic / recover (runtime error、re-panic)、interface (dispatch、type assertion、type switch、比較、nil interface と nil pointer の区別)、generics (generic 関数、制約、generic type、Go 1.27 generic methods、型 identity)、method value / method expression、switch / fallthrough / label 付き break・continue、range over int、range-over-func (break / continue / return)、Go 1.22 の per-iteration loop 変数、8/16/32-bit 整数の wrap、整数 0 除算 panic、UTF-8 string と rune、goroutine、unbuffered / buffered channel、close、channel の range、select (default 含む)、package 変数の init order と `init()`。
+**Implemented (verified by golden tests against native Go)**: package import, functions, multiple results, named results, closures, structs (value copies, methods, pointer methods, embedding and promotion, comparison), arrays, slices (aliasing, append, copy, re-slicing, nil), maps (struct / interface keys, comma-ok, delete, nil maps, range), pointers (variables, fields, elements, `new`, identity), defer (ordering, modifying named results, LIFO), panic / recover (runtime errors, re-panic), interfaces (dispatch, type assertions, type switches, comparison, nil interface vs nil pointer), generics (generic functions, constraints, generic types, Go 1.27 generic methods, type identity), method values / method expressions, switch / fallthrough / labeled break and continue, range over int, range-over-func (break / continue / return), Go 1.22 per-iteration loop variables, 8/16/32-bit integer wrap-around, integer divide-by-zero panics, UTF-8 strings and runes, goroutines, unbuffered / buffered channels, close, range over channels, select (including default), package variable init order and `init()`.
 
-**未実装** (goesm 診断になるか、動作しないもの):
-* 64-bit 整数の正確な表現 (BigInt または hi/lo)、complex64/128
-* `unsafe`、`reflect`、`runtime` 置換、`sync` / `sync/atomic`、`time`、`fmt` / `strconv` / `strings` を含む大半の stdlib
-* `goto`、range-over-func の body 内での blocking / defer / label 付き branch、型 parameter 型の変数の address、型 parameter に依存する local type
-* deadlock 検出 ("all goroutines are asleep")、goroutine の preemption、`runtime.Goexit`、goroutine-local な recover 状態
-* JS からの呼び出し ABI (Go の値 ⇔ JS 値の自動変換)、DOM / `syscall/js` binding
-* `go 1.22` 未満の file における共有 loop 変数の range 意味論
+**Not implemented** (produces a goesm diagnostic or does not work):
+* exact 64-bit integers (BigInt or hi/lo), complex64/128
+* `unsafe`, `reflect`, the `runtime` replacement, `sync` / `sync/atomic`, `time`, and most of the stdlib including `fmt` / `strconv` / `strings`
+* `goto`; blocking, defer or labeled branches inside a range-over-func body; taking the address of type-parameter-typed variables; local types depending on type parameters
+* deadlock detection ("all goroutines are asleep"), goroutine preemption, `runtime.Goexit`, goroutine-local recover state
+* a JS calling ABI (automatic Go ⇔ JS value conversion), DOM / `syscall/js` bindings
+* shared loop variables in range loops for files with `go` < 1.22
 
-**native Go との既知の差分** (`TestKnownGaps` で差分が存在することを固定):
-* `int`/`int64`/`uint64` が 2^53 を超えると不正確、64-bit overflow で wrap しない (`uint64(0)-1` が `-1`)。
-* `append` の capacity 拡張は近似 (size class の丸めなし)。`cap()` の値が gc と異なることがある。
-* map の range 順は挿入順 (Go はランダム)。どちらも仕様上未定義。
-* `recover()` は deferred 関数から間接的に呼んでも効く (Go では直接呼んだときだけ)。await を挟んだ後の recover は nil を返す。
-* goroutine は blocking 点でしか切り替わらない (協調的)。blocking する exported 関数は JS からは Promise を返す。
-* 動的呼び出しの blocking 判定は signature / method 名で保守的に行うため、不要な `await` が入ることがある (意味は変わらない)。
-* `println` は console に出力し、Go の書式 (float の `+1.000000e+000` 等) とは異なる。
+**Known differences from native Go** (`TestKnownGaps` asserts they still exist):
+* `int`/`int64`/`uint64` are inexact above 2^53 and do not wrap on 64-bit overflow (`uint64(0)-1` is `-1`).
+* `append` capacity growth is approximated (no size-class rounding), so `cap()` can differ from gc.
+* Map range order is insertion order (Go randomises it; both are unspecified).
+* `recover()` also works when called indirectly from a deferred function (Go requires a direct call); after an await it returns nil.
+* Goroutines switch only at blocking points (cooperative). Blocking exported functions return Promises to JS.
+* Blocking of dynamic calls is decided conservatively by signature / method name, which can add unneeded `await`s (behaviour is unchanged).
+* `println` writes to the console in a format different from Go's (e.g. floats as `+1.000000e+000`).
 
-## 12. 次に実装すべき 3 項目
+## 12. Next three items
 
-1. **`runtime` などの target 置換を Go source overlay で導入**し、`errors` / `strconv` / `strings` / `slices` / `maps` / `sync` を Go source のまま通す (`unsafe.String` / `unsafe.Pointer` の最小対応を含む)。stdlib の大半がここで詰まっているため最優先です。
-2. **64-bit 整数の正確な表現** (`int64`/`uint64` は BigInt か hi/lo、`int` の扱いを決める) と complex。golden テストの対象を一気に広げられます。
-3. **goroutine runtime の完成**: deadlock 検出、goroutine-local な panic / recover 状態 (async 境界を跨ぐ recover)、`sync.Mutex` / `WaitGroup` / `time` timer、JS 呼び出し ABI (exported 関数の引数・戻り値の変換)。
+1. **Target replacements for `runtime` and friends as Go source overlays**, so `errors` / `strconv` / `strings` / `slices` / `maps` / `sync` compile from their Go source (including minimal `unsafe.String` / `unsafe.Pointer` support). Most of the stdlib is blocked here, so this comes first.
+2. **Exact 64-bit integers** (`int64`/`uint64` as BigInt or hi/lo, and a decision for `int`) and complex numbers. This widens what the golden tests can cover at once.
+3. **Completing the goroutine runtime**: deadlock detection, goroutine-local panic / recover state (recover across async boundaries), `sync.Mutex` / `WaitGroup` / `time` timers, and a JS calling ABI (converting arguments and results of exported functions).
