@@ -108,6 +108,17 @@ func TestGoConformance(t *testing.T) {
 	}
 	wg.Wait()
 
+	// Timeouts are rechecked one at a time on an otherwise idle machine:
+	// with every CPU busy compiling, a CI runner can stall a trivial
+	// program past its limit. A test that still times out alone fails.
+	for i, res := range results {
+		if res.Status != statusTimeout {
+			continue
+		}
+		results[i] = r.run(cases[i])
+		t.Logf("%s timed out in the parallel run (%s); rerun alone: %s %s", res.Name, res.Detail, results[i].Status, results[i].Detail)
+	}
+
 	report := summarize(results)
 	t.Logf("Go conformance (%s, %d tests, %s):\n%s", root, len(results), time.Since(start).Round(time.Second), report)
 	if out := os.Getenv("GOESM_CONFORMANCE_OUT"); out != "" {
@@ -263,6 +274,9 @@ func (r *conformanceRunner) run(c conformanceCase) conformanceResult {
 	}
 
 	out, ok := runCmd(dir, 2*time.Minute, r.goesm, "build", "-o", "dist", "./")
+	if out == nil {
+		return fail(statusTimeout, "goesm build did not finish within 2m")
+	}
 	if !ok {
 		return classifyBuildFailure(res, r.work, out)
 	}
