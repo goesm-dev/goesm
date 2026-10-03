@@ -219,9 +219,22 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 		} else {
 			src, tt = fe.expr(s.Rhs[0]), fe.info.TypeOf(s.Rhs[0])
 		}
+		// Go evaluates the target operands (a[f()]) before the call.
+		lvs := make([]*lvalue, len(s.Lhs))
+		if s.Tok == token.ASSIGN {
+			for i, l := range s.Lhs {
+				lv := fe.lvalue(l, true)
+				lvs[i] = &lv
+			}
+		}
 		tmp := fe.forceTmp(m + src)
 		for i, l := range s.Lhs {
-			fe.assignOne(s.Tok, l, fe.convertCopy(fmt.Sprintf("%s[%d]", tmp, i), tupleAt(tt, i), fe.lhsType(l, tupleAt(tt, i))), "")
+			val := fe.convertCopy(fmt.Sprintf("%s[%d]", tmp, i), tupleAt(tt, i), fe.lhsType(l, tupleAt(tt, i)))
+			if lvs[i] != nil {
+				w.ln("%s;", lvs[i].set(val))
+				continue
+			}
+			fe.assignOne(s.Tok, l, val, "")
 		}
 		return
 	}
@@ -321,9 +334,11 @@ func (fe *funcEmitter) simpleLvalue(ref string, t types.Type) lvalue {
 }
 
 func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
+	// With prepare, operands are evaluated now into temporaries, even plain
+	// references: in `i, a[i] = 1, 2` the index is the old i.
 	stab := func(s string) string {
-		if prepare {
-			return fe.stable(s)
+		if prepare && !jsLiteral.MatchString(stripMarks(s)) {
+			return fe.forceTmp(s)
 		}
 		return s
 	}
@@ -581,7 +596,7 @@ func (fe *funcEmitter) rangeStmt(s *ast.RangeStmt, label string) {
 		if hasVal {
 			val = fe.pe.copyExpr(v, u.Elem(), fe.tp)
 		}
-		fe.rangeVars(s, k, val, u.Key(), u.Elem())
+		fe.rangeVars(s, fe.pe.copyExpr(k, u.Key(), fe.tp), val, u.Key(), u.Elem())
 		fe.stmts(s.Body.List)
 		w.indent--
 		w.ln("}")

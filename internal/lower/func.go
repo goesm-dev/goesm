@@ -355,6 +355,9 @@ func (fe *funcEmitter) funcLit(lit *ast.FuncLit) string {
 
 var simpleRef = regexp.MustCompile(`^[\w$]+(\.[\w$]+)*$`)
 
+// jsLiteral matches numeric and string literals, which never change.
+var jsLiteral = regexp.MustCompile(`^(\(?-?[0-9][0-9a-fA-Fxob._e+-]*\)?|"([^"\\]|\\.)*")$`)
+
 // stable returns s, or a temporary holding s if s is not a plain reference.
 func (fe *funcEmitter) stable(s string) string {
 	if simpleRef.MatchString(stripMarks(s)) {

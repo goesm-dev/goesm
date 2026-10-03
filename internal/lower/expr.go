@@ -260,7 +260,9 @@ func (fe *funcEmitter) methodTarget(e *ast.SelectorExpr, sel *types.Selection) (
 			}
 		}
 	case !wantPtr && havePtr:
-		if !isAggregate(base) {
+		if isAggregate(base) {
+			recv = "$rt.deref(" + recv + ")" // the object is the pointer
+		} else {
 			recv += ".v"
 		}
 	}
@@ -896,6 +898,16 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 	if fb, ok := fu.(*types.Basic); ok && fb.Kind() == types.UnsafePointer {
 		fe.errorf(e.Pos(), "conversion from unsafe.Pointer is not supported yet")
 	}
+	if st, ok := tu.(*types.Struct); ok && !types.Identical(to, from) && !isGenericType(to) && !isGenericType(from) {
+		// Another struct type: build an instance of its class so the value
+		// carries the destination type's representation.
+		x := fe.tmp()
+		var fields []string
+		for i := 0; i < st.NumFields(); i++ {
+			fields = append(fields, fe.pe.copyExpr(x+"."+fieldProp(st, i), st.Field(i).Type(), fe.tp))
+		}
+		return fmt.Sprintf("((%s: any) => new %s(%s))(%s)", x, fe.pe.structClass(to), strings.Join(fields, ", "), s)
+	}
 	return s // identical underlying types: representation unchanged
 }
 
@@ -1002,4 +1014,13 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 	}
 	fe.errorf(e.Pos(), "builtin %s is not supported yet", name)
 	return "undefined"
+}
+
+// isGenericType reports whether t is or mentions a type parameter, or is an
+// instance of a generic type.
+func isGenericType(t types.Type) bool {
+	if n, ok := types.Unalias(t).(*types.Named); ok && n.TypeArgs().Len() > 0 {
+		return true
+	}
+	return hasTypeParam(t)
 }
