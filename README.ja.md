@@ -198,6 +198,8 @@ import { Result } from "./dist/main.js";
 Result(); // 3
 ```
 
+[examples/](examples) に、そのまま動く例 (上のカート、標準 library の利用、goroutine) と、それを import する JS があります。
+
 標準 library の package は自身の Go source から compile します。gc runtime に結び付いた少数の package (`runtime`、`internal/reflectlite`、`sync`) は goesm が持つ Go source で置き換えます。goesm がまだ lowering できない標準 library の関数は呼ばれると panic する stub になり、`build` / `emit-ts` がその数を表示します (`-v` で一覧)。
 
 goesm は自身を build した toolchain の go/types を使うので、module が使う toolchain で build してください (たとえば `tool` directive と `go tool goesm`)。この repository の fixture は Go 1.27 を使います。
@@ -212,5 +214,6 @@ go test ./...          # Go 1.27 以上と Node.js 22 以上が必要
 - `TestGolden` は fixture の引数なし exported 関数をすべて native Go と goesm が生成した ESM (Node) の両方で実行し、結果の一致を要求します。
 - `TestJS` は build した bundle に対して `test/js/*.test.mjs` (node:test) を実行します。
 - `TestKnownGaps` は文書化した native Go との差分がまだ存在することを固定します。
+- `TestExamples` は `examples/*` を build し、各 `index.mjs` を Node (インストールされていれば Bun でも) で実行して `output.txt` と比較します。
 - `TestOxlint` は fixture から build した ESM (bundle と split) を oxlint の correctness ルールで検査し、指摘が 1 件でもあれば失敗します。生成コードのために無効にしている 4 ルールとその理由は `test/lint_test.go` にあります。
 - `TestStdlibStatus -v` は標準 library のどの package が lowering でき、そのうち何個の関数が stub かを報告します。

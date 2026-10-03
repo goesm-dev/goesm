@@ -1,6 +1,7 @@
 package test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,8 +11,9 @@ import (
 )
 
 // TestOxlint runs oxlint (pinned in test/package.json; install with
-// `npm ci` in test/) on the ES modules built from the fixtures, in bundle and
-// split mode, and fails on any finding of its correctness rules.
+// `npm ci` in test/) on the ES modules built from the fixtures (bundle and
+// split mode) and from the examples, and fails on any finding of its
+// correctness rules.
 //
 // oxlintrc.json turns off four rules that fire on correct generated code:
 //
@@ -46,8 +48,12 @@ func TestOxlint(t *testing.T) {
 		targets = append(targets, target{testdata("semantics"), "./" + p, false})
 	}
 	targets = append(targets, target{testdata("semantics"), "./stdlibuse", true})
+	examples, _ := filepath.Abs(filepath.Join("..", "examples"))
+	for _, p := range []string{"cart", "textstats", "workers"} {
+		targets = append(targets, target{examples, "./" + p, false})
+	}
 	for i, tg := range targets {
-		dst := filepath.Join(out, filepath.Base(tg.pattern))
+		dst := filepath.Join(out, fmt.Sprint(i), filepath.Base(tg.pattern))
 		if tg.split {
 			dst += "-split"
 		}
