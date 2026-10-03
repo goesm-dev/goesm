@@ -21,7 +21,7 @@ Mind that semver orders prerelease identifiers numerically only when they are pu
    git push origin v0.0.1-beta.1
    ```
 
-3. `.github/workflows/release.yml` runs the tests again, then [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) builds `goesm` for linux / darwin / windows × amd64 / arm64 with the version stamped in (`goesm version`), and creates a GitHub release marked as a prerelease with the archives, `checksums.txt` and a changelog.
+3. `.github/workflows/release.yml` runs the tests again, then creates a **draft** GitHub release for the tag with notes generated from the merged PRs, marked as a prerelease when the version has a `-` suffix. Edit the notes and publish it. No binaries are attached: users install with `go install` / `go get -tool`.
 4. The Go module proxy fetches the version the first time someone asks for it. To make it available right away:
 
    ```sh
@@ -32,11 +32,3 @@ Mind that semver orders prerelease identifiers numerically only when they are pu
 
 * The Go module proxy and checksum database keep a version forever, even if the tag is deleted. Never move or re-push a tag that was pushed once; release a new `N` instead.
 * A broken version can be marked with a `retract` directive in `go.mod` in a later release, which hides it from `@latest`.
-
-## Checking the release locally
-
-```sh
-go install github.com/goreleaser/goreleaser/v2@latest
-goreleaser check
-goreleaser release --snapshot --clean   # builds into dist/, publishes nothing
-```

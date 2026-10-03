@@ -22,20 +22,15 @@ jobs:
       - run: go test ./...
         env:
           GOESM_REQUIRE_OXLINT: "1"
+  # Creates a draft GitHub release with generated notes; edit and publish it
+  # by hand. goesm is installed with go install, so no binaries are attached.
   release:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.27"
-      - uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
+      - run: >-
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+          --verify-tag --draft --generate-notes
+          $(case "$GITHUB_REF_NAME" in *-*) echo --prerelease;; esac)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
