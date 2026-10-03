@@ -1312,6 +1312,9 @@ func (fe *funcEmitter) unsafeCall(e *ast.CallExpr, name string) string {
 // printArg formats an operand of the print builtins as the Go runtime does
 // where JS's String() differs.
 func printArg(t types.Type, v string) string {
+	if _, ok := types.Unalias(t).(*types.TypeParam); ok {
+		return v // the format depends on the type argument
+	}
 	t = types.Default(t)
 	if b, ok := t.(*types.Basic); ok && b.Kind() == types.UntypedNil {
 		return `"nil"`
