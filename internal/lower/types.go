@@ -362,3 +362,40 @@ func isIface(t types.Type) bool {
 	}
 	return types.IsInterface(t)
 }
+
+// under returns the underlying type, or for a type parameter its core type
+// (the single underlying type of its type set) when there is one.
+func under(t types.Type) types.Type {
+	tp, ok := types.Unalias(t).(*types.TypeParam)
+	if !ok {
+		return t.Underlying()
+	}
+	iface := tp.Constraint().Underlying().(*types.Interface)
+	var core types.Type
+	for i := 0; i < iface.NumEmbeddeds(); i++ {
+		var terms []types.Type
+		switch e := iface.EmbeddedType(i).(type) {
+		case *types.Union:
+			for j := 0; j < e.Len(); j++ {
+				terms = append(terms, e.Term(j).Type())
+			}
+		default:
+			terms = append(terms, e)
+		}
+		for _, term := range terms {
+			u := under(term)
+			if _, isIface := u.(*types.Interface); isIface {
+				continue
+			}
+			if core == nil {
+				core = u
+			} else if !types.Identical(core, u) {
+				return t.Underlying()
+			}
+		}
+	}
+	if core == nil {
+		return t.Underlying()
+	}
+	return core
+}

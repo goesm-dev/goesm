@@ -87,3 +87,11 @@ func CustomError() []any {
 func RecoverNotPanicking() bool {
 	return recover() == nil
 }
+
+// MustPositive panics for JS callers to observe.
+func MustPositive(x int) int {
+	if x < 0 {
+		panic("negative")
+	}
+	return x
+}

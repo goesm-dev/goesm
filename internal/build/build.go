@@ -110,18 +110,42 @@ func WriteTS(dir string, mods []*lower.Module) error {
 
 // resolver maps "go:<import path>" and "@goesm/runtime" to generated files.
 // It is goesm's own code; there is no third-party plugin mechanism.
-func resolver(tsDir string) api.Plugin {
+//
+// In split mode every Go package becomes its own ES module and imports
+// between packages stay ES module imports (made relative to the output
+// layout), so the Go package graph is the ES module graph.
+func resolver(tsDir, outDir string, split bool) api.Plugin {
+	outPath := func(importer string) string {
+		// Output path of the module generated from TS file importer.
+		rel, _ := filepath.Rel(filepath.Join(tsDir, "go"), importer)
+		return filepath.Join(outDir, strings.TrimSuffix(rel, ".ts")+".js")
+	}
+	relImport := func(importer, target string) string {
+		r, _ := filepath.Rel(filepath.Dir(outPath(importer)), target)
+		r = filepath.ToSlash(r)
+		if !strings.HasPrefix(r, ".") {
+			r = "./" + r
+		}
+		return r
+	}
 	return api.Plugin{
 		Name: "goesm",
 		Setup: func(b api.PluginBuild) {
 			b.OnResolve(api.OnResolveOptions{Filter: `^go:`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
-				p := tsPath(tsDir, strings.TrimPrefix(args.Path, "go:"))
+				path := strings.TrimPrefix(args.Path, "go:")
+				p := tsPath(tsDir, path)
 				if _, err := os.Stat(p); err != nil {
-					return api.OnResolveResult{}, fmt.Errorf("Go package %s was not lowered", strings.TrimPrefix(args.Path, "go:"))
+					return api.OnResolveResult{}, fmt.Errorf("Go package %s was not lowered", path)
+				}
+				if split {
+					return api.OnResolveResult{Path: relImport(args.Importer, filepath.Join(outDir, filepath.FromSlash(path)+".js")), External: true}, nil
 				}
 				return api.OnResolveResult{Path: p}, nil
 			})
 			b.OnResolve(api.OnResolveOptions{Filter: `^@goesm/runtime$`}, func(args api.OnResolveArgs) (api.OnResolveResult, error) {
+				if split {
+					return api.OnResolveResult{Path: relImport(args.Importer, filepath.Join(outDir, "@goesm", "runtime.js")), External: true}, nil
+				}
 				return api.OnResolveResult{Path: filepath.Join(tsDir, "@goesm", "runtime", "src", "index.ts")}, nil
 			})
 		},
@@ -163,21 +187,23 @@ func Build(opts Options) (*Result, error) {
 		SourcesContent:    api.SourcesContentInclude,
 		Write:             true,
 		LogLevel:          api.LogLevelSilent,
-		Plugins:           []api.Plugin{resolver(tsDir)},
+		Plugins:           []api.Plugin{resolver(tsDir, outDir, opts.Split)},
 		AbsWorkingDir:     tsDir,
 		MinifyWhitespace:  opts.Minify,
 		MinifyIdentifiers: opts.Minify,
 		MinifySyntax:      opts.Minify,
 	}
 	if opts.Split {
-		// One ES module per Go package; shared code goes to chunks.
+		// One ES module per Go package (dist/<import path>.js) plus the
+		// runtime module (dist/@goesm/runtime.js).
 		for _, m := range mods {
-			bo.EntryPoints = append(bo.EntryPoints, tsPath(tsDir, m.Path))
+			bo.EntryPointsAdvanced = append(bo.EntryPointsAdvanced, api.EntryPoint{InputPath: tsPath(tsDir, m.Path), OutputPath: m.Path})
 		}
-		bo.Splitting = true
+		bo.EntryPointsAdvanced = append(bo.EntryPointsAdvanced, api.EntryPoint{
+			InputPath:  filepath.Join(tsDir, "@goesm", "runtime", "src", "index.ts"),
+			OutputPath: "@goesm/runtime",
+		})
 		bo.Outdir = outDir
-		bo.Outbase = filepath.Join(tsDir, "go")
-		bo.ChunkNames = "chunks/[name]-[hash]"
 	} else {
 		bo.EntryPoints = []string{tsPath(tsDir, entry)}
 		name := entry[strings.LastIndex(entry, "/")+1:]

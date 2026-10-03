@@ -343,7 +343,7 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 	}
 	xt := fe.info.TypeOf(e.X)
 	m := fe.mark(e)
-	switch u := xt.Underlying().(type) {
+	switch u := under(xt).(type) {
 	case *types.Basic:
 		return fmt.Sprintf("%s$rt.strIndex(%s, %s)", m, fe.expr(e.X), fe.expr(e.Index))
 	case *types.Slice:
@@ -352,6 +352,10 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 		return fmt.Sprintf("%s$rt.mapGet(%s, %s, %s)", m, fe.expr(e.X), fe.valueOf(e.Index, u.Key()), fe.zeroFn(u.Elem()))
 	case *types.Array, *types.Pointer:
 		return fmt.Sprintf("%s%s[%s]", m, fe.expr(e.X), fe.arrayIndex(e))
+	case *types.Interface:
+		// Type parameter without a core type, e.g. ~string | ~[]byte: the
+		// representation is chosen at run time.
+		return fmt.Sprintf("%s$rt.indexAny(%s, %s)", m, fe.expr(e.X), fe.expr(e.Index))
 	}
 	fe.errorf(e.Pos(), "unsupported index expression on %s", xt)
 	return "undefined"
@@ -366,7 +370,7 @@ func (fe *funcEmitter) sliceExpr(e *ast.SliceExpr) string {
 	}
 	xt := fe.info.TypeOf(e.X)
 	m := fe.mark(e)
-	switch u := xt.Underlying().(type) {
+	switch u := under(xt).(type) {
 	case *types.Basic:
 		return fmt.Sprintf("%s$rt.substr(%s, %s, %s)", m, fe.expr(e.X), opt(e.Low), opt(e.High))
 	case *types.Slice:
@@ -374,6 +378,8 @@ func (fe *funcEmitter) sliceExpr(e *ast.SliceExpr) string {
 	case *types.Array, *types.Pointer:
 		_ = u
 		return fmt.Sprintf("%s$rt.sliceArray(%s, %s, %s, %s)", m, fe.expr(e.X), opt(e.Low), opt(e.High), opt(e.Max))
+	case *types.Interface: // type parameter without core type
+		return fmt.Sprintf("%s$rt.sliceAny(%s, %s, %s)", m, fe.expr(e.X), opt(e.Low), opt(e.High))
 	}
 	fe.errorf(e.Pos(), "unsupported slice expression on %s", xt)
 	return "undefined"
@@ -385,7 +391,7 @@ func (fe *funcEmitter) compositeLit(e *ast.CompositeLit) string {
 		t = p.Elem()
 	}
 	m := fe.mark(e)
-	switch u := t.Underlying().(type) {
+	switch u := under(t).(type) {
 	case *types.Struct:
 		vals := make([]string, u.NumFields())
 		for i := range vals {
@@ -665,7 +671,7 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 			return "undefined"
 		}
 	}
-	sig := fe.info.TypeOf(e.Fun).Underlying().(*types.Signature)
+	sig := under(fe.info.TypeOf(e.Fun)).(*types.Signature)
 	args := fe.args(e, sig)
 	var callee string
 	switch f := fun.(type) {
@@ -792,7 +798,7 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 		}
 		return fe.convert(s, from, to)
 	}
-	tu, fu := to.Underlying(), from.Underlying()
+	tu, fu := under(to), under(from)
 	if tb, ok := tu.(*types.Basic); ok {
 		fb, _ := fu.(*types.Basic)
 		switch {
@@ -851,10 +857,10 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 	switch name {
 	case "len", "cap":
 		t := fe.info.TypeOf(e.Args[0])
-		if p, ok := t.Underlying().(*types.Pointer); ok {
+		if p, ok := under(t).(*types.Pointer); ok {
 			t = p.Elem()
 		}
-		switch u := t.Underlying().(type) {
+		switch u := under(t).(type) {
 		case *types.Basic:
 			return arg(0) + ".length"
 		case *types.Slice:
@@ -863,6 +869,8 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			return fmt.Sprint(u.Len())
 		case *types.Map:
 			return "$rt.mapLen(" + arg(0) + ")"
+		case *types.Interface: // type parameter without core type
+			return "$rt." + name + "Any(" + arg(0) + ")"
 		case *types.Chan:
 			if name == "len" {
 				return "$rt.chanLen(" + arg(0) + ")"
@@ -870,11 +878,10 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			return "$rt.chanCap(" + arg(0) + ")"
 		}
 	case "append":
-		st := fe.info.TypeOf(e)
-		elem := st.Underlying().(*types.Slice).Elem()
+		elem := under(fe.info.TypeOf(e)).(*types.Slice).Elem()
 		if e.Ellipsis.IsValid() {
 			src := arg(1)
-			if b, ok := fe.info.TypeOf(e.Args[1]).Underlying().(*types.Basic); ok && b.Info()&types.IsString != 0 {
+			if b, ok := under(fe.info.TypeOf(e.Args[1])).(*types.Basic); ok && b.Info()&types.IsString != 0 {
 				src = "$rt.stringToBytes(" + src + ")"
 			}
 			return fmt.Sprintf("%s$rt.append(%s, $rt.toArray(%s), %s)", m, arg(0), src, fe.zeroFn(elem))
@@ -887,11 +894,11 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 	case "copy":
 		return fmt.Sprintf("%s$rt.sliceCopy(%s, %s)", m, arg(0), arg(1))
 	case "delete":
-		mt := fe.info.TypeOf(e.Args[0]).Underlying().(*types.Map)
+		mt := under(fe.info.TypeOf(e.Args[0])).(*types.Map)
 		return fmt.Sprintf("%s$rt.mapDelete(%s, %s)", m, arg(0), fe.valueOf(e.Args[1], mt.Key()))
 	case "make":
 		t := fe.info.TypeOf(e.Args[0])
-		switch u := t.Underlying().(type) {
+		switch u := under(t).(type) {
 		case *types.Slice:
 			l := arg(1)
 			c := l
@@ -934,7 +941,7 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		return m + "$rt.close(" + arg(0) + ")"
 	case "clear":
 		t := fe.info.TypeOf(e.Args[0])
-		if sl, ok := t.Underlying().(*types.Slice); ok {
+		if sl, ok := under(t).(*types.Slice); ok {
 			return fmt.Sprintf("%s$rt.sliceClear(%s, %s)", m, arg(0), fe.zeroFn(sl.Elem()))
 		}
 		return m + "$rt.mapClear(" + arg(0) + ")"

@@ -142,3 +142,30 @@ export function sliceClear<T>(s: S<T>, zero: () => T): void {
   if (s === null) return;
   for (let i = 0; i < s.$length; i++) s.$array[s.$offset + i] = zero();
 }
+
+// Operations on values whose static type is a type parameter without a core
+// type (e.g. ~string | ~[]byte): dispatch on the representation.
+export function indexAny(x: any, i: number): any {
+  if (typeof x === "string") {
+    if (i < 0 || i >= x.length) indexPanic(i, x.length);
+    return x.charCodeAt(i);
+  }
+  return index(x, i);
+}
+
+export function lenAny(x: any): number {
+  return typeof x === "string" ? x.length : len(x);
+}
+
+export function capAny(x: any): number {
+  return cap(x);
+}
+
+export function sliceAny(x: any, lo?: number, hi?: number): any {
+  if (typeof x === "string") {
+    const l = lo ?? 0, h = hi ?? x.length;
+    if (l < 0 || h < l || h > x.length) runtimePanic(`slice bounds out of range [${l}:${h}] with length ${x.length}`);
+    return x.substring(l, h);
+  }
+  return slice(x, lo, hi);
+}

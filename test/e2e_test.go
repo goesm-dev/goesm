@@ -72,7 +72,8 @@ func TestJS(t *testing.T) {
 	generics := buildPkg(t, testdata("semantics"), "./generics")
 	goroutines := buildPkg(t, testdata("semantics"), "./goroutines")
 	panics := buildPkg(t, testdata("semantics"), "./panics")
-	cmd := exec.Command("node", "--test", "--enable-source-maps", "js/")
+	files, _ := filepath.Glob("js/*.test.mjs")
+	cmd := exec.Command("node", append([]string{"--test", "--enable-source-maps"}, files...)...)
 	cmd.Env = append(os.Environ(),
 		"GOESM_EXAMPLE="+example,
 		"GOESM_BASICS="+basics,
@@ -93,7 +94,7 @@ func TestJS(t *testing.T) {
 // Both sides are rendered as encoding/json-shaped values.
 func TestGolden(t *testing.T) {
 	requireNode(t)
-	for _, pkg := range []string{"basics", "generics", "goroutines", "panics"} {
+	for _, pkg := range []string{"basics", "generics", "goroutines", "panics", "stdlibuse"} {
 		t.Run(pkg, func(t *testing.T) {
 			dir := testdata("semantics")
 			pkgPath := "example.com/sem/" + pkg
@@ -171,11 +172,7 @@ func nativeResults(t *testing.T, dir, pkgPath string, funcs []goldenFunc) map[st
 	if err != nil {
 		t.Fatalf("native go run: %v\n%s", err, stderr.String())
 	}
-	var m map[string]any
-	if err := json.Unmarshal(out, &m); err != nil {
-		t.Fatalf("native output: %v\n%s", err, out)
-	}
-	return m
+	return decodeJSON(t, out)
 }
 
 const esmDriver = `
@@ -194,9 +191,96 @@ console.log(JSON.stringify(out));
 
 func esmResults(t *testing.T, bundle string) map[string]any {
 	out := runNode(t, "--enable-source-maps", "--input-type=module", "-e", esmDriver, bundle)
+	return decodeJSON(t, out)
+}
+
+// TestKnownGaps asserts that the documented semantic gaps (ARCHITECTURE.md,
+// "Native Go differences") still exist, and shows both results.
+func TestKnownGaps(t *testing.T) {
+	requireNode(t)
+	dir := testdata("semantics")
+	pkgPath := "example.com/sem/gaps"
+	funcs := goldenFuncs(t, dir, pkgPath)
+	native := nativeResults(t, dir, pkgPath, funcs)
+	esm := esmResults(t, buildPkg(t, dir, "./gaps"))
+	for _, f := range funcs {
+		n, e := native[f.name], esm[f.name]
+		nj, _ := json.Marshal(n)
+		ej, _ := json.Marshal(e)
+		if reflect.DeepEqual(n, e) {
+			t.Errorf("gap %s no longer differs (native %s, ESM %s): move it to a golden fixture and update ARCHITECTURE.md", f.name, nj, ej)
+			continue
+		}
+		t.Logf("known gap %-16s native Go %s, goesm ESM %s", f.name, nj, ej)
+	}
+}
+
+// decodeJSON keeps numbers as their literal text so 64-bit values are
+// compared exactly rather than after float64 rounding.
+func decodeJSON(t *testing.T, data []byte) map[string]any {
+	t.Helper()
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
 	var m map[string]any
-	if err := json.Unmarshal(out, &m); err != nil {
-		t.Fatalf("ESM output: %v\n%s", err, out)
+	if err := dec.Decode(&m); err != nil {
+		t.Fatalf("decode results: %v\n%s", err, data)
 	}
 	return m
+}
+
+// TestSplitKeepsPackageBoundaries checks the per-package output: each Go
+// package is its own ES module and Go imports are ES module imports.
+func TestSplitKeepsPackageBoundaries(t *testing.T) {
+	requireNode(t)
+	out := t.TempDir()
+	if _, err := build.Build(build.Options{Dir: testdata("example"), Patterns: []string{"./main"}, OutDir: out, Split: true}); err != nil {
+		t.Fatal(err)
+	}
+	mainJS := filepath.Join(out, "example.com", "app", "main.js")
+	src, err := os.ReadFile(mainJS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), `from "./mathx.js"`) {
+		t.Errorf("main.js does not import the mathx package module:\n%s", src)
+	}
+	if strings.Contains(string(src), "function Add") {
+		t.Errorf("mathx code was inlined into main.js")
+	}
+	got := runNode(t, "--input-type=module", "-e", `const m = await import(process.argv[1]); console.log(m.Result())`, mainJS)
+	if strings.TrimSpace(string(got)) != "3" {
+		t.Errorf("Result() = %s, want 3", got)
+	}
+}
+
+// TestSourceMapPointsAtGo checks that the final JS source map (composed by
+// esbuild from goesm's TS->Go maps) references the original .go files.
+func TestSourceMapPointsAtGo(t *testing.T) {
+	bundle := buildPkg(t, testdata("example"), "./main")
+	data, err := os.ReadFile(bundle + ".map")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sm struct {
+		Sources        []string `json:"sources"`
+		SourcesContent []string `json:"sourcesContent"`
+	}
+	if err := json.Unmarshal(data, &sm); err != nil {
+		t.Fatal(err)
+	}
+	var goSources int
+	for i, s := range sm.Sources {
+		if strings.HasSuffix(s, ".go") {
+			goSources++
+			if !strings.Contains(sm.SourcesContent[i], "package ") {
+				t.Errorf("sourcesContent for %s is not Go source", s)
+			}
+		}
+		if strings.Contains(s, "/go/example.com/") && strings.HasSuffix(s, ".ts") {
+			t.Errorf("final map still points at generated TypeScript: %s", s)
+		}
+	}
+	if goSources != 2 {
+		t.Errorf("want mathx.go and main.go in sources, got %v", sm.Sources)
+	}
 }
