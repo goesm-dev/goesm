@@ -132,3 +132,10 @@ export function derefMethod<T = any>(p: T | null, msg: string): T {
 export function nilFunc(): never {
   runtimePanic("invalid memory address or nil pointer dereference");
 }
+
+// zeroSizePtrEq compares pointers to zero-size values (struct{}, [0]int).
+// Like gc, which gives them all the address runtime.zerobase, two non-nil
+// pointers are equal.
+export function zeroSizePtrEq(a: unknown, b: unknown): boolean {
+  return a === null ? b === null : b !== null;
+}

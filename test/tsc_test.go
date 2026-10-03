@@ -68,6 +68,7 @@ func TestTSC(t *testing.T) {
 	for _, tg := range []struct{ dir, pattern string }{
 		{testdata("example"), "./main"},
 		{testdata("semantics"), "./basics"},
+		{testdata("semantics"), "./conformance"},
 		{testdata("semantics"), "./generics"},
 		{testdata("semantics"), "./goroutines"},
 		{testdata("semantics"), "./panics"},

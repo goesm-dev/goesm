@@ -655,24 +655,35 @@ func (fe *funcEmitter) forStmt(s *ast.ForStmt, label string) {
 
 // rangeVars emits the per-iteration bindings of a range loop's key and value.
 func (fe *funcEmitter) rangeVars(s *ast.RangeStmt, key, val string, keyT, valT types.Type) {
-	bind := func(e ast.Expr, src string, srcT types.Type) {
-		if e == nil {
-			return
+	use := func(e ast.Expr) bool { return e != nil && !isBlank(e) }
+	if s.Tok == token.DEFINE {
+		for _, b := range []struct {
+			e    ast.Expr
+			src  string
+			srcT types.Type
+		}{{s.Key, key, keyT}, {s.Value, val, valT}} {
+			if use(b.e) && b.src != "" {
+				v := fe.info.Defs[b.e.(*ast.Ident)].(*types.Var)
+				fe.defineVar("", v, fe.convert(b.src, b.srcT, v.Type()))
+			}
 		}
-		if id, ok := e.(*ast.Ident); ok && id.Name == "_" {
-			return
-		}
-		if s.Tok == token.DEFINE {
-			v := fe.info.Defs[e.(*ast.Ident)].(*types.Var)
-			fe.defineVar("", v, fe.convert(src, srcT, v.Type()))
-			return
-		}
-		lv := fe.lvalue(e, false)
-		fe.w.ln("%s;", lv.set(fe.convert(src, srcT, fe.info.TypeOf(e))))
+		return
 	}
-	bind(s.Key, key, keyT)
-	if val != "" {
-		bind(s.Value, val, valT)
+	// for k, v = range x assigns like k, v = key, val: the operands of both
+	// targets are evaluated before either is assigned (for i, a[i] = ...).
+	both := use(s.Key) && use(s.Value) && val != ""
+	var klv, vlv lvalue
+	if use(s.Key) {
+		klv = fe.lvalue(s.Key, both)
+	}
+	if use(s.Value) && val != "" {
+		vlv = fe.lvalue(s.Value, both)
+	}
+	if use(s.Key) {
+		fe.w.ln("%s;", klv.set(fe.convert(key, keyT, fe.info.TypeOf(s.Key))))
+	}
+	if use(s.Value) && val != "" {
+		fe.w.ln("%s;", vlv.set(fe.convert(val, valT, fe.info.TypeOf(s.Value))))
 	}
 }
 
@@ -1340,7 +1351,22 @@ func (fe *funcEmitter) deferredCall(call *ast.CallExpr) string {
 					_, ptrRecv := fn.Signature().Recv().Type().(*types.Pointer)
 					xt := fe.info.TypeOf(f.X)
 					_, xPtr := xt.Underlying().(*types.Pointer)
+					direct := len(sel.Index()) == 1
 					switch {
+					case direct && isIface(xt):
+						// x.M on a nil interface panics at the defer statement.
+						set(f.X, "$rt.deref("+fe.expr(f.X)+")")
+					case direct && xPtr && !ptrRecv:
+						// p.M with a value receiver evaluates *p now: a nil
+						// p panics here, and later writes through p are not
+						// seen by the deferred call.
+						base := xt.Underlying().(*types.Pointer).Elem()
+						v := "$rt.deref(" + fe.expr(f.X) + ")"
+						if isAggregate(base) {
+							set(f.X, fe.pe.copyExpr(v, base, fe.tp))
+						} else {
+							set(f.X, "$rt.cell<"+fe.ts(base)+">("+v+".v)")
+						}
 					case ptrRecv && !xPtr && !isAggregate(xt):
 						// address of a boxed variable is stable; evaluate lazily
 					case !xPtr && isAggregate(xt) && !ptrRecv:
