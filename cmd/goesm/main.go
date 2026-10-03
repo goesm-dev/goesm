@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 
 	"github.com/goesm-dev/goesm/internal/build"
+	"github.com/goesm-dev/goesm/internal/lower"
 )
 
 func usage() {
@@ -66,7 +67,7 @@ func main() {
 			fail(err)
 		}
 		for _, m := range l.Mods {
-			fmt.Printf("%s/go/%s.ts\n", *out, m.Path)
+			fmt.Println(filepath.Join(*out, filepath.FromSlash(lower.ModuleFile(m.Path))))
 		}
 	default:
 		usage()

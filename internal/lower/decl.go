@@ -154,7 +154,7 @@ func (pe *pkgEmitter) methodWrapper(T types.Type, sel *types.Selection, tp tpSco
 		}
 	}
 	args := pe.recvTypeArgs(base, tp)
-	return fmt.Sprintf("(r: any, ...a: any[]) => %s(%s%s, ...a)", pe.methodFuncName(fn), args, recv)
+	return fmt.Sprintf("(r: any, ...a: any[]) => (%s as any)(%s%s, ...a)", pe.methodFuncName(fn), args, recv)
 }
 
 // recvTypeArgs returns "d1, d2, " for the type arguments of a generic
@@ -201,12 +201,20 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 	w := newWriter(pe.tab)
 	tp := tpScope{}
 	tparams := ""
+	self := name // the class type
 	if generic {
-		var ps []string
+		var ps, names []string
 		for i := 0; i < named.TypeParams().Len(); i++ {
-			ps = append(ps, jsName(named.TypeParams().At(i).Obj().Name()))
+			p := named.TypeParams().At(i)
+			ps = append(ps, jsName(p.Obj().Name()))
+			names = append(names, jsName(p.Obj().Name()))
+			if tp.ts == nil {
+				tp.ts = map[*types.TypeParam]bool{}
+			}
+			tp.ts[p] = true
 		}
 		tparams = "<" + strings.Join(ps, ", ") + ">"
+		self = name + "<" + strings.Join(names, ", ") + ">"
 	}
 	w.ln("class %s%s {", name, tparams)
 	w.indent++
@@ -241,8 +249,8 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 		}
 	}
 	w.ln("constructor(%s) { %s }", strings.Join(params, ", "), strings.Join(assigns, " "))
-	w.ln("$clone($t?: $rt.Type): %s { return new %s(%s); }", name, name, strings.Join(clones, ", "))
-	w.ln("$set(o: %s, $t?: $rt.Type): void { %s }", name, strings.Join(sets, " "))
+	w.ln("$clone($t?: $rt.Type): %s { return new %s(%s); }", self, name, strings.Join(clones, ", "))
+	w.ln("$set(o: %s, $t?: $rt.Type): void { %s }", self, strings.Join(sets, " "))
 	// Exported methods are also reachable as JS methods for convenience.
 	if named != nil && !generic {
 		ms := types.NewMethodSet(types.NewPointer(named))
@@ -252,7 +260,17 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 			if !fn.Exported() || len(sel.Index()) != 1 || fn.Signature().TypeParams().Len() > 0 || isFieldName(s, fn.Name()) {
 				continue
 			}
-			w.ln("%s(...a: any[]): any { return %s(this, ...a); }", jsPropName(fn.Name()), pe.methodFuncName(fn))
+			var params, args []string
+			for j := 0; j < fn.Signature().Params().Len(); j++ {
+				a := fmt.Sprintf("a%d", j)
+				params = append(params, a+": "+pe.tsType(fn.Signature().Params().At(j).Type(), tp))
+				args = append(args, a)
+			}
+			ret := pe.resultTSType(fn.Signature(), tp)
+			if pe.prog.IsAsync(fn) {
+				ret = "Promise<" + ret + ">"
+			}
+			w.ln("%s(%s): %s { return %s(%s); }", jsPropName(fn.Name()), strings.Join(params, ", "), ret, pe.methodFuncName(fn), strings.Join(append([]string{"this"}, args...), ", "))
 		}
 	}
 	w.indent--
@@ -319,7 +337,7 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 			pe.errorf(fd.Pos(), "function %s has no Go body and no native implementation", fn.FullName())
 		}
 		pe.usesNatives = true
-		w.ln("%sfunction %s(...a: any[]): any { return $natives.%s(...a); }", pe.tab.mark(fd.Pos()), name, goesmruntime.NativeName(fn.FullName()))
+		w.ln("%sfunction %s(...a: any[]): any { return ($natives.%s as any)(...a); }", pe.tab.mark(fd.Pos()), name, goesmruntime.NativeName(fn.FullName()))
 		return
 	}
 	fe := pe.newFuncEmitter(w, sig)

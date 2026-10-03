@@ -2,7 +2,7 @@
 
 [English](ARCHITECTURE.md)
 
-goesm は、現在の Go toolchain を frontend とし、本物の Go package と Go semantics を TypeScript へ lowering し、esbuild を backend として ES Modules を生成する基盤の PoC です。
+goesm は、現在の Go toolchain を frontend とし、本物の Go package と Go semantics を、Go package ごとに 1 つの ESM としてそのまま build できる TypeScript file の tree (と TypeScript の runtime) へ lowering する基盤の PoC です。この tree は任意の ESM bundler (Vite、Rolldown、esbuild) や TypeScript を扱える runtime (Bun、type stripping を使う Node.js) が読み込みます。`goesm build` は便宜的にそれを esbuild で bundle します。
 「Go っぽい言語を JavaScript に変換する」ものではありません。独自 syntax・独自 module system・独自 type system は持ちません。
 
 ## 1. Pipeline と責務
@@ -17,10 +17,11 @@ parse / package load / type check  ── go/parser, go/types (Go が言語仕�
 Go semantic lowering                ── internal/lower   (goesm の本体)
         │
         ▼
-TypeScript (IR) + @goesm/runtime    ── runtime/src/*.ts
-        │  esbuild Go API            (internal/build)
+TypeScript tree + @goesm/runtime    ── goesm emit-ts: <dir>/<import path>.ts, <dir>/@goesm/runtime/*.ts
+        │  任意の ESM bundler (Vite / Rolldown / esbuild) または TS を扱える runtime (Bun, Node.js)
+        │  goesm build: esbuild Go API (internal/build)、便宜的なもの
         ▼
-JavaScript ESM (+ .go を指す source map)
+JavaScript ESM (+ goesm build では .go を指す source map)
 ```
 
 | layer | 担当 | 担当しないこと |
@@ -28,7 +29,7 @@ JavaScript ESM (+ .go を指す source map)
 | Go toolchain (`go list` / go/packages / go/types) | module・package 解決、go.mod / go.sum / go.work / GOPROXY、build constraints、parse、type check、定数畳み込み、init order | — |
 | goesm (`internal/lower`) | Go の意味論を TS + runtime 呼び出しへ写像、type metadata、blocking 解析、source map の第一段 (TS→Go) | parse、型検査、module 解決、JS printing |
 | `@goesm/runtime` | JS にない Go 意味論 (slice / map / pointer / interface / panic / defer / channel / select / 整数 wrap / 型 descriptor) | 型の判定 (すべて compile 時に go/types が済ませている) |
-| esbuild (Go API) | TS syntax stripping、JS printer、target lowering、bundling、tree shaking、minify、code splitting、最終 source map (TS→Go map を合成) | Go 意味論の判断 |
+| host の bundler / runtime (`goesm build` では esbuild の Go API) | TS syntax stripping、JS printer、target lowering、bundling、tree shaking、minify、code splitting、最終 source map | Go 意味論の判断 |
 
 ## 2. Repository 構成
 
@@ -43,8 +44,8 @@ internal/lower/       typed AST → TypeScript lowering
   expr.go types.go    式、変換、演算子、型 descriptor / zero value
   writer.go           位置 marker 付き code writer (source location を codegen 中に保持)
 internal/sourcemap/   TS→Go の Source Map v3 builder
-internal/build/       pipeline 結合、esbuild Go API 呼び出し、go: specifier resolver
-runtime/              @goesm/runtime (TypeScript)。goesm binary に embed
+internal/build/       pipeline 結合、TS tree の書き出し、esbuild Go API 呼び出し (goesm build) と split 用 resolver
+runtime/              @goesm/runtime (TypeScript)。goesm binary に embed し、<dir>/@goesm/runtime/ に書き出す
 test/                 end-to-end テスト (Node.js 実行、native Go との golden 比較)
 testdata/             fixture module (普通の Go module。gofmt / go vet / go test がそのまま通る)
 docs/                 GopherJS 比較、生成物の実例
@@ -73,13 +74,14 @@ docs/                 GopherJS 比較、生成物の実例
 
 ## 5. Lowering 方式
 
-* **1 Go package = 1 TypeScript module = 1 ES module**。Go の import は `import * as mathx from "go:example.com/app/mathx"` として表現します。`go:` scheme は npm package と名前空間を分けるためのもので、import path 自体は Go のまま保持します。
-  * `goesm build` (既定) は esbuild が 1 bundle (`dist/main.js`) にまとめます。
-  * `goesm build -split` は package ごとに `dist/example.com/app/mathx.js` を出し、Go の import が `import * as mathx from "./mathx.js"` という ESM dependency として残ります (runtime は `dist/@goesm/runtime.js` と `dist/@goesm/runtime/natives.js`)。
+* **1 Go package = 1 TypeScript module = 1 ES module**。`goesm emit-ts -o <dir>` は Go package `p` の module を `<dir>/<p>.ts` (`example.com/app/main.ts`、`strings.ts`、`internal/bytealg.ts`) に、runtime を `<dir>/@goesm/runtime/index.ts` に書き出します。natives は `natives.ts`、その他の runtime file も同じ directory に並びます。この tree が goesm の主な出力です。
+  * module 同士は `.ts` で終わる相対 specifier で import し合います。Go の import は `import * as mathx from "./mathx.ts"`、runtime は `import * as $rt from "../../@goesm/runtime/index.ts"` になります (`internal/bytealg.ts` では `import * as $natives from "../@goesm/runtime/natives.ts"`)。Go の import path は `@` で始まらないので、runtime が package と衝突することはありません。resolver は不要で、TypeScript (`allowImportingTsExtensions`)、Vite、Rolldown、esbuild、Bun、Node.js の type stripping がこの specifier をそのまま解決します。
+  * `goesm build` (既定) は esbuild がこの tree を plugin なしで 1 bundle (`dist/main.js`) にまとめます。
+  * `goesm build -split` は package ごとに `dist/example.com/app/mathx.js` を出し、runtime は `dist/@goesm/runtime/index.js` と `dist/@goesm/runtime/natives.js` になります。小さな内蔵 resolver が他の entry point (package の module と runtime) の import を external にして `.ts` を `.js` に書き換えるので、Go の import は `import * as mathx from "./mathx.js"` という ESM dependency として残ります。
 * 名前: Go の識別子は `$` を含まないので、goesm が導入する名前はすべて `$` を含みます (`User$type`, `User$Adult`, `$rt`, `$t3`)。1 つの関数宣言内の Go object には一意な JS 名を振るため、Go の shadowing を JS の scope 規則で再現する必要がありません。
 * 定数式は go/types が評価した値をそのまま出力します (iota、型付き定数、`unsafe.Sizeof` 等)。
 * package 変数は `types.Info.InitOrder` の順で初期化し、次に `init()`、entry package に `func main` があれば最後に `main()` を実行します。
-* 生成 TS の型注釈は可読性・debug 用で、型検査には使いません (esbuild は検査しない)。
+* 生成 TS は型を持ちます。Go の型は go/types が決めており、TS の型はそれに従います。tree 全体 (生成 module と runtime) は strict mode に `verbatimModuleSyntax` と `erasableSyntaxOnly` を加えた tsc で型検査が通るので、type stripping を行う runtime (Node.js 22.18 以上、Bun) でもそのまま動きます。`TestTSC` は CI の必須 check です。fixture と examples を、exported な Go API を使う consumer と一緒に型検査します。consumer の `@ts-expect-error` は、exported API が Go の型を持つこと (`Total(items: $rt.S<Item>): number`、block する関数は `Promise<number>` を返す) を確認します。exported な signature と struct の class は正確に型付けし、内部の一時変数や wrapper は `any` です。型 parameter は制約から型付けします (core type、または `number` / `string`)。native Go との結果比較は引き続き意味論の gate です。
 
 ### 値の表現
 
@@ -138,7 +140,7 @@ function F() {
 * つまり「async/await に変換すれば Go と同じ」とは扱っていません。blocking の意味論は wait queue という runtime 側の境界にあり、async/await は「goroutine を中断・再開する手段」に限定しています。`runtime.Goexit` (deferred 呼び出しは実行され、`recover` では止まらない) と `sync` の置換 (§9) はこの境界の上に実装しました。deadlock 検出、goroutine-local な panic 状態、timer も同様に載せます。
 * JS 境界: blocking する exported 関数は Promise を返します (例: `await Example()` は 42)。
 
-## 6. runtime 構成 (`runtime/src`)
+## 6. runtime 構成 (`runtime/src`、`<dir>/@goesm/runtime/*.ts` として出力)
 
 | file | 責務 |
 |---|---|
@@ -151,7 +153,7 @@ function F() {
 | `int.ts` | 整数除算・剰余 (0 除算 panic)、shift、64-bit bit 演算、min / max |
 | `panic.ts` | GoPanic、runtime error 型、Defers、recover |
 | `chan.ts` | channel、select、goroutine の起動と数 |
-| `natives.ts` | Go の body を持たない stdlib 関数の実装 (§9)。独立した module `@goesm/runtime/natives` で、関数ごとに 1 export なので使われないものは esbuild が落とす |
+| `natives.ts` | Go の body を持たない stdlib 関数の実装 (§9)。それを必要とする stdlib の module だけが import する独立した module で、関数ごとに 1 export なので使われないものは tree shaking で落ちる |
 | `interop.ts` | 型 descriptor に従う Go 値 → JSON 形 JS 値 (golden テスト・将来の JS ABI) |
 
 fixture を通すのに必要なものから実装しており、scheduler や reflect の先行実装はしていません。
@@ -169,12 +171,12 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 ## 8. Source maps と diagnostics
 
 * lowering は式・文の文字列に Go の位置 marker を埋め込み、writer が出力列を確定させた時点で mapping を記録します。codegen の途中で位置情報を捨てません。
-* 生成 TS ごとに TS→Go の Source Map v3 を作り、TS に inline で添付します。esbuild はそれを読み込んで最終的な **JS→.go** の map を合成します (`sourcesContent` に Go source を含む)。Node の `--enable-source-maps` で panic の stack が `panics.go:NN` を指すことをテストしています。
+* 生成 TS ごとに TS→Go の Source Map v3 を作り、TS に inline で添付します (`emit-ts` は module の隣に `<p>.ts.map` としても書き出します)。`goesm build` では esbuild がそれを読み込んで最終的な **JS→.go** の map を合成します (`sourcesContent` に Go source を含む)。他の bundler が合成するとは限りません。Vite 8.3 と Bun 1.3 では最終的な map は生成された `.ts` file を指します。Node の `--enable-source-maps` で panic の stack が `panics.go:NN` を指すことをテストしています。
 * 診断は layer を区別します:
   * `file.go:4:17: ... [go/types]` / `[go/parser]` / `[go list]` — Go frontend の error。元の `.go` 位置。
   * `file.go:8:3: backward goto is not supported yet [goesm lowering]` — goesm の未対応。Go の compile error とは別物として表示。
-  * stdlib package では、goesm がまだ lowering できない関数は error にしません。呼ばれると panic する stub (`goesm: <func> is not supported yet`) になり、CLI がその数を報告します (`-v` で最初の理由とともに一覧)。大半のプログラムはこれらに到達せず (`internal/abi` の gc 型 layout、complex など)、到達しないものは esbuild が落とします。
-  * `internal error: esbuild rejected TypeScript generated by goesm ... [esbuild]` — goesm の bug。Go の error に見せかけません。
+  * stdlib package では、goesm がまだ lowering できない関数は error にしません。呼ばれると panic する stub (`goesm: <func> is not supported yet`) になり、CLI がその数を報告します (`-v` で最初の理由とともに一覧)。大半のプログラムはこれらに到達せず (`internal/abi` の gc 型 layout、complex など)、到達しないものは tree shaking で落ちます。
+  * `internal error: esbuild rejected TypeScript generated by goesm ... [esbuild]` (`goesm build`) — goesm の bug。Go の error に見せかけません。
 
 ## 9. stdlib
 
@@ -202,7 +204,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 ## 10. Tooling compatibility と security
 
 * `.go` file は普通の Go で、goesm 専用 syntax・directive・magic comment はありません。fixture は `go vet` / `go build` / `go run` がそのまま通り、golden テストはまさに native Go 実行と比較しています。package graph は go command が解決したもので、govulncheck 等の call graph も変わりません。
-* 依存 package を import しても goesm 側でコードは実行されません。compiler plugin / extension 機構はありません。esbuild の plugin は goesm 内蔵の resolver (`go:` と `@goesm/runtime` の解決) だけです。stdlib の置換と natives (§9) は goesm 内の固定の集合で、`$GOROOT/src` にだけ適用されます。stdlib 以外で body の無い Go 関数は error であり、hook にはなりません。
+* 依存 package を import しても goesm 側でコードは実行されません。compiler plugin や third-party の extension 機構はありません。esbuild の plugin は `goesm build -split` で使う goesm 自身の resolver だけで、出力した tree には plugin は不要です。stdlib の置換と natives (§9) は goesm 内の固定の集合で、`$GOROOT/src` にだけ適用されます。stdlib 以外で body の無い Go 関数は error であり、hook にはなりません。
 * 懸念点: (1) go/packages は `go list` を実行するので、`GOFLAGS` などの環境、`go.work`、`GOPROXY` からの module 取得について go command と同じ trust 境界を継承します (goesm がそれを広げることはありません)。(2) 生成コードは Go の型安全性に依存しており、goesm の lowering bug は JS 上の memory safety ではなく誤動作として現れます (JS 自体は memory safe)。(3) 生成 ESM は `globalThis.reportError` 等の host API を使いますが、DOM API binding は未実装です。(4) `GoPanic` の message や source map の `sourcesContent` は Go source を含むため、公開 bundle に Go source が載ります (`SourcesContent` を外すオプションは未実装)。
 
 ## 11. 実装済み / 未実装 / native Go との差分

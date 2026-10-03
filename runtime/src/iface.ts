@@ -7,11 +7,16 @@
 // method dispatch goes through the type's method table instead of relying on
 // JS structural typing.
 
-import { Kind, Type, implementsIface, isAggregate } from "./types";
-import { GoPanic, runtimePanic, typeAssertionErrorType } from "./panic";
+import { Kind, Type, implementsIface, isAggregate } from "./types.ts";
+import { GoPanic, runtimePanic, typeAssertionErrorType } from "./panic.ts";
 
 export class Iface {
-  constructor(public t: Type, public v: any) {}
+  t: Type;
+  v: any;
+  constructor(t: Type, v: any) {
+    this.t = t;
+    this.v = v;
+  }
 }
 
 // box converts a value of static type t to an interface value. Aggregates must
