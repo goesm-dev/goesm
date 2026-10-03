@@ -293,3 +293,99 @@ func AppendStringOrBytes() string {
 	gpAdd(&buf, []byte("bar"))
 	return string(buf)
 }
+
+// ---- review follow-ups ----
+
+type rvI interface{ M() string }
+type rvImpl struct{ s string }
+
+func (i rvImpl) M() string { return i.s }
+
+type rvO struct{ rvI }
+type rvOP struct{ *rvImpl }
+
+// MethodExprEmbedded: method expressions of methods promoted from an
+// embedded interface or pointer.
+func MethodExprEmbedded() []string {
+	f := rvO.M
+	g := (*rvO).M
+	h := struct{ rvI }.M
+	msg := func(fn func()) (s string) {
+		defer func() { s = recover().(error).Error() }()
+		fn()
+		return
+	}
+	return []string{
+		f(rvO{rvImpl{"a"}}), g(&rvO{rvImpl{"b"}}), h(struct{ rvI }{rvImpl{"c"}}),
+		rvOP.M(rvOP{&rvImpl{"d"}}),
+		msg(func() { rvOP.M(rvOP{}) }),
+	}
+}
+
+type rvInner struct{ n int }
+
+var rvLog []int
+
+func (i rvInner) V() { rvLog = append(rvLog, i.n) }
+
+type rvOuterP struct{ *rvInner }
+
+// DeferPromoted: defer o.V() evaluates the promoted receiver at the defer
+// statement.
+func DeferPromoted() []int {
+	rvLog = nil
+	o := rvOuterP{&rvInner{1}}
+	func() {
+		defer o.V()
+		o.rvInner.n = 2
+	}()
+	after := 0
+	panicked := panics(func() {
+		var z rvOuterP
+		defer z.V()
+		after = 1
+	})
+	var c struct{ closer }
+	after2 := 0
+	panicked2 := panics(func() {
+		defer c.Close()
+		after2 = 1
+	})
+	return append(rvLog, after, b2i(panicked), after2, b2i(panicked2))
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+type zsE struct{}
+
+var zsE1, zsE2 = new(zsE), new(zsE)
+
+func zsEq[T comparable](a, b T) bool { return a == b }
+
+// ZeroSizeConsistent: every spelling of == agrees on zero-size pointers.
+func ZeroSizeConsistent() []bool {
+	type hasP struct{ p *zsE }
+	m := map[*zsE]int{zsE1: 1, zsE2: 2}
+	var a, b any = zsE1, zsE2
+	return []bool{zsE1 == zsE2, a == b, zsEq(zsE1, zsE2), hasP{zsE1} == hasP{zsE2}, len(m) == 1}
+}
+
+type gpPt struct{ X, Y int }
+type gpPt2 gpPt
+
+func (p gpPt2) Sum() int { return p.X + p.Y }
+
+func gpStructLit[P ~struct{ X, Y int }]() []P { return []P{{1, 2}, {Y: 5}} }
+
+// StructCoreLiteral: composite literals of a type parameter whose core type
+// is a struct build values of the type argument.
+func StructCoreLiteral() []int {
+	a := gpStructLit[gpPt]()
+	b := gpStructLit[gpPt2]()
+	return []int{a[0].X, a[1].Y, b[0].Sum(), b[1].Sum()}
+}
