@@ -19,10 +19,10 @@ import {
   GoMap, addressOf, go, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, assign, chanLen, copy, exitProcess,
   fromJSString, hostNodeFS, ifaceKeyString, implementsIface, isAggregate, load, toJSString, writeConsole, writeStd, writeSyncAll,
   makeSlice, mapLen, numGoroutine, runtimePanic, sizeOf, store, panic, types, append,
-  alignOf, arrayElemPtr, arrayOf, bytesToString, c64, chanCap, chanOf, close, encodeRune, equal, fieldPtr,
+  alignOf, arrayElemRef, arrayOf, bytesToString, c64, chanCap, chanOf, close, encodeRune, equal, fieldRef, canonical,
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
-  sliceElemPtr, sliceLit, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt, topString,
+  sliceElemRef, sliceLit, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt, topString,
   typeArgsName,
 } from "./index.ts";
 import type { S } from "./index.ts";
@@ -742,7 +742,7 @@ export function native$reflect$capacity(t: Type, x: any): number {
 export function native$reflect$fieldAddr(t: Type, p: any, i: number): any {
   const f = t.fields[i];
   if (p === null) runtimePanic("invalid memory address or nil pointer dereference");
-  return isAggregate(f.type) ? p[f.prop] : fieldPtr(p, f.prop);
+  return isAggregate(f.type) ? p[f.prop] : fieldRef(p, f.prop);
 }
 
 export function native$reflect$fieldValue(t: Type, x: any, i: number): any {
@@ -751,9 +751,13 @@ export function native$reflect$fieldValue(t: Type, x: any, i: number): any {
 
 export function native$reflect$elemAddr(t: Type, x: any, i: number): any {
   const agg = isAggregate(t.elem!);
-  if (t.kind === Kind.Array) return agg ? x[i] : arrayElemPtr(x, i);
-  return agg ? x.$array[x.$offset + i] : sliceElemPtr(x, i);
+  if (t.kind === Kind.Array) return agg ? x[i] : arrayElemRef(x, i);
+  return agg ? x.$array[x.$offset + i] : sliceElemRef(x, i);
 }
+
+// canonPtr makes an addressable Value's pointer (fieldAddr, elemAddr) a Go
+// pointer value with the identity &x has.
+export const native$reflect$canonPtr = canonical;
 
 export function native$reflect$elemValue(_t: Type, x: any, i: number): any { return x[i]; }
 

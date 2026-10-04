@@ -869,7 +869,7 @@ func (v Value) Addr() Value {
 	if v.flag&flagAddr == 0 {
 		panic("reflect.Value.Addr of unaddressable value")
 	}
-	return Value{typ: ptrTo(v.typ), ptr: v.ptr, flag: v.flag.ro()}
+	return Value{typ: ptrTo(v.typ), ptr: canonPtr(v.ptr), flag: v.flag.ro()}
 }
 
 // UnsafeAddr is not supported: goesm has no address space.
@@ -2457,6 +2457,10 @@ func isNil(x unsafe.Pointer) bool
 func length(t *rtype, x unsafe.Pointer) int
 func capacity(t *rtype, x unsafe.Pointer) int
 func fieldAddr(t *rtype, p unsafe.Pointer, i int) unsafe.Pointer
+
+// canonPtr returns the Go pointer value equal to p, a pointer fieldAddr or
+// elemAddr made (those leave out the cache that gives &x its identity).
+func canonPtr(p unsafe.Pointer) unsafe.Pointer
 func fieldValue(t *rtype, x unsafe.Pointer, i int) unsafe.Pointer
 func elemAddr(t *rtype, x unsafe.Pointer, i int) unsafe.Pointer
 func elemValue(t *rtype, x unsafe.Pointer, i int) unsafe.Pointer
