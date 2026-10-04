@@ -123,6 +123,11 @@ type pkgEmitter struct {
 	// usesIR: the module declares $ir, the receiver of interface calls
 	// (funcEmitter.icall).
 	usesIR bool
+	// byteBools and byteBoolMakes: the local []bool variables of the
+	// function being emitted that a Uint8Array backs, and their make
+	// calls (see byteBools).
+	byteBools     map[*types.Var]bool
+	byteBoolMakes map[*ast.CallExpr]bool
 
 	inits    []string
 	initObjs []any
