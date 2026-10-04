@@ -82,7 +82,7 @@ docs/                 GopherJS 比較、生成物の実例
   * `goesm build -split` は package ごとに `dist/example.com/app/mathx.js` を出し、runtime は `dist/@goesm/runtime/index.js` と `dist/@goesm/runtime/natives.js` になります。小さな内蔵 resolver が他の entry point (package の module と runtime) の import を external にして `.ts` を `.js` に書き換えるので、Go の import は `import * as mathx from "./mathx.js"` という ESM dependency として残ります。
 * 名前: Go の識別子は `$` を含まないので、goesm が導入する名前はすべて `$` を含みます (`User$type`, `User$Adult`, `$rt`, `$t3`)。1 つの関数宣言内の Go object には一意な JS 名を振るため、Go の shadowing を JS の scope 規則で再現する必要がありません。
 * 定数式は go/types が評価した値をそのまま出力します (iota、型付き定数、`unsafe.Sizeof` 等)。
-* package 変数は `types.Info.InitOrder` の順で初期化し、次に `init()`、entry package に `func main` があれば最後に `main()` を実行します。
+* package 変数は `types.Info.InitOrder` の順で初期化し、次に `init()`、entry package に `func main` があれば最後に `main()` を実行します。初期化式に副作用のない変数 (定数、複合リテラルとそのアドレス、関数リテラル、他の package-level の変数と関数の組み合わせ) は初期化式を `/* @__PURE__ */` の式として宣言し、defined type は `$rt.defined` (module が `$rt.flushTypes()` を呼んだときに underlying type と method を設定する callback を持つ pure な呼び出し) で宣言します。これで bundler は使われない表や型 (method ごと) を落とします。`strings.ToUpper` だけを使う library の bundle は 363 KB から 88 KB (gzip で 27 KB) に、`fmt` の hello world は gzip で 222 KB から 132 KB になります。
 * 生成 TS は型を持ちます。Go の型は go/types が決めており、TS の型はそれに従います。tree 全体 (生成 module と runtime) は strict mode に `verbatimModuleSyntax` と `erasableSyntaxOnly` を加えた tsc で型検査が通るので、type stripping を行う runtime (Node.js 22.18 以上、Bun) でもそのまま動きます。`TestTSC` は CI の必須 check です。fixture と examples を、exported な Go API を使う consumer と一緒に型検査します。consumer の `@ts-expect-error` は、exported API が Go の型を持つこと (`Total(items: $rt.S<Item>): number`、block する関数は `Promise<number>` を返す) を確認します。exported な signature と struct の class は正確に型付けし、内部の一時変数や wrapper は `any` です。型 parameter は制約から型付けします (core type、または `number` / `string`)。native Go との結果比較は引き続き意味論の gate です。
 
 ### 値の表現
@@ -273,4 +273,4 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 
 1. **goroutine runtime の完成**: goroutine-local な panic / recover 状態 (async 境界を跨ぐ recover)、JS 呼び出し ABI (exported 関数の引数・戻り値の変換)。
 2. **64-bit 演算の速度**: `int64`/`uint64` は BigInt なので、64-bit limb の上に作られたコード (P-384 / P-521 の体演算、`crypto/ed25519` など) は native よりかなり遅い。goesm で `math/big` と `crypto/internal/fips140/bigmod` が使う 32-bit word のように、重いものから 32-bit や number ベースの経路にする。
-3. **bundle size**: `unicode` の表のような package-level の表は eager に構築され、tree shaking で落ちません (`fmt` の hello world は gzip で約 210 KB)。
+3. **bundle size**: 使われない package 変数と型は落ちるようになったが、`fmt` は `reflect` とその method から届くものすべてを残す (`fmt` の hello world は gzip で約 130 KB)。

@@ -288,6 +288,22 @@ export function named(pkgPath: string, name: string, typeArgs: Type[] = [], pkgN
   return t;
 }
 
+const pendingTypes: Array<() => void> = [];
+
+// defined is named(pkgPath, name) for a non-generic defined type whose
+// underlying type and methods init sets up, at the next flushTypes: a
+// module declares its types with pure calls, so that bundlers drop unused
+// ones, and flushes them before using them.
+export function defined(pkgPath: string, name: string, init: () => void, pkgName?: string): Type {
+  pendingTypes.push(init);
+  return named(pkgPath, name, [], pkgName);
+}
+
+export function flushTypes(): void {
+  for (let i = 0; i < pendingTypes.length; i++) pendingTypes[i]();
+  pendingTypes.length = 0;
+}
+
 // topString is t's string as reflect reports it for t itself.
 export function topString(t: Type): string {
   return t.named ? t.str.replace(/\xc2\xb7\d+$/, "") : t.str;

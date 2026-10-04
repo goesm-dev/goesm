@@ -13,7 +13,7 @@
 
 // Like natives.ts, which imports it, this uses the runtime only through its
 // public module, so that split builds share one runtime.
-import { Cell, GoMap, Iface, Kind, Slice, Type, bytesToString, makeMap, mapOf, ptrTo, sliceLit, sliceOf, stringToBytes, types } from "./index.ts";
+import { Cell, GoMap, Iface, Kind, Slice, Type, bytesToString, fromJSString, makeMap, mapOf, ptrTo, sliceLit, sliceOf, stringToBytes, types } from "./index.ts";
 import type { S } from "./index.ts";
 
 // Abort is thrown to give up on the fast path.
@@ -199,7 +199,6 @@ function isEmpty(t: Type, v: any): boolean {
 const NoJS = { nojs: true };
 const indexLike = /^(?:\d+|__proto__)$/;
 const utf8Dec = new TextDecoder();
-const utf8Enc = new TextEncoder();
 
 // toJS returns the JS value whose JSON.stringify is the encoding of v,
 // before HTML escaping.
@@ -303,6 +302,7 @@ function jsString(s: string): string {
   return utf8Dec.decode(stringToBytes(s).$array as unknown as Uint8Array);
 }
 
+const utf8Enc = new TextEncoder();
 const htmlChars = /[<>&\u2028\u2029]/;
 const htmlCharsAll = /[<>&\u2028\u2029]/g;
 const htmlEscape = (c: string) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0");
@@ -383,8 +383,12 @@ export function jsonMarshal(x: Iface | null): S<number> {
     }
     let out = JSON.stringify(js);
     if (htmlChars.test(out)) out = out.replace(htmlCharsAll, htmlEscape);
+    // UTF-8: a short text is usually ASCII, which needs no encoding; the
+    // engine's encoder pays off on longer ones.
+    if (out.length < 256) return stringToBytes(fromJSString(out));
     const b = utf8Enc.encode(out);
     return new Slice(b as any, 0, b.length, b.length);
+
   } catch (e) {
     if (e === Abort) return null;
     throw e;
