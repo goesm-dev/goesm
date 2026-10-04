@@ -75,6 +75,12 @@ export function intNumber(x: number | bigint): number {
 
 export const imul = Math.imul;
 export const trunc = Math.trunc;
+
+// ucmp is uint(x) of a negative int x for an ordered comparison: above
+// every int, like the wrapped value 2^64 + x (see cmpOperand in lower).
+export function ucmp(x: number): number {
+  return x < 0 ? x + 18446744073709551616 : x;
+}
 export const floor = Math.floor;
 export const fround = Math.fround;
 
