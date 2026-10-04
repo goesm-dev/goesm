@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 )
 
 var jsReserved = map[string]bool{}
@@ -62,6 +63,22 @@ func jsString(s string) string {
 			b.WriteByte(c)
 		default:
 			fmt.Fprintf(&b, `\x%02x`, c)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// jsPropString renders a property name as a JS string literal of its code
+// points, so a non-ASCII field name matches the identifier it is declared as.
+func jsPropString(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, u := range utf16.Encode([]rune(s)) {
+		if u >= 0x20 && u < 0x7f && u != '"' && u != '\\' {
+			b.WriteByte(byte(u))
+		} else {
+			fmt.Fprintf(&b, `\u%04x`, u)
 		}
 	}
 	b.WriteByte('"')
@@ -252,7 +269,7 @@ func (pe *pkgEmitter) structDesc(s *types.Struct, ctor string, tp tpScope) strin
 			pkgPath = goPkgPath(f.Pkg())
 		}
 		fs = append(fs, fmt.Sprintf("{ name: %s, pkgPath: %s, type: %s, embedded: %v, tag: %s, prop: %s }",
-			jsString(f.Name()), jsString(pkgPath), pe.typeDesc(f.Type(), tp), f.Embedded(), jsString(s.Tag(i)), jsString(fieldProp(s, i))))
+			jsString(f.Name()), jsString(pkgPath), pe.typeDesc(f.Type(), tp), f.Embedded(), jsString(s.Tag(i)), jsPropString(fieldProp(s, i))))
 	}
 	return "$rt.structOf([" + strings.Join(fs, ", ") + "], " + ctor + ")"
 }
