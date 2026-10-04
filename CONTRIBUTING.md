@@ -39,6 +39,7 @@ go test ./...
 | `TestOxlint` | the built ESM has no oxlint correctness findings |
 | `TestPrograms` | the commands in `testdata/programs` print the same output and exit with the same status under native Go and goesm (Node.js and Bun) |
 | `TestToolexec` | a `-toolexec` program's rewrites of a module and of the standard library reach goesm's output as they reach `go build`'s (`testdata/toolexec`) |
+| `TestFetch` | HTTP clients use `fetch`, also through a Transport with a plain `net.Dialer`, and a custom dialer is still called (`testdata/fetch`, against a local server) |
 | `TestStdlibStatus -v` | reports which standard library packages lower and how many functions are stubs |
 
 `TestTSC` and `TestOxlint` skip when `npm ci --prefix test` has not been run; CI sets `GOESM_REQUIRE_TOOLS=1` so they cannot be skipped there. CI also checks `gofmt -l .` and `go vet ./...`.

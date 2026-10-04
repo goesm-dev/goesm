@@ -12,10 +12,10 @@
 
 import { Iface } from "./iface.ts";
 import { runtimePanic } from "./panic.ts";
-import { arrayElemPtr, indexPtrTarget } from "./ptr.ts";
+import { arrayElemPtr, fieldPtr, fieldPtrTarget, indexPtrTarget } from "./ptr.ts";
 import { elemOrigins, Slice } from "./slice.ts";
 import { bytesToString, stringToBytes } from "./string.ts";
-import { isAggregate, Kind, type Type } from "./types.ts";
+import { alignOf, ctorTypes, isAggregate, Kind, sizeOf, type Type } from "./types.ts";
 
 // StringDataPtr is unsafe.StringData(s): a *byte to s[i].
 class StringDataPtr {
@@ -232,4 +232,274 @@ function dataOf(s: Slice<any>, elem: Type): any {
 
 function readOnly(): never {
   runtimePanic("goesm: writing a slice header through unsafe.Pointer is not supported");
+}
+
+// ---- Pointer arithmetic ----
+//
+// unsafe.Pointer(uintptr(p) + off) and unsafe.Add(p, off), as libraries such
+// as protobuf use them to reach struct fields by their offsets: a pointer
+// into the middle of an aggregate is the aggregate and a byte offset (an
+// Addr), laid out as go/types lays out GOARCH=wasm (the offsets
+// reflect.StructField reports). Converting it to a *T (ptrAt) finds the
+// variable of type T at that offset: a field or element pointer, or the
+// nested struct or array itself. A struct or array reached this way
+// remembers where it lies in its parent, so that offsets beyond it, and a
+// pointer to its parent at offset 0, are found again.
+
+class Addr {
+  readonly base: object;
+  readonly off: number;
+  constructor(base: object, off: number) {
+    this.base = base;
+    this.off = off;
+  }
+}
+
+const addrs = new WeakMap<object, Map<number, Addr>>();
+
+// addr returns the canonical pointer to off bytes into base, so that equal
+// addresses are equal pointers.
+function addr(base: object, off: number): any {
+  if (off === 0) return base;
+  let m = addrs.get(base);
+  if (m === undefined) addrs.set(base, (m = new Map()));
+  let a = m.get(off);
+  if (a === undefined) m.set(off, (a = new Addr(base, off)));
+  return a;
+}
+
+const parents = new WeakMap<object, { o: object; off: number }>();
+
+function setParent(child: any, o: object, off: number): void {
+  if (typeof child === "object" && child !== null && !parents.has(child)) parents.set(child, { o, off });
+}
+
+function structType(o: any): Type | null | undefined {
+  if (typeof o !== "object" || o === null || Array.isArray(o)) return undefined;
+  return ctorTypes.get(Object.getPrototypeOf(o)?.constructor);
+}
+
+function isAggregateObject(o: any): boolean {
+  return Array.isArray(o) || structType(o) !== undefined;
+}
+
+interface Slot {
+  prop: string;
+  type: Type;
+  off: number;
+  size: number;
+}
+
+const layouts = new WeakMap<Type, Slot[]>();
+
+// layout returns the non-zero-size fields of struct type t with their
+// offsets, as reflect.StructField.Offset gives them.
+function layout(t: Type): Slot[] {
+  let l = layouts.get(t);
+  if (l === undefined) {
+    l = [];
+    let off = 0;
+    for (const f of t.fields) {
+      const a = alignOf(f.type);
+      off = Math.ceil(off / a) * a;
+      const size = sizeOf(f.type);
+      if (size > 0) l.push({ prop: f.prop, type: f.type, off, size });
+      off += size;
+    }
+    layouts.set(t, l);
+  }
+  return l;
+}
+
+function badArith(): never {
+  runtimePanic("goesm: unsafe pointer arithmetic outside the struct or array the pointer points into");
+}
+
+// locate returns the outermost known aggregate p points into and the offset.
+function locate(p: any): { base: any; off: number } | undefined {
+  let base: any, off: number;
+  if (p instanceof Addr) {
+    base = p.base;
+    off = p.off;
+  } else if (isAggregateObject(p)) {
+    base = p;
+    off = 0;
+  } else {
+    const f = fieldPtrTarget(p);
+    const t = f && structType(f.o);
+    const slot = t ? layout(t).find((s) => s.prop === f!.k) : undefined;
+    if (slot === undefined) return undefined;
+    base = f!.o;
+    off = slot.off;
+  }
+  for (let par = parents.get(base); par !== undefined; par = parents.get(base)) {
+    off += par.off;
+    base = par.o;
+  }
+  return { base, off };
+}
+
+// ptrAdd is unsafe.Pointer(uintptr(p) + d) and unsafe.Add(p, d).
+export function ptrAdd(p: any, d: number): any {
+  d = Number(d);
+  if (d === 0) return p;
+  if (p === null) runtimePanic("goesm: unsafe pointer arithmetic on nil");
+  if (p instanceof StringDataPtr) return new StringDataPtr(p.s, p.i + d);
+  const at = locate(p);
+  if (at === undefined) runtimePanic("goesm: unsafe pointer arithmetic on a pointer that does not point into a struct or array (goesm has no address space)");
+  if (at.off + d < 0) badArith();
+  return addr(at.base, at.off + d);
+}
+
+// unsafePtrEq is p == q for unsafe.Pointers, which can be the same address
+// as different objects: &x.f and the pointer to f's offset into x.
+export function unsafePtrEq(p: any, q: any): boolean {
+  if (p === q) return true;
+  if (p === null || q === null || typeof p !== "object" || typeof q !== "object") return false;
+  if (!(p instanceof Addr) && !(q instanceof Addr)) return false;
+  const a = innermost(p), b = innermost(q);
+  return a !== undefined && b !== undefined && a.base === b.base && a.off === b.off;
+}
+
+// innermost locates p in the innermost struct or array that holds it.
+function innermost(p: any): { base: any; off: number } | undefined {
+  const at = locate(p);
+  if (at === undefined) return undefined;
+  let { base, off } = at;
+  for (;;) {
+    if (Array.isArray(base)) {
+      const e0 = base[0];
+      if (Array.isArray(e0) || !isAggregateObject(e0)) break;
+      const size = sizeOf(structType(e0)!);
+      if (size === 0) break;
+      const i = Math.floor(off / size);
+      if (i >= base.length) break;
+      setParent(base[i], base, i * size);
+      base = base[i];
+      off -= i * size;
+      continue;
+    }
+    const st = structType(base);
+    const slot = st ? layout(st).find((s) => off >= s.off && off < s.off + s.size) : undefined;
+    if (slot === undefined || !isAggregate(slot.type)) break;
+    setParent(base[slot.prop], base, slot.off);
+    base = base[slot.prop];
+    off -= slot.off;
+  }
+  return { base, off };
+}
+
+function layoutMatches(o: any, t: Type): boolean {
+  if (Array.isArray(o)) return t.kind === Kind.Array;
+  const st = structType(o);
+  if (st === t) return true;
+  if (st === undefined || st === null || t.kind !== Kind.Struct) return false;
+  const a = layout(st), b = layout(t);
+  return a.length === b.length && a.every((s, i) => s.off === b[i].off && (s.type === b[i].type || (pointerShaped(s.type) && pointerShaped(b[i].type))));
+}
+
+// ptrAt is (*T)(p) for an unsafe.Pointer p.
+export function ptrAt(p: any, t: Type): any {
+  if (p === null || typeof p !== "object") return p;
+  if (!(p instanceof Addr)) {
+    if (isAggregateObject(p)) {
+      if (isAggregate(t) && layoutMatches(p, t)) return p;
+    } else if (t.kind !== Kind.Slice || fieldPtrTarget(p) === undefined) {
+      return p; // a pointer to a variable: as is
+    }
+  }
+  const at = locate(p)!;
+  return resolve(at.base, at.off, t, p);
+}
+
+function resolve(base: any, off: number, t: Type, orig: any): any {
+  for (;;) {
+    if (off === 0 && isAggregate(t) && layoutMatches(base, t)) return base;
+    if (Array.isArray(base)) {
+      const e0 = base[0];
+      const nested = isAggregateObject(e0);
+      const size = nested ? (Array.isArray(e0) ? 0 : sizeOf(structType(e0)!)) : sizeOf(t);
+      if (size === 0) break;
+      const i = Math.floor(off / size), sub = off - i * size;
+      if (i >= base.length) badArith();
+      if (!nested) {
+        if (sub !== 0) break;
+        return arrayElemPtr(base, i);
+      }
+      setParent(base[i], base, i * size);
+      base = base[i];
+      off = sub;
+      continue;
+    }
+    const st = structType(base);
+    if (!st) break;
+    const slot = layout(st).find((s) => off >= s.off && off < s.off + s.size);
+    if (slot === undefined) badArith();
+    const sub = off - slot.off;
+    if (isAggregate(slot.type)) {
+      setParent(base[slot.prop], base, slot.off);
+      base = base[slot.prop];
+      off = sub;
+      continue;
+    }
+    if (sub !== 0 || isAggregate(t)) break;
+    const fp = fieldPtr(base, slot.prop);
+    return wrapsPointers(t, slot.type) ? wrappedSlicePtr(fp, t.elem!) : fp;
+  }
+  if (!(orig instanceof Addr)) return orig; // an aggregate read as another type: unchanged
+  runtimePanic(`goesm: unsafe.Pointer into the middle of a value read as ${t.str} (goesm has no address space)`);
+}
+
+// A struct whose only non-zero-size field is pointer-shaped has the layout of
+// a pointer, but goesm represents it as an object: a slice of pointers read
+// as a slice of such structs (protobuf's []pointer) is a view that wraps and
+// unwraps the elements.
+function wrapsPointers(t: Type, field: Type): boolean {
+  if (t.kind !== Kind.Slice || field.kind !== Kind.Slice || t.elem!.kind !== Kind.Struct) return false;
+  const w = words(t.elem!);
+  return w.length === 1 && pointerShaped(w[0].type) && pointerShaped(field.elem!);
+}
+
+const wrappedArrays = new WeakMap<any[], any[]>();
+const unwrapped = new WeakMap<any[], any[]>();
+
+function wrappedSlicePtr(fp: { v: any }, w: Type): any {
+  const prop = words(w)[0].prop;
+  const wrapArray = (a: any[]): any[] => {
+    let v = wrappedArrays.get(a);
+    if (v === undefined) {
+      v = new Proxy(a, {
+        get: (t, k, r) => {
+          if (typeof k === "string" && /^\d+$/.test(k)) {
+            const o = w.zero();
+            o[prop] = t[Number(k)] ?? null;
+            return o;
+          }
+          return Reflect.get(t, k, r);
+        },
+        set: (t, k, x) => {
+          if (typeof k === "string" && /^\d+$/.test(k)) t[Number(k)] = x === undefined ? null : x[prop];
+          else Reflect.set(t, k, x);
+          return true;
+        },
+      });
+      wrappedArrays.set(a, v);
+      unwrapped.set(v, a);
+    }
+    return v;
+  };
+  return {
+    get v(): any {
+      const s: Slice<any> | null = fp.v;
+      return s === null ? null : new Slice(wrapArray(s.$array), s.$offset, s.$length, s.$capacity);
+    },
+    set v(s: Slice<any> | null) {
+      if (s === null) {
+        fp.v = null;
+        return;
+      }
+      const a = unwrapped.get(s.$array) ?? s.$array.map((x: any) => (x === undefined || x === null ? null : x[prop]));
+      fp.v = new Slice(a, s.$offset, s.$length, s.$capacity);
+    },
+  };
 }
