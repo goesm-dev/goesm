@@ -11,11 +11,14 @@ import { indexError, runtimePanic, sliceError } from "./panic.ts";
 import { arrayElemPtr, arrayViews as views, assign } from "./ptr.ts";
 import { isAggregate, Type } from "./types.ts";
 
+// Fields of the runtime's classes are declare'd and set by the constructor:
+// a class field without declare is first defined as undefined, which makes V8
+// store every value of it tagged (each float64 boxed in a heap number).
 export class Slice<T> {
-  $array: T[];
-  $offset: number;
-  $length: number;
-  $capacity: number;
+  declare $array: T[];
+  declare $offset: number;
+  declare $length: number;
+  declare $capacity: number;
   constructor($array: T[], $offset: number, $length: number, $capacity: number) {
     this.$array = $array;
     this.$offset = $offset;

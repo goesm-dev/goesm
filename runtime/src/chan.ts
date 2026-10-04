@@ -30,8 +30,8 @@ export class Chan<T> {
   closed = false;
   recvq: Waiter[] = [];
   sendq: Waiter[] = [];
-  capacity: number;
-  zero: () => T;
+  declare capacity: number;
+  declare zero: () => T;
   constructor(capacity: number, zero: () => T) {
     this.capacity = capacity;
     this.zero = zero;
