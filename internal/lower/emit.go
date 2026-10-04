@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -109,6 +110,9 @@ type pkgEmitter struct {
 	// cannot lower yet become stubs that panic when called (a warning, not
 	// an error: most programs never reach them).
 	std bool
+	// dep is set for packages of third-party modules, whose functions that
+	// goesm cannot lower become stubs as in the standard library.
+	dep bool
 	// runsMain: the module is a program's main package and runs main.
 	runsMain bool
 	// usesNatives: the module imports the runtime's natives ($natives).
@@ -137,6 +141,7 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		vars:       newWriter(tab),
 		exportSet:  map[string]bool{},
 		std:        p.std[pkg],
+		dep:        p.Deps[pkg],
 	}
 	scope := pkg.Types.Scope()
 	for _, name := range scope.Names() {
@@ -145,7 +150,7 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 	return pe
 }
 
-// emitStdFuncDecl lowers a standard library function. If goesm cannot lower
+// emitStdFuncDecl lowers a standard library or dependency function. If goesm cannot lower
 // it yet, the diagnostics become one warning and the function a stub that
 // panics when called.
 func (pe *pkgEmitter) emitStdFuncDecl(file *ast.File, fd *ast.FuncDecl) {
@@ -288,7 +293,7 @@ func (pe *pkgEmitter) emit() *Module {
 	for _, f := range files {
 		for _, d := range f.Decls {
 			if fd, ok := d.(*ast.FuncDecl); ok {
-				if pe.std {
+				if pe.std || pe.dep {
 					pe.emitStdFuncDecl(f, fd)
 				} else {
 					pe.emitFuncDecl(f, fd)
@@ -434,6 +439,16 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 		pe.vars.ln("let %s: %s = %s;", local, pe.varTSType(v), init)
 		if v.Exported() {
 			pe.export(local, name)
+		}
+	}
+	embeds := embedDirectives(files, pe.info)
+	for _, name := range scope.Names() {
+		v, ok := scope.Lookup(name).(*types.Var)
+		if pats := embeds[v]; ok && pats != nil {
+			dir := filepath.Dir(pe.prog.Fset.File(v.Pos()).Name())
+			if init := pe.embedInit(v, dir, pats); init != "" {
+				pe.vars.ln("%s%s = %s;", pe.tab.mark(v.Pos()), fe.varRef(v), init)
+			}
 		}
 	}
 	for _, in := range pe.info.InitOrder {

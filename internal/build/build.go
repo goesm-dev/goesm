@@ -53,8 +53,8 @@ func (e *DiagError) Error() string { return strings.Join(e.Lines, "\n") }
 type Lowered struct {
 	Mods  []*lower.Module
 	Entry string // import path of the root package
-	// Warnings name standard library functions that goesm cannot lower yet;
-	// they were replaced by stubs that panic when called.
+	// Warnings name standard library and dependency functions that goesm
+	// cannot lower yet; they were replaced by stubs that panic when called.
 	Warnings []string
 }
 
@@ -81,6 +81,7 @@ func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) (*Lo
 	}
 	entry := prog.Roots[0].PkgPath
 	lp := lower.NewProgram(prog.Fset, prog.All, prog.Std)
+	lp.Deps = prog.Deps
 	mods := lp.LowerAll(lower.Options{Entry: entry})
 	if len(lp.Diags) > 0 {
 		var lines []string
