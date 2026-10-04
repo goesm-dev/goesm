@@ -148,7 +148,7 @@ function F() {
 
 * panic は `GoPanic` (JS Error) を throw。値は interface 値として保持し、runtime error は `runtime.Error` を実装する型 (`Error()` / `RuntimeError()`) を持ちます。JS の `TypeError` (nil 参照) は nil pointer dereference の runtime error に変換します。
 * defer の関数値と引数は defer 文の時点で評価し、closure に閉じ込めます。
-* recover は「現在 deferred call を同期的に実行している frame」を見ます。
+* recover() は deferred 関数自身の中でだけ recover します。各 deferred call は、静的に分かる場合 (関数、具象型の method、関数リテラル、`recover` builtin) は呼ぶ関数を記録し、recover() を呼ぶ関数は入口でその呼び出しかどうかを問い合わせます (`const $rf = $rt.recoverFrame("main.F")`。再帰呼び出しは該当しない)。答えは recover() が panic を recover する frame なので、await の後でも効きます。defer された `recover()` は、それを defer した関数が呼んだものとして扱います。
 * JS 側から見ると、捕捉されない panic は `GoPanic` 例外になり、`--enable-source-maps` で stack が `.go` の行を指します (テスト済み)。
 
 ### goroutine / channel / select
@@ -238,7 +238,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 
 ## 11. 実装済み / 未実装 / native Go との差分
 
-**実装済み (native Go との golden テストで確認)**: package import、関数、多値返却、named result、closure、struct (値 copy、method、pointer method、embedding と promotion、比較)、array、slice (aliasing、append、copy、re-slice、nil)、map (struct / interface key、comma-ok、delete、nil map、range)、pointer (変数・field・要素・`new`、identity)、defer (評価順・named result の変更・LIFO)、panic / recover (runtime error、re-panic)、interface (dispatch、type assertion、type switch、比較、nil interface と nil pointer の区別)、generics (generic 関数、制約と制約の method、interface 経由も含む generic type、型引数に従う演算子と変換、Go 1.27 generic methods、型 identity)、method value / method expression、switch / fallthrough / label 付き break・continue、`goto` (後方への jump は state machine になる)、range over int、range-over-func (入れ子の文からの break / continue / return、label 付き branch、body 内の blocking 操作と select、yield を誤用する iterator に対する Go と同じ panic)、Go 1.22 の per-iteration loop 変数、8/16/32-bit 整数の wrap、整数 0 除算 panic、UTF-8 string と rune、goroutine、unbuffered / buffered channel、close、channel の range、select (default 含む)、`runtime.Goexit` / `Gosched`、package 変数の init order と `init()`、§9 に挙げた stdlib package。
+**実装済み (native Go との golden テストで確認)**: package import、関数、多値返却、named result、closure、struct (値 copy、method、pointer method、embedding と promotion、複合リテラルの key としての promote された field、比較)、array、slice (aliasing、append、copy、re-slice、nil)、map (struct / interface key、comma-ok、delete、nil map、range)、pointer (変数・field・要素・`new`、identity)、defer (評価順・named result の変更・LIFO)、panic / recover (runtime error、re-panic)、interface (dispatch、type assertion、type switch、比較、nil interface と nil pointer の区別)、generics (generic 関数、制約と制約の method、interface 経由も含む generic type、型引数に従う演算子と変換、Go 1.27 generic methods、型 identity)、method value / method expression、switch / fallthrough / label 付き break・continue、`goto` (後方への jump は state machine になる)、range over int、range-over-func (入れ子の文からの break / continue / return、label 付き branch、body 内の blocking 操作と select、yield を誤用する iterator に対する Go と同じ panic)、Go 1.22 の per-iteration loop 変数、8/16/32-bit 整数の wrap、整数 0 除算 panic、UTF-8 string と rune、goroutine、unbuffered / buffered channel、close、channel の range、select (default 含む)、`runtime.Goexit` / `Gosched`、package 変数の init order と `init()`、§9 に挙げた stdlib package。
 
 **未実装** (goesm 診断になるか、動作しないもの):
 * 64-bit の `int` と `uint` の正確な表現 (number のまま、§5 参照)
@@ -254,7 +254,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * 変数宣言を越える後方 `goto` は、Go なら新しい変数を作るところで同じ変数を再利用する。違いが分かるのは jump の前に作った closure だけ。
 * `append` の capacity 拡張は近似 (size class の丸めなし)。`cap()` の値が gc と異なることがある。
 * map の range 順は挿入順 (Go はランダム)。どちらも仕様上未定義。
-* `recover()` は deferred 関数から間接的に呼んでも効く (Go では直接呼んだときだけ)。await を挟んだ後の recover は nil を返す。
+* deferred 関数が実行時にしか分からない場合 (関数値、interface の method) は、そこから呼んだ関数の中の `recover()` も効く (Go では直接呼んだときだけ)。
 * goroutine は blocking 点でしか切り替わらない (協調的)。blocking する exported 関数は JS からは Promise を返す。
 * 動的呼び出しの blocking 判定は保守的 (§5) なので、不要な `await` が入ることがある (意味は変わらない)。
 * `print` / `println` は Go ランタイムと同じ書式で stderr に出力するが、ポインタ・map・channel・func・スライス・interface の値は実アドレスではなく固定のアドレスを表示する。

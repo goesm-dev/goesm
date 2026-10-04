@@ -219,7 +219,11 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 		w.ln("%s$rt.go(%s);", m, closure)
 	case *ast.DeferStmt:
 		closure := fe.deferredCall(s.Call)
-		w.ln("%s$d.defer(%s);", m, closure)
+		if tok := fe.deferredTok(s.Call); tok != "" {
+			w.ln("%s$d.defer(%s, %s);", m, closure, jsString(tok))
+		} else {
+			w.ln("%s$d.defer(%s);", m, closure)
+		}
 	case *ast.SendStmt:
 		ch := fe.expr(s.Chan)
 		elem := under(fe.info.TypeOf(s.Chan)).(*types.Chan).Elem()
@@ -1848,4 +1852,52 @@ func balanced(s string) bool {
 		}
 	}
 	return depth == 0 && quote == 0
+}
+
+// litRecoverTok is the recover token (funcEmitter.recoverTok) of a function
+// literal.
+func litRecoverTok(lit *ast.FuncLit) string { return fmt.Sprintf("func@%d", lit.Pos()) }
+
+// deferredTok is the recover token of the function a defer statement calls,
+// so that recover() recovers only in that function (Go's "called directly by
+// a deferred function"), or "" when the callee is only known at run time
+// (function values, interface methods): then any recover() during the
+// deferred call recovers.
+func (fe *funcEmitter) deferredTok(call *ast.CallExpr) string {
+	fun := unparen(call.Fun)
+	if tv, ok := fe.info.Types[fun]; ok && tv.IsType() {
+		return ""
+	}
+	switch f := fun.(type) {
+	case *ast.FuncLit:
+		return litRecoverTok(f)
+	case *ast.IndexExpr:
+		fun = unparen(f.X)
+	case *ast.IndexListExpr:
+		fun = unparen(f.X)
+	}
+	var obj types.Object
+	switch f := fun.(type) {
+	case *ast.Ident:
+		obj = fe.info.Uses[f]
+	case *ast.SelectorExpr:
+		if sel, ok := fe.info.Selections[f]; ok {
+			if sel.Kind() == types.FieldVal {
+				return ""
+			}
+			obj = sel.Obj()
+		} else {
+			obj = fe.info.Uses[f.Sel]
+		}
+	}
+	switch o := obj.(type) {
+	case *types.Builtin:
+		return "builtin " + o.Name()
+	case *types.Func:
+		if recv := o.Signature().Recv(); recv != nil && isIface(recv.Type()) {
+			return "" // an interface method: the dynamic type's method
+		}
+		return o.Origin().FullName()
+	}
+	return ""
 }

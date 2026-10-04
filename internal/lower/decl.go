@@ -381,6 +381,7 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	}
 	fe := pe.newFuncEmitter(w, sig)
 	fe.file = file
+	fe.recoverTok = fn.Origin().FullName()
 	fe.async = pe.prog.IsAsync(fn)
 	fe.syncOnly = pe.prog.SyncOnly(fn)
 

@@ -1437,7 +1437,7 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 	case "panic":
 		return fmt.Sprintf("%s$rt.panic(%s)", m, fe.valueOf(e.Args[0], types.Universe.Lookup("any").Type()))
 	case "recover":
-		return m + "$rt.recover()"
+		return m + "$rt.recover($rf)"
 	case "print", "println":
 		if len(e.Args) == 1 {
 			if tt, ok := fe.info.TypeOf(e.Args[0]).(*types.Tuple); ok { // println(f())
