@@ -92,6 +92,7 @@ type pkgEmitter struct {
 
 	reserved    map[string]bool // package-level JS names
 	imports     map[*types.Package]string
+	direct      map[*types.Package]string // aliases of the Go source's imports
 	importOrder []*types.Package
 
 	typeConsts  typeutil.Map // types.Type -> hoisted descriptor const name
@@ -141,6 +142,19 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 	scope := pkg.Types.Scope()
 	for _, name := range scope.Names() {
 		pe.reserved[jsName(name)] = true
+	}
+	// The aliases of the packages the Go source imports are reserved up
+	// front, so that no local name takes one before its package is first
+	// referenced.
+	pe.direct = map[*types.Package]string{}
+	for _, ip := range pkg.Types.Imports() {
+		base := jsName(ip.Name())
+		a := base
+		for i := 2; pe.reserved[a]; i++ {
+			a = fmt.Sprintf("%s$%d", base, i)
+		}
+		pe.reserved[a] = true
+		pe.direct[ip] = a
 	}
 	return pe
 }
@@ -193,8 +207,17 @@ func (pe *pkgEmitter) importAlias(p *types.Package) string {
 	if a, ok := pe.imports[p]; ok {
 		return a
 	}
-	base := jsName(p.Name())
-	a := base
+	a, ok := pe.direct[p]
+	if ok {
+		pe.imports[p] = a
+		pe.importOrder = append(pe.importOrder, p)
+		return a
+	}
+	// A package the Go source does not import (it is referenced for a type
+	// descriptor, say) may be first needed after a local took its name:
+	// "$pkg" keeps it apart from Go identifiers and their "$N" renamings.
+	base := jsName(p.Name()) + "$pkg"
+	a = base
 	for i := 2; pe.reserved[a]; i++ {
 		a = fmt.Sprintf("%s$%d", base, i)
 	}
