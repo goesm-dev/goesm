@@ -1106,12 +1106,16 @@ func (fe *funcEmitter) rangeFuncBranches(s *ast.RangeStmt, label string, async b
 				visit(n, false, cont)
 				return false
 			case *ast.DeferStmt:
-				bad(n, "defer in a range-over-func body is not supported yet")
-				return false
+				// The body's closure sees the enclosing function's $d, so
+				// the call runs when that function returns, as in Go.
 			case *ast.BranchStmt:
 				switch {
 				case n.Tok == token.GOTO:
-					bad(n, "goto in a range-over-func body is not supported yet")
+					// A goto within the body stays in its closure; one out
+					// of it is taken after the call, like a labeled break.
+					if !inner[fe.labelName(n.Label)] {
+						exits = append(exits, n)
+					}
 				case n.Tok == token.FALLTHROUGH:
 				case n.Label != nil:
 					switch name := fe.labelName(n.Label); {
