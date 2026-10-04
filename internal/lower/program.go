@@ -81,9 +81,14 @@ type Program struct {
 	// goexits are the functions that may call runtime.Goexit.
 	goexits map[any]bool
 
+	// Deps are the packages of third-party modules (see loader.Program).
+	// Like the standard library, their functions that goesm cannot lower
+	// become stubs that panic when called.
+	Deps map[*packages.Package]bool
+
 	Diags []Diagnostic
-	// Warns are standard library functions that were replaced by stubs
-	// that panic when called.
+	// Warns are standard library and dependency functions that were
+	// replaced by stubs that panic when called.
 	Warns []Diagnostic
 }
 

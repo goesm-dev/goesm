@@ -730,7 +730,12 @@ func (fe *funcEmitter) rangeVars(s *ast.RangeStmt, key, val string, keyT, valT t
 		}{{s.Key, key, keyT}, {s.Value, val, valT}} {
 			if use(b.e) && b.src != "" {
 				v := fe.info.Defs[b.e.(*ast.Ident)].(*types.Var)
-				fe.defineVar("", v, fe.convert(b.src, b.srcT, v.Type()))
+				val := fe.convert(b.src, b.srcT, v.Type())
+				if fe.sharedRangeVars[v] {
+					fe.w.ln("%s;", fe.simpleLvalue(fe.varRef(v), v.Type()).set(val))
+					continue
+				}
+				fe.defineVar("", v, val)
 			}
 		}
 		return
@@ -754,14 +759,38 @@ func (fe *funcEmitter) rangeVars(s *ast.RangeStmt, key, val string, keyT, valT t
 }
 
 func (fe *funcEmitter) rangeStmt(s *ast.RangeStmt, label string) {
+	if fe.goVersionAtLeast("go1.22") || s.Tok != token.DEFINE {
+		fe.rangeLoop(s, label)
+		return
+	}
+	// Before Go 1.22, the variables a range clause declares are shared by
+	// all iterations: they are declared once, around the loop, and each
+	// iteration assigns them.
+	fe.w.ln("{")
+	fe.w.indent++
+	for _, e := range []ast.Expr{s.Key, s.Value} {
+		if e == nil || isBlank(e) {
+			continue
+		}
+		if v, ok := fe.info.Defs[e.(*ast.Ident)].(*types.Var); ok {
+			fe.defineVar(fe.mark(s), v, fe.zero(v.Type()))
+			if fe.sharedRangeVars == nil {
+				fe.sharedRangeVars = map[*types.Var]bool{}
+			}
+			fe.sharedRangeVars[v] = true
+		}
+	}
+	fe.rangeLoop(s, label)
+	fe.w.indent--
+	fe.w.ln("}")
+}
+
+func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 	w := fe.w
 	m := fe.mark(s)
 	lp := labelPrefix(label)
 	xt := fe.info.TypeOf(s.X)
 	hasVal := s.Value != nil && !isBlank(s.Value)
-	if !fe.goVersionAtLeast("go1.22") && s.Tok == token.DEFINE {
-		fe.errorf(s.Pos(), "range loops in files with go < 1.22 (shared loop variables) are not supported yet")
-	}
 	ut := under(xt)
 	if p, ok := ut.(*types.Pointer); ok {
 		ut = p.Elem().Underlying() // *array

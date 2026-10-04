@@ -39,8 +39,11 @@ type funcEmitter struct {
 	// statements, whose unlabelled break and continue a machine would capture.
 	gotoTargets map[types.Object]gotoTarget
 	hoisted     map[*types.Var]bool
-	breakables  []breakable
-	rangeFn     *rangeFuncCtx // the range-over-func body being lowered
+	// sharedRangeVars are the variables of range clauses in files before Go
+	// 1.22, declared once around their loop.
+	sharedRangeVars map[*types.Var]bool
+	breakables      []breakable
+	rangeFn         *rangeFuncCtx // the range-over-func body being lowered
 	// recoverTok identifies the function being lowered to recover(), which
 	// only recovers when called by the deferred function itself.
 	recoverTok string

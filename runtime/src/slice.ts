@@ -301,6 +301,14 @@ export function unsafeSlice<T = any>(x: S<T> | T[] | null, i: number, n: number,
 // the backing array (the element object itself for aggregates).
 export function sliceData<T = any>(s: S<T>, aggregate: boolean): any {
   if (s === null || s.$capacity === 0) return null;
-  if (aggregate) return s.$array[s.$offset];
+  if (aggregate) {
+    const e: any = s.$array[s.$offset];
+    elemOrigins.set(e, { a: s.$array, i: s.$offset });
+    return e;
+  }
   return arrayElemPtr(s.$array, s.$offset);
 }
+
+// elemOrigins remembers where the aggregate elements that unsafe.SliceData
+// returned live, so that unsafe.Slice can rebuild a slice from them.
+export const elemOrigins = new WeakMap<object, { a: any[]; i: number }>();

@@ -44,6 +44,9 @@ type Program struct {
 	All []*packages.Package
 	// Std is the set of standard library packages (sources in GOROOT).
 	Std map[*packages.Package]bool
+	// Deps is the set of packages from modules other than those of the
+	// roots: third-party dependencies.
+	Deps map[*packages.Package]bool
 }
 
 // Diagnostic is a frontend error reported at its original .go position.
@@ -137,7 +140,19 @@ func LoadOverlay(dir string, overlay map[string][]byte, patterns ...string) (*Pr
 			std[p] = true
 		}
 	}
-	return &Program{Fset: fset, Roots: roots, All: all, Std: std}, nil
+	rootMods := map[string]bool{}
+	for _, r := range roots {
+		if r.Module != nil {
+			rootMods[r.Module.Path] = true
+		}
+	}
+	deps := map[*packages.Package]bool{}
+	for _, p := range all {
+		if !std[p] && p.Module != nil && !rootMods[p.Module.Path] {
+			deps[p] = true
+		}
+	}
+	return &Program{Fset: fset, Roots: roots, All: all, Std: std, Deps: deps}, nil
 }
 
 func goroot(dir string) string {
@@ -296,8 +311,15 @@ func reachable(roots, all []*packages.Package) []*packages.Package {
 		if p.Types == nil {
 			return
 		}
+		// p.Imports is keyed by the import path as written; a vendored
+		// standard library package (golang.org/x/net/idna imported by
+		// net/http) has the package path vendor/golang.org/x/net/idna.
+		byPath := map[string]*packages.Package{}
+		for _, dep := range p.Imports {
+			byPath[dep.PkgPath] = dep
+		}
 		for _, ip := range p.Types.Imports() {
-			if dep := p.Imports[ip.Path()]; dep != nil {
+			if dep := byPath[ip.Path()]; dep != nil {
 				visit(dep)
 			}
 		}

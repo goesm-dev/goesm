@@ -49,6 +49,11 @@ class IndexPtr {
   set v(x: any) { this.a[this.i] = x; }
 }
 
+// indexPtrTarget returns the array and index an element pointer refers to.
+export function indexPtrTarget(p: unknown): { a: any[]; i: number } | undefined {
+  return p instanceof IndexPtr ? { a: (p as any).a, i: (p as any).i } : undefined;
+}
+
 const fieldPtrs = new WeakMap<object, Map<string | number, any>>();
 
 function cached(o: object, k: string | number, make: () => any): any {
@@ -195,4 +200,21 @@ export function addressOf(p: any): number {
     addresses.set(p, a);
   }
   return a;
+}
+
+// embedFS builds the embed.FS value of a //go:embed variable: entries are
+// [name, data] in embed's search order, directories named "dir/".
+export function embedFS(fsType: Type, entries: [string, string][]): any {
+  const fsys = fsType.zero();
+  const filesField = fsType.fields[0]; // files *[]file
+  const fileType = filesField.type.elem!.elem!;
+  const [nameProp, dataProp] = [fileType.fields[0].prop, fileType.fields[1].prop];
+  const files = entries.map(([name, data]) => {
+    const f = fileType.zero();
+    f[nameProp] = name;
+    f[dataProp] = data;
+    return f;
+  });
+  fsys[filesField.prop] = new Cell(new Slice(files, 0, files.length, files.length));
+  return fsys;
 }
