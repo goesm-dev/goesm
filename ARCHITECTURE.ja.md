@@ -97,7 +97,7 @@ docs/                 GopherJS 比較、生成物の実例
 | string | JS string、1 code unit = 1 byte | `len`、index、slice、比較、不正 UTF-8 が Go と一致。JS 境界で `toJSString` / `fromJSString` |
 | struct | 生成 class の instance (`$clone` / `$set`) | 値 copy は lowering が挿入。object identity がそのまま address |
 | array | JS array | struct と同じく copy は明示的 |
-| slice | `Slice{$array,$offset,$length,$capacity}`、nil は `null` | append / re-slice の aliasing が Go と同じ |
+| slice | `Slice{$array,$offset,$length,$capacity}`、nil は `null`。`$array` は JS array で、`make`・`append`・`[]byte(s)` で作った `[]byte` では `Uint8Array` (Go の array の slice と literal は JS array のまま) | append / re-slice の aliasing が Go と同じ |
 | map | `GoMap` (JS `Map` + Go equality の hash key)、nil は `null` | struct / interface / NaN key、nil map の panic |
 | pointer | `*struct` / `*array` は object 自体。それ以外は `.v` を持つ object (`Cell` / `FieldPtr` / `IndexPtr`) | `&x == &x`、`&s.f == &s.f` を cache で保証 |
 | interface | `Iface{t: 型 descriptor, v: 値}`、nil は `null` | 動的型を保持。`MyInt(1)` と `int(1)` を区別、nil `*T` を入れた interface は non-nil |

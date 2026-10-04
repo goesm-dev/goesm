@@ -9,7 +9,7 @@
 import { copy } from "./iface.ts";
 import { indexError, runtimePanic, sliceError } from "./panic.ts";
 import { arrayElemPtr, arrayViews as views, assign } from "./ptr.ts";
-import { isAggregate, Type } from "./types.ts";
+import { isAggregate, Type, zeroByte } from "./types.ts";
 
 // Fields of the runtime's classes are declare'd and set by the constructor:
 // a class field without declare is first defined as undefined, which makes V8
@@ -35,17 +35,24 @@ export function sliceLit<T = any>(arr: T[]): Slice<T> {
 
 // makeSlice implements make([]T, len, cap); cap is undefined for make([]T, len).
 // A slice's backing array is a JS array, so maxSliceLen (the most elements a
-// JS array can hold) plays the part of gc's maxAlloc/elemsize.
+// JS array can hold) plays the part of gc's maxAlloc/elemsize. A []byte
+// made with zeroByte (types.uint8's zero) is backed by a Uint8Array, which
+// the engine zeroes and copies in bulk; byte slices of Go arrays and slice
+// literals keep JS arrays, and everything indexes both alike.
 const maxSliceLen = 2 ** 32 - 1;
 
 export function makeSlice<T = any>(len: number, cap: number | undefined, zero: () => T): Slice<T> {
   if (!(len >= 0 && len <= maxSliceLen) || !Number.isInteger(len)) runtimePanic("makeslice: len out of range");
   cap = cap ?? len;
   if (!(cap >= len && cap <= maxSliceLen)) runtimePanic("makeslice: cap out of range");
+  if (zero === (zeroByte as any)) return new Slice(new Uint8Array(cap) as any, 0, len, cap);
   const arr = new Array<T>(cap);
   fillZero(arr, 0, cap, zero);
   return new Slice(arr, 0, len, cap);
 }
+
+// isBytes reports whether a is a Uint8Array backing a []byte.
+const isBytes = (a: unknown): a is Uint8Array => a instanceof Uint8Array;
 
 // fillZero sets arr[from:to] to zero values. A primitive zero value is
 // shared (Array.prototype.fill); an aggregate one is a new object per slot.
@@ -123,7 +130,7 @@ export function sliceToArrayPtr<T = any>(s: S<T>, n: number): T[] | null {
   if (l < n) runtimePanic(`cannot convert slice with length ${l} to array or pointer to array with length ${n}`);
   if (s === null) return null;
   const a = s.$array, off = s.$offset;
-  if (off === 0 && a.length === n) return a;
+  if (off === 0 && a.length === n && !isBytes(a)) return a; // a Go array is a JS array
   let m = viewCache.get(a);
   if (m === undefined) viewCache.set(a, (m = new Map()));
   const key = off + ":" + n;
@@ -196,16 +203,9 @@ export function append<T = any>(s: S<T>, vals: T[], zero: () => T, et?: Type): S
     }
     return new Slice(s.$array, s.$offset, newLen, c);
   }
-  if (newLen > maxSliceLen) runtimePanic("growslice: len out of range");
-  const newCap = Math.min(grow(c, newLen), maxSliceLen);
-  const arr = new Array<T>(newCap);
-  for (let i = 0; i < n; i++) {
-    const v = s!.$array[s!.$offset + i];
-    arr[i] = agg ? copy(et!, v) : v;
-  }
-  for (let i = 0; i < vals.length; i++) arr[n + i] = vals[i];
-  fillZero(arr, newLen, newCap, zero);
-  return new Slice(arr, 0, newLen, newCap);
+  const r = grown(s, newLen, zero, et);
+  for (let i = 0; i < vals.length; i++) r.$array[n + i] = vals[i];
+  return r;
 }
 
 // grown returns the backing array of append(s, ...) for a length of newLen
@@ -214,6 +214,11 @@ function grown<T>(s: S<T>, newLen: number, zero: () => T, et?: Type): Slice<T> {
   if (newLen > maxSliceLen) runtimePanic("growslice: len out of range");
   const n = s === null ? 0 : s.$length;
   const newCap = Math.min(grow(s === null ? 0 : s.$capacity, newLen), maxSliceLen);
+  if (zero === (zeroByte as any)) {
+    const b = new Uint8Array(newCap);
+    if (n > 0) copyInto(b, 0, s!.$array, s!.$offset, n);
+    return new Slice(b as any, 0, newLen, newCap);
+  }
   const arr = new Array<T>(newCap);
   const agg = et !== undefined && isAggregate(et);
   for (let i = 0; i < n; i++) {
@@ -247,9 +252,18 @@ export function appendSlice<T = any>(dst: S<T>, src: S<T>, zero: () => T): S<T> 
   let r: Slice<T>;
   if (dst !== null && n + m <= dst.$capacity) r = new Slice(dst.$array, dst.$offset, n + m, dst.$capacity);
   else r = grown(dst, n + m, zero);
-  const a = r.$array, o = r.$offset + n, sa = src.$array, so = src.$offset;
-  for (let i = 0; i < m; i++) a[o + i] = sa[so + i];
+  copyInto(r.$array, r.$offset + n, src.$array, src.$offset, m);
   return r;
+}
+
+// copyInto copies src[so:so+n] to dst[do:] for non-aggregate elements, in
+// bulk between Uint8Arrays (correct for overlapping ranges too).
+function copyInto(dst: any, d: number, src: any, so: number, n: number): void {
+  if (isBytes(dst) && isBytes(src)) {
+    dst.set(so === 0 && n === src.length ? src : src.subarray(so, so + n), d);
+    return;
+  }
+  for (let i = 0; i < n; i++) dst[d + i] = src[so + i];
 }
 
 // appendString is append(b, s...) for a []byte b and a string s.
@@ -264,8 +278,6 @@ export function appendString(b: S<number>, s: string): S<number> {
   for (let i = 0; i < m; i++) a[o + i] = s.charCodeAt(i);
   return r;
 }
-
-const zeroByte = () => 0;
 
 // sliceToArray implements the conversion [n]T(s), which needs len(s) >= n.
 export function sliceToArray<T = any>(s: S<T>, n: number): T[] {
@@ -282,6 +294,7 @@ export function toArray<T = any>(s: S<T> | string): T[] {
     for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
     return a as T[];
   }
+  if (isBytes(s.$array)) return Array.from(s.$array.subarray(s.$offset, s.$offset + s.$length)) as T[];
   return s.$array.slice(s.$offset, s.$offset + s.$length);
 }
 
@@ -295,6 +308,10 @@ export function sliceCopy<T = any>(dst: S<T>, src: S<T> | string, et?: Type): nu
   }
   const n = Math.min(dst.$length, src.$length);
   const agg = et !== undefined && isAggregate(et);
+  if (isBytes(dst.$array) && isBytes(src.$array)) {
+    copyInto(dst.$array, dst.$offset, src.$array, src.$offset, n);
+    return n;
+  }
   const set = (i: number) => {
     const v = src.$array[src.$offset + i];
     if (agg) assign(et!, dst.$array[dst.$offset + i], v); // in place: &dst[i] stays valid

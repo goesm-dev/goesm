@@ -65,15 +65,16 @@ export function bytesToString(b: S<number>): string {
   // count limits.
   let s = "";
   for (let i = 0; i < n; i += 8192) {
-    s += String.fromCharCode.apply(null, a.slice(o + i, o + Math.min(i + 8192, n)));
+    const j = o + Math.min(i + 8192, n);
+    s += String.fromCharCode.apply(null, (a instanceof Uint8Array ? a.subarray(o + i, j) : a.slice(o + i, j)) as any);
   }
   return s;
 }
 
 export function stringToBytes(s: string): Slice<number> {
-  const a = new Array<number>(s.length);
+  const a = new Uint8Array(s.length); // see makeSlice
   for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
-  return new Slice(a, 0, a.length, a.length);
+  return new Slice(a as any, 0, a.length, a.length);
 }
 
 export function runesToString(r: S<number>): string {
