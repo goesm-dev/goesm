@@ -772,6 +772,56 @@ func isTypeParam(t types.Type) bool {
 	return ok
 }
 
+// basicTypeParam reports whether t is a type parameter whose type set holds
+// only basic types other than complex ones (as with cmp.Ordered): its
+// values are JS numbers, BigInts, strings or booleans, which need no copy
+// and compare with === as Go compares them (NaN included).
+func basicTypeParam(t types.Type) bool {
+	tp, ok := types.Unalias(t).(*types.TypeParam)
+	if !ok {
+		return false
+	}
+	iface, ok := tp.Constraint().Underlying().(*types.Interface)
+	return ok && basicTypeSet(iface, map[*types.Interface]bool{})
+}
+
+// basicTypeSet reports whether the type set of iface is restricted to
+// non-complex basic types: one of its embedded elements (the type set is
+// their intersection) has only such terms.
+func basicTypeSet(iface *types.Interface, seen map[*types.Interface]bool) bool {
+	if seen[iface] {
+		return false
+	}
+	seen[iface] = true
+	basic := func(t types.Type) bool {
+		b, ok := t.Underlying().(*types.Basic)
+		return ok && b.Info()&types.IsComplex == 0 && b.Kind() != types.UnsafePointer && b.Kind() != types.UntypedNil
+	}
+	for i := 0; i < iface.NumEmbeddeds(); i++ {
+		switch e := types.Unalias(iface.EmbeddedType(i)).(type) {
+		case *types.Union:
+			all := e.Len() > 0
+			for j := 0; j < e.Len(); j++ {
+				if !basic(e.Term(j).Type()) {
+					all = false
+				}
+			}
+			if all {
+				return true
+			}
+		default:
+			if in, ok := e.Underlying().(*types.Interface); ok {
+				if basicTypeSet(in, seen) {
+					return true
+				}
+			} else if basic(e) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func isComplex(t types.Type) bool {
 	b, ok := under(t).(*types.Basic)
 	return ok && b.Info()&types.IsComplex != 0
@@ -921,6 +971,9 @@ func (fe *funcEmitter) eqExpr(a string, at types.Type, b string, bt types.Type) 
 		return fmt.Sprintf("$rt.ifaceEq(%s, %s)", fe.convert(a, at, bt), b)
 	}
 	if _, isTP := types.Unalias(at).(*types.TypeParam); isTP {
+		if basicTypeParam(at) {
+			return "(" + a + " === " + b + ")"
+		}
 		return fmt.Sprintf("$rt.equal(%s, %s, %s)", fe.desc(at), a, b)
 	}
 	if isAggregate(at) {
@@ -1454,20 +1507,26 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		}
 	case "append":
 		elem := under(fe.info.TypeOf(e)).(*types.Slice).Elem()
+		et := fe.elemTypeArg(elem)
 		if e.Ellipsis.IsValid() {
 			src := arg(1)
 			if b, ok := under(fe.info.TypeOf(e.Args[1])).(*types.Basic); ok && b.Info()&types.IsString != 0 {
-				src = "$rt.stringToBytes(" + src + ")"
+				return fmt.Sprintf("%s$rt.appendString(%s, %s)", m, arg(0), src)
 			} else if isTypeParam(fe.info.TypeOf(e.Args[1])) {
 				src += " as any" // ~string | ~[]byte: toArray handles both
+			} else if et == "" {
+				return fmt.Sprintf("%s$rt.appendSlice<%s>(%s, %s, %s)", m, fe.ts(elem), arg(0), src, fe.zeroFn(elem))
 			}
-			return fmt.Sprintf("%s$rt.append<%s>(%s, $rt.toArray(%s), %s%s)", m, fe.ts(elem), arg(0), src, fe.zeroFn(elem), fe.elemTypeArg(elem))
+			return fmt.Sprintf("%s$rt.append<%s>(%s, $rt.toArray(%s), %s%s)", m, fe.ts(elem), arg(0), src, fe.zeroFn(elem), et)
 		}
 		var vals []string
 		for _, a := range e.Args[1:] {
 			vals = append(vals, fe.valueOf(a, elem))
 		}
-		return fmt.Sprintf("%s$rt.append<%s>(%s, [%s], %s%s)", m, fe.ts(elem), arg(0), strings.Join(vals, ", "), fe.zeroFn(elem), fe.elemTypeArg(elem))
+		if len(vals) == 1 && et == "" {
+			return fmt.Sprintf("%s$rt.append1<%s>(%s, %s, %s)", m, fe.ts(elem), arg(0), vals[0], fe.zeroFn(elem))
+		}
+		return fmt.Sprintf("%s$rt.append<%s>(%s, [%s], %s%s)", m, fe.ts(elem), arg(0), strings.Join(vals, ", "), fe.zeroFn(elem), et)
 	case "copy":
 		et := ""
 		if sl, ok := under(fe.info.TypeOf(e.Args[0])).(*types.Slice); ok {
