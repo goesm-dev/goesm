@@ -12,7 +12,7 @@ goesm build -toolexec "otelc toolexec" ./cmd/app
 OTEL_TRACES_EXPORTER=console node dist/app.js
 ```
 
-`-toolexec` in `GOFLAGS` works too (`GOFLAGS=-toolexec='otelc toolexec' goesm build ./cmd/app`). A module set up for the host (`otelc setup` without `GOOS`/`GOARCH`) does not build for js/wasm: keep separate setups, for example in separate checkouts.
+`-toolexec` in `GOFLAGS` works too (`GOFLAGS="'-toolexec=otelc toolexec'" goesm build ./cmd/app`: like the go command, goesm splits `GOFLAGS` at spaces, so quotes go around the whole flag). A module set up for the host (`otelc setup` without `GOOS`/`GOARCH`) does not build for js/wasm: keep separate setups, for example in separate checkouts.
 
 ## What matches native Go
 

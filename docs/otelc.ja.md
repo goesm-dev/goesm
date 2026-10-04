@@ -12,7 +12,7 @@ goesm build -toolexec "otelc toolexec" ./cmd/app
 OTEL_TRACES_EXPORTER=console node dist/app.js
 ```
 
-`GOFLAGS` の `-toolexec` でも動きます (`GOFLAGS=-toolexec='otelc toolexec' goesm build ./cmd/app`)。host 向けに setup した module (`GOOS`/`GOARCH` なしの `otelc setup`) は js/wasm 向けには build できません。setup は別々に (たとえば別の checkout で) 用意してください。
+`GOFLAGS` の `-toolexec` でも動きます (`GOFLAGS="'-toolexec=otelc toolexec'" goesm build ./cmd/app`。go command と同じく goesm は `GOFLAGS` を空白で区切るので、quote は flag 全体を囲みます)。host 向けに setup した module (`GOOS`/`GOARCH` なしの `otelc setup`) は js/wasm 向けには build できません。setup は別々に (たとえば別の checkout で) 用意してください。
 
 ## native Go と一致するもの
 
