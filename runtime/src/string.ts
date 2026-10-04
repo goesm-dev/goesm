@@ -61,9 +61,15 @@ export function bytesToString(b: S<number>): string {
     return s;
   }
   if (a instanceof Uint8Array && n >= 64) {
-    // The engine's windows-1252 decoder is latin1 except for 0x80-0x9f,
-    // which it maps above U+00FF.
-    const r = latin1.decode(a.subarray(o, o + n));
+    const v = a.subarray(o, o + n);
+    // The engine's UTF-8 decoder is fastest, and right for ASCII: other
+    // bytes either form multi-byte sequences, which shorten the result,
+    // or become U+FFFD.
+    let r = utf8Dec.decode(v);
+    if (r.length === n && r.indexOf("\ufffd") < 0) return r;
+    // Its windows-1252 decoder is latin1 except for 0x80-0x9f, which it
+    // maps above U+00FF.
+    r = latin1.decode(v);
     if (!aboveLatin1.test(r)) return r;
   }
   // String.fromCharCode over chunks: one flat string instead of a rope of
@@ -86,6 +92,7 @@ export function bytesToString(b: S<number>): string {
 }
 
 const latin1 = new TextDecoder("latin1");
+const utf8Dec = new TextDecoder();
 const aboveLatin1 = /[\u0100-\uffff]/;
 const utf8 = new TextEncoder();
 const fitsASCII = (r: TextEncoderEncodeIntoResult, n: number) => r.read === n && r.written === n;

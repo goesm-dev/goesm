@@ -103,6 +103,7 @@ type pkgEmitter struct {
 	counter     int
 
 	classes, phase1, consts, phase2, funcs, vars *writer
+	definesTypes                                 bool        // phase1 has $rt.defined types
 	exports                                      [][2]string // local, exported
 	exportSet                                    map[string]bool
 	wrappers                                     map[string]string // function -> its exportWrapper
@@ -442,6 +443,9 @@ func (pe *pkgEmitter) emit() *Module {
 		out.ln("let $ir: any;")
 	}
 	for _, sec := range []*writer{pe.classes, pe.phase1, pe.consts, pe.phase2, pe.funcs, pe.vars} {
+		if sec == pe.phase2 && pe.definesTypes {
+			out.ln("$rt.flushTypes(); // the defined types' underlying types and methods")
+		}
 		out.append(sec)
 	}
 	if len(pe.exports) > 0 {
@@ -487,22 +491,34 @@ func modFileName(path string) string {
 func (pe *pkgEmitter) emitVars(files []*ast.File) {
 	scope := pe.pkg.Types.Scope()
 	fe := pe.newFuncEmitter(pe.vars, nil)
+	embeds := embedDirectives(files, pe.info)
+	// A variable whose initializer has no side effects is declared with it,
+	// as a pure expression, so that bundlers drop the unused ones (most of
+	// unicode's tables, for one).
+	pure := map[*types.Var]bool{}
+	for _, in := range pe.info.InitOrder {
+		if len(in.Lhs) == 1 && in.Lhs[0].Name() != "_" && embeds[in.Lhs[0]] == nil && pe.pureExpr(in.Rhs) {
+			pure[in.Lhs[0]] = true
+		}
+	}
 	for _, name := range scope.Names() {
 		v, ok := scope.Lookup(name).(*types.Var)
 		if !ok {
 			continue
 		}
 		local := jsName(name)
+		if v.Exported() {
+			pe.export(local, name)
+		}
+		if pure[v] {
+			continue
+		}
 		init := pe.zeroOf(v.Type(), tpScope{})
 		if pe.prog.boxed[v] {
 			init = "$rt.cell(" + init + ")"
 		}
 		pe.vars.ln("let %s: %s = %s;", local, pe.varTSType(v), init)
-		if v.Exported() {
-			pe.export(local, name)
-		}
 	}
-	embeds := embedDirectives(files, pe.info)
 	for _, name := range scope.Names() {
 		v, ok := scope.Lookup(name).(*types.Var)
 		if pats := embeds[v]; ok && pats != nil {
@@ -517,7 +533,12 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 		if len(in.Lhs) == 1 {
 			v := in.Lhs[0]
 			rhs := fe.valueOf(in.Rhs, v.Type())
-			if v.Name() == "_" {
+			if pure[v] {
+				if pe.prog.boxed[v] {
+					rhs = "$rt.cell(" + rhs + ")"
+				}
+				pe.vars.ln("%slet %s: %s = /* @__PURE__ */ (() => %s)();", mark, fe.nameOf(v), pe.varTSType(v), rhs)
+			} else if v.Name() == "_" {
 				fe.discard(mark, rhs)
 			} else {
 				pe.vars.ln("%s%s = %s;", mark, fe.varRef(v), rhs)
@@ -538,6 +559,74 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 			pe.vars.ln("%s = %s;", fe.varRef(v), fe.convertCopy(fmt.Sprintf("%s[%d]", t, i), tupleAt(tt, i), v.Type()))
 		}
 	}
+}
+
+// pureExpr reports whether evaluating the package-level initializer e has
+// no side effects and cannot panic: constants, composite literals and their
+// addresses, function literals, and package-level variables and functions,
+// combined only that way.
+func (pe *pkgEmitter) pureExpr(e ast.Expr) bool {
+	if tv, ok := pe.info.Types[e]; ok && tv.Value != nil {
+		return true
+	}
+	switch e := e.(type) {
+	case *ast.ParenExpr:
+		return pe.pureExpr(e.X)
+	case *ast.FuncLit:
+		return true
+	case *ast.Ident:
+		return pe.pkgLevel(pe.info.Uses[e])
+	case *ast.SelectorExpr:
+		if id, ok := e.X.(*ast.Ident); ok {
+			if _, ok := pe.info.Uses[id].(*types.PkgName); ok {
+				return pe.pkgLevel(pe.info.Uses[e.Sel])
+			}
+		}
+		return false
+	case *ast.UnaryExpr:
+		_, lit := unparen(e.X).(*ast.CompositeLit)
+		return e.Op == token.AND && lit && pe.pureExpr(e.X)
+	case *ast.CompositeLit:
+		if m, ok := under(pe.info.TypeOf(e)).(*types.Map); ok && types.IsInterface(m.Key()) {
+			return false // a key of an incomparable dynamic type panics
+		}
+		for _, el := range e.Elts {
+			if kv, ok := el.(*ast.KeyValueExpr); ok {
+				if _, field := under(pe.info.TypeOf(e)).(*types.Struct); !field && !pe.pureExpr(kv.Key) {
+					return false
+				}
+				el = kv.Value
+			}
+			if !pe.pureExpr(el) {
+				return false
+			}
+		}
+		return true
+	case *ast.CallExpr:
+		// A conversion to a type other than an array (from a slice, which
+		// panics if too short).
+		if tv, ok := pe.info.Types[e.Fun]; ok && tv.IsType() && len(e.Args) == 1 {
+			switch under(tv.Type).(type) {
+			case *types.Array, *types.Pointer:
+				return false
+			}
+			return pe.pureExpr(e.Args[0])
+		}
+	}
+	return false
+}
+
+// pkgLevel reports whether obj is a package-level variable or a function.
+func (pe *pkgEmitter) pkgLevel(obj types.Object) bool {
+	switch obj := obj.(type) {
+	case *types.Func:
+		return true
+	case *types.Var:
+		return obj.Parent() != nil && obj.Parent() == obj.Pkg().Scope()
+	case *types.Nil:
+		return true
+	}
+	return false
 }
 
 func (pe *pkgEmitter) varTSType(v *types.Var) string {

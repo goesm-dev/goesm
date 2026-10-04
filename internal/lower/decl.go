@@ -29,9 +29,9 @@ func (pe *pkgEmitter) emitNamedType(tn *types.TypeName) {
 	pkgPath := jsString(goPkgPath(pe.pkg.Types))
 	// Type strings use the package name (yaml.Node for gopkg.in/yaml.v3),
 	// which the runtime takes from the path unless told otherwise.
-	namedExtra, genericExtra := "", ""
+	genericExtra := ""
 	if n := pe.pkg.Types.Name(); n != path.Base(goPkgPath(pe.pkg.Types)) {
-		namedExtra, genericExtra = ", [], "+jsString(n), ", "+jsString(n)
+		genericExtra = ", " + jsString(n)
 	}
 	ctor := "undefined"
 	if isStruct {
@@ -39,15 +39,27 @@ func (pe *pkgEmitter) emitNamedType(tn *types.TypeName) {
 	}
 
 	if !generic {
-		pe.phase1.ln("%sconst %s$type: $rt.Type = $rt.named(%s, %s%s);", pe.tab.mark(tn.Pos()), name, pkgPath, jsString(tn.Name()), namedExtra)
+		// The underlying type and the methods are set up by $rt.flushTypes
+		// (in phase2), through a pure expression, so that bundlers drop the
+		// type with all its methods if nothing refers to it.
 		var under string
 		if isStruct {
 			under = pe.structDesc(st, name, tpScope{})
 		} else {
 			under = pe.typeDesc(named.Underlying(), tpScope{})
 		}
-		pe.phase2.ln("$rt.setUnderlying(%s$type, %s, %s);", name, under, ctor)
-		pe.methodTables(pe.phase2, name+"$type", named, tpScope{})
+		w := pe.phase1
+		pkgName := ""
+		if n := pe.pkg.Types.Name(); n != path.Base(goPkgPath(pe.pkg.Types)) {
+			pkgName = ", " + jsString(n)
+		}
+		w.ln("%sconst %s$type: $rt.Type = /* @__PURE__ */ $rt.defined(%s, %s, () => {", pe.tab.mark(tn.Pos()), name, pkgPath, jsString(tn.Name()))
+		w.indent++
+		w.ln("$rt.setUnderlying(%s$type, %s, %s);", name, under, ctor)
+		pe.methodTables(w, name+"$type", named, tpScope{})
+		w.indent--
+		w.ln("}%s);", pkgName)
+		pe.definesTypes = true
 		return
 	}
 
@@ -72,7 +84,7 @@ func (pe *pkgEmitter) emitNamedType(tn *types.TypeName) {
 		params = append(params, n+": $rt.Type")
 	}
 	w := pe.phase1
-	w.ln("%sconst %s$type = $rt.generic(%s, %s, (t: $rt.Type, %s) => {", pe.tab.mark(tn.Pos()), name, pkgPath, jsString(tn.Name()), strings.Join(params, ", "))
+	w.ln("%sconst %s$type = /* @__PURE__ */ $rt.generic(%s, %s, (t: $rt.Type, %s) => {", pe.tab.mark(tn.Pos()), name, pkgPath, jsString(tn.Name()), strings.Join(params, ", "))
 	w.indent++
 	var under string
 	if isStruct {
