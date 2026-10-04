@@ -567,6 +567,13 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 				set: func(rhs string) string { return fmt.Sprintf("%s$rt.mapSet(%s, %s, %s)", fe.mark(x), mp, k, rhs) },
 			}
 		case *types.Slice:
+			if s, i, ok := fe.checkedIndex(x); ok {
+				get := fe.mark(x) + sliceElem(s, i)
+				if isAggregate(u.Elem()) {
+					return fe.simpleLvalue(get, t)
+				}
+				return lvalue{get: fe.byteBoolLoad(x.X, get), set: func(rhs string) string { return get + " = " + rhs }}
+			}
 			s := stab(fe.expr(x.X))
 			i := stab(fe.intNumber(x.Index))
 			get := fe.byteBoolLoad(x.X, fe.mark(x)+sliceIndex(s, i))

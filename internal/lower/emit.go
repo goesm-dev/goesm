@@ -128,6 +128,9 @@ type pkgEmitter struct {
 	// calls (see byteBools).
 	byteBools     map[*types.Var]bool
 	byteBoolMakes map[*ast.CallExpr]bool
+	// inBounds: the index expressions of the function being emitted whose
+	// index is in range by construction (see inBoundsIndices).
+	inBounds map[*ast.IndexExpr]bool
 
 	inits    []string
 	initObjs []any

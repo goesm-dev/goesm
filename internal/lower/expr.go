@@ -441,6 +441,9 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 				return fmt.Sprintf("%s$rt.tpSliceElemAddr(%s, %s, %s)", fe.mark(x), fe.desc(t), fe.expr(x.X), fe.intNumber(x.Index))
 			}
 			if isAggregate(t) {
+				if s, i, ok := fe.checkedIndex(x); ok {
+					return fe.mark(x) + sliceElem(s, i)
+				}
 				return fe.mark(x) + sliceIndex(fe.expr(x.X), fe.intNumber(x.Index))
 			}
 			return fmt.Sprintf("%s$rt.sliceElemPtr(%s, %s)", fe.mark(x), fe.expr(x.X), fe.intNumber(x.Index))
@@ -486,9 +489,15 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 	m := fe.mark(e)
 	switch u := under(xt).(type) {
 	case *types.Basic:
+		if x, i, ok := fe.checkedIndex(e); ok {
+			return m + x + ".charCodeAt(" + i + ")"
+		}
 		x, set, i := fe.indexTemp(fe.expr(e.X), fe.intNumber(e.Index))
 		return m + set + strIndex(x, i) + closeIf(set)
 	case *types.Slice:
+		if x, i, ok := fe.checkedIndex(e); ok {
+			return fe.byteBoolLoad(e.X, m+sliceElem(x, i))
+		}
 		x, set, i := fe.indexTemp(fe.expr(e.X), fe.intNumber(e.Index))
 		return fe.byteBoolLoad(e.X, m+set+sliceIndex(x, i)+closeIf(set))
 	case *types.Map:
@@ -1345,6 +1354,24 @@ func (fe *funcEmitter) reuse2(a, b string) (pa, ra, pb, rb string, ok bool) {
 	pa, ra = tmp(a)
 	pb, rb = tmp(b)
 	return pa, ra, pb, rb, true
+}
+
+// checkedIndex returns the JS slice or string x and index i of e when the
+// index is in range by construction (see inBoundsIndices).
+func (fe *funcEmitter) checkedIndex(e *ast.IndexExpr) (string, string, bool) {
+	if !fe.pe.inBounds[e] {
+		return "", "", false
+	}
+	x, i := stripMarks(fe.expr(e.X)), stripMarks(fe.intNumber(e.Index))
+	if !simpleRef.MatchString(x) || !simpleRef.MatchString(i) {
+		return "", "", false
+	}
+	return x, i, true
+}
+
+// sliceElem is the element s[i] of slice s for an index known to be in range.
+func sliceElem(s, i string) string {
+	return fmt.Sprintf("(%[1]s as any).$array[(%[1]s as any).$offset + %[2]s]", s, i)
 }
 
 // indexTemp prepares the index i of a load from s for sliceIndex or
