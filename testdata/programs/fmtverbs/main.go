@@ -105,4 +105,36 @@ func main() {
 	fmt.Println(k, err, s, i, j)
 	k, err = fmt.Sscan("7 8.5 word", &i, new(float64), &s)
 	fmt.Println(k, err, i, s)
+	sprintfMatrix()
 }
+
+type plainInt int
+
+// sprintfMatrix prints Sprintf of many formats and values: the cases fmt
+// formats by concatenation under goesm and the ones next to them that it
+// leaves to fmt's own code.
+func sprintfMatrix() {
+	formats := []string{
+		"%d", "%5d", "%-5d|", "%05d", "%-05d|", "%x", "%X", "%08x", "%v", "%s", "%10s|", "%-10s|", "%t", "%6t|",
+		"%f", "%.2f", "%.0f", "%8.3f", "%08.3f", "%-8.2f|", "%e", "%.3e", "%E", "%g", "%.4g", "%G", "%F", "%9.2e",
+		"%%", "%5.1f%%", "a%db", "%", "%z", "%+d", "% d", "%#x", "%q", "%c", "%U", "%o", "%b", "%.3d", "%.2s",
+		"%05s", "%*d", "%[1]d", "%v %v", "", "%!", "x%", "%.f", "%3.d|", "%010.4f", "%-010d|", "%0-10d|",
+	}
+	values := []any{
+		0, 42, -42, int8(-128), int16(300), int32(-7), int64(math.MinInt64), uint8(255), uint16(65535),
+		uint32(4294967295), uint64(math.MaxUint64), uint(1 << 60), uintptr(10), 1 << 53, -1 << 60,
+		0.0, math.Copysign(0, -1), 0.125, 2.675, -1.5, 1e21, 1e20, 1e-7, 123456789.0, 1.0 / 3, 100000.0, 1e6,
+		math.NaN(), math.Inf(1), math.Inf(-1), float32(0.1), float32(16777216), 5e-324, math.MaxFloat64,
+		"", "héllo", "日本", "a%b", true, false, plainInt(3), celsius(21.5), nil, errors.New("boom"), []int{1},
+	}
+	for _, f := range formats {
+		line := f + " =>"
+		for _, v := range values {
+			line += " " + fmt.Sprintf(f, v)
+		}
+		fmt.Println(line)
+	}
+	fmt.Println(fmt.Sprintf("%d:%s:%.2f:%x|%v", 7, "item", 7.0/3, 7*31, false))
+	fmt.Println(fmt.Sprintf("%d %d", 1), fmt.Sprintf("%d", 1, 2), fmt.Sprintf("no verbs"), fmt.Sprintf("%s-%s", "a", "b"))
+}
+
