@@ -572,7 +572,7 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 				if isAggregate(u.Elem()) {
 					return fe.simpleLvalue(get, t)
 				}
-				return lvalue{get: fe.byteBoolLoad(x.X, get), set: func(rhs string) string { return get + " = " + rhs }}
+				return lvalue{get: fe.byteBoolLoad(x.X, get), set: func(rhs string) string { return get + " = " + fe.byteBoolStore(x.X, rhs) }}
 			}
 			s := stab(fe.expr(x.X))
 			i := stab(fe.intNumber(x.Index))
@@ -580,7 +580,7 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 			if isAggregate(u.Elem()) {
 				return fe.simpleLvalue(get, t)
 			}
-			return lvalue{get: get, set: func(rhs string) string { return fe.mark(x) + setSliceIndex(s, i, rhs) }}
+			return lvalue{get: get, set: func(rhs string) string { return fe.mark(x) + setSliceIndex(s, i, fe.byteBoolStore(x.X, rhs)) }}
 		case *types.Interface: // type parameter without a core type ([]E | [n]E)
 			s := stab(fe.expr(x.X))
 			i := stab(fe.intNumber(x.Index))

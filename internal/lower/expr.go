@@ -1329,10 +1329,27 @@ func sliceIndex(s, i string) string {
 func (fe *funcEmitter) byteBoolLoad(x ast.Expr, load string) string {
 	if id, ok := ast.Unparen(x).(*ast.Ident); ok {
 		if v, ok := fe.info.ObjectOf(id).(*types.Var); ok && fe.pe.byteBools[v] {
-			return "$rt.byteBool(" + load + ")"
+			return "!!(" + load + ")" // inline: V8 ran a sieve 1.5x slower via a helper
 		}
 	}
 	return load
+}
+
+// byteBoolStore converts rhs, a boolean stored into slice x, to 1 or 0 where
+// a Uint8Array backs x (see byteBools): V8 stores a number into it faster.
+func (fe *funcEmitter) byteBoolStore(x ast.Expr, rhs string) string {
+	if id, ok := ast.Unparen(x).(*ast.Ident); ok {
+		if v, ok := fe.info.ObjectOf(id).(*types.Var); ok && fe.pe.byteBools[v] {
+			switch rhs {
+			case "true":
+				return "(1 as any)"
+			case "false":
+				return "(0 as any)"
+			}
+			return "(((" + rhs + ") ? 1 : 0) as any)"
+		}
+	}
+	return rhs
 }
 
 // reuse2 makes the operands a and b of an inline binary operation
