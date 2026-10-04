@@ -36,13 +36,20 @@ Every implementation runs the same Go source, package [kernels](kernels):
 | JSON | 2,000 records | `encoding/json` Marshal + Unmarshal |
 | Sprintf | 50,000 | `fmt.Sprintf` |
 | Channels | 100,000 values | goroutines, unbuffered channels, `sync.WaitGroup` |
-| Add | 100,000 calls | the cost of one call from JS into Go |
+| Add | 100,000 calls | calls from JS: two numbers in, one out |
+| Upper | 100,000 calls | calls from JS: `strings.ToUpper`, a string in and out |
+| Handle | 10,000 calls | calls from JS: a JSON request handler (`encoding/json` decode, total, encode), a string in and out |
 
 Each kernel takes a size and returns a checksum. The harness checks every implementation's checksum against native Go's, so a number in the results is the time of a correct computation.
 
-- **Timing.** For each kernel the harness ([js/harness.mjs](js/harness.mjs); [native/main.go](native/main.go) for native Go) warms up for at least 3 calls and 300 ms, then times single calls until it has at least 10 and 1 s of them, and reports the median. Add is timed as a JS loop of 100,000 calls and reported per call.
+The last three are the shape of a library API: many small calls from JavaScript, each converting its arguments and results at the boundary. They are timed as a JS loop over [`callInputs`](js/suite.mjs) (100 different inputs) and reported per call, so they show what one call costs from JS, work and crossing together. Native Go runs the same loop in Go (`CallChecksum` in [kernels/api.go](kernels/api.go)), the cost of the work alone; it has no Add.
+
+The **total** is the sum of the medians of every kernel (the calling kernels' whole loops): the time an implementation takes to run each kernel once, which weighs the slow kernels the way an application would feel them, where the geometric mean weighs every kernel the same.
+
+- **Timing.** For each kernel the harness ([js/harness.mjs](js/harness.mjs); [native/main.go](native/main.go) for native Go) warms up for at least 3 calls and 300 ms, then times single calls until it has at least 10 and 1 s of them (or at least 3 and 10 s for slow calls), and reports the median.
 - **Isolation.** Each implementation runs in its own process (Node.js, Bun) or page (Chromium), one after another.
-- **Calling.** goesm's output is an ES module whose exports are the Go functions, so the harness imports `kernels` and calls `Fib(30)` directly. GopherJS, Go wasm and TinyGo build programs rather than packages: [jsmain](jsmain) exposes the kernels with `syscall/js` (`js.FuncOf`) on `globalThis.goBench`, which is how those programs are usually called from JS. A `syscall/js` callback must not block, so for them Channels returns a Promise and runs on its own goroutine; under goesm, Channels is itself an async function. For Add, TinyGo uses a plain wasm export (`//export add`), its usual way of passing numbers.
+- **Calling.** goesm's output is an ES module whose exports are the Go functions, so the harness imports `kernels` and calls `Fib(30)` directly. GopherJS, Go wasm and TinyGo build programs rather than packages: [jsmain](jsmain) exposes the kernels with `syscall/js` (`js.FuncOf`) on `globalThis.goBench`, which is how those programs are usually called from JS. A `syscall/js` callback must not block, so for them Channels returns a Promise and runs on its own goroutine; under goesm, Channels is itself an async function.
+- **Calling kernels.** Each implementation is called the fastest way it offers. goesm's exports are called directly, with the runtime's `fromJSString` / `toJSString` converting strings (Go strings are byte strings). For Go and TinyGo wasm, a `syscall/js` call costs microseconds (Go) to about a millisecond (TinyGo), so [jsmain/export_wasm.go](jsmain/export_wasm.go) exports Add, Upper and Handle as plain WebAssembly functions (`//go:wasmexport` for Go, `//export` for TinyGo, whose `//go:wasmexport` costs about 0.2 ms per call while `main` blocks) and passes strings as UTF-8 through linear memory with `TextEncoder.encodeInto` and `TextDecoder`. GopherJS goes through `syscall/js`, which for it is a plain JS call.
 - **Startup** is the time from starting to load the output (reading or fetching it, compiling, running package initialization and `main`) to the first callable function.
 - **Size** is that of the files a page has to load: the bundled module for goesm, the script for GopherJS, the `.wasm` plus `wasm_exec.js` for Go and TinyGo. It includes the parts of the standard library the kernels use (`fmt`, `encoding/json`, `sort`, `strconv`, `strings`, `sync`, `math`).
 

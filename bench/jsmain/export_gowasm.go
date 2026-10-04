@@ -1,4 +1,4 @@
-//go:build tinygo
+//go:build wasm && !tinygo
 
 package main
 
@@ -10,17 +10,17 @@ import (
 
 // See export_wasm.go.
 
-//export add
+//go:wasmexport add
 func add(a, b int32) int32 { return addInt32(a, b) }
 
-//export in
+//go:wasmexport in
 func in(n int32) unsafe.Pointer { return inPtr(n) }
 
-//export out
+//go:wasmexport out
 func out() unsafe.Pointer { return outPtr() }
 
-//export upper
+//go:wasmexport upper
 func upper(n int32) int32 { return call(kernels.Upper, n) }
 
-//export handle
+//go:wasmexport handle
 func handle(n int32) int32 { return call(kernels.Handle, n) }
