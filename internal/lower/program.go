@@ -74,6 +74,10 @@ type Program struct {
 	lockCalls  []mutexCall
 	waitLocks  map[*ast.CallExpr]*types.Func
 	escMutexes map[types.Object]bool
+	// lockVals are the Lock and RLock method values and method expression
+	// values; waitLockVals those bound to a waiting variant.
+	lockVals     []lockVal
+	waitLockVals map[*ast.SelectorExpr]*types.Func
 
 	Diags []Diagnostic
 	// Warns are standard library functions that were replaced by stubs
@@ -97,9 +101,10 @@ func NewProgram(fset *token.FileSet, pkgs []*packages.Package, std map[*packages
 		syncOnly: map[any]bool{},
 		boxed:    map[*types.Var]bool{},
 
-		ifaceImpls: map[string][]ifaceImpl{},
-		implCache:  map[[2]any]bool{},
-		waitLocks:  map[*ast.CallExpr]*types.Func{},
+		ifaceImpls:   map[string][]ifaceImpl{},
+		implCache:    map[[2]any]bool{},
+		waitLocks:    map[*ast.CallExpr]*types.Func{},
+		waitLockVals: map[*ast.SelectorExpr]*types.Func{},
 	}
 	for _, pkg := range pkgs {
 		p.byTypes[pkg.Types] = pkg
@@ -289,9 +294,11 @@ func (p *Program) findFuncValues() (map[any]bool, map[string][]*types.Signature)
 							if sig != nil {
 								exprs[n.Sel.Name] = append(exprs[n.Sel.Name], sig)
 							}
+							p.addLockVal(pkg, n, nil)
 						} else if fn, ok := info.Uses[n.Sel].(*types.Func); ok {
 							vals[fn.Origin()] = true
 							if sel != nil && sel.Kind() == types.MethodVal {
+								p.addLockVal(pkg, n, n.X)
 								if recv := fn.Signature().Recv().Type(); isIface(recv) {
 									if tp, ok := types.Unalias(sel.Recv()).(*types.TypeParam); ok {
 										recv = tp
@@ -352,6 +359,11 @@ func (p *Program) unitBlocks(u *unit, units []*unit) bool {
 		}
 	}
 	for _, s := range u.dynSigs {
+		for _, lv := range p.lockVals {
+			if p.waitLockVals[lv.sel] != nil && sigMatch(s, lv.sig) {
+				return true
+			}
+		}
 		for _, c := range p.ifaceVals {
 			if sigMatch(s, c.fn.Signature()) && p.ifaceCallBlocks(c.recv, c.fn, map[types.Type]bool{}) {
 				return true

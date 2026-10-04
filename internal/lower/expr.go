@@ -199,6 +199,15 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 		obj, prop := fe.fieldBase(e)
 		return fe.mark(e) + obj + "." + prop
 	case types.MethodVal:
+		if slow, locker := fe.pe.prog.WaitLockVal(e); locker {
+			// l.Lock bound to the waiting variant (lockcheck.go).
+			fn := sel.Obj().(*types.Func)
+			l := fe.convert(fe.expr(e.X), fe.info.TypeOf(e.X), fn.Signature().Recv().Type())
+			return fmt.Sprintf("%s((r: any) => () => %s(null, r))($rt.deref(%s))", fe.mark(e), fe.pe.methodFuncName(slow), l)
+		} else if slow != nil {
+			_, recv, _ := fe.methodTarget(e, sel)
+			return fmt.Sprintf("%s((r: any) => () => %s(r))(%s)", fe.mark(e), fe.pe.methodFuncName(slow), recv)
+		}
 		fn, recv, iface := fe.methodTarget(e, sel)
 		r := fe.tmp()
 		if iface { // a nil interface panics when the method value is taken
@@ -213,6 +222,11 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 		fn = "(" + strings.Replace(fn, "(", " as any)(", 1)
 		return fmt.Sprintf("((%s: any) => (...a: any[]) => %s%s, ...a))(%s)", r, fn, r, recv)
 	case types.MethodExpr:
+		if slow, locker := fe.pe.prog.WaitLockVal(e); locker {
+			return fmt.Sprintf("((r: any) => %s(null, r))", fe.pe.methodFuncName(slow))
+		} else if slow != nil {
+			return fmt.Sprintf("((r: any) => %s(r))", fe.pe.methodFuncName(slow))
+		}
 		fn := sel.Obj().(*types.Func)
 		recvT := sel.Recv()
 		if isTypeParam(recvT) { // T.M for a type parameter: dispatch on the type argument
