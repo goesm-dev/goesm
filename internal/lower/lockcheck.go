@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+
+	"golang.org/x/tools/go/packages"
 )
 
 // Mutexes held across blocking operations.
@@ -88,11 +90,7 @@ func mutexMethod(info *types.Info, call *ast.CallExpr) (mutexCall, bool) {
 		return mutexCall{}, false
 	}
 	s, ok := info.Selections[sel]
-	if !ok || (s.Kind() != types.MethodVal && s.Kind() != types.MethodExpr) {
-		return mutexCall{}, false
-	}
-	fn := s.Obj().(*types.Func)
-	if fn.Pkg() == nil || fn.Pkg().Path() != "sync" {
+	if !ok {
 		return mutexCall{}, false
 	}
 	x := sel.X
@@ -107,7 +105,28 @@ func mutexMethod(info *types.Info, call *ast.CallExpr) (mutexCall, bool) {
 			x = u.X
 		}
 	}
-	mc := mutexCall{call: call, method: fn.Name(), expr: types.ExprString(x)}
+	mc, ok := mutexSel(info, sel, x)
+	mc.call = call
+	return mc, ok
+}
+
+// mutexSel recognizes a sync.Mutex, sync.RWMutex or sync.Locker method
+// selected by sel, with receiver x (nil for a method expression value).
+func mutexSel(info *types.Info, sel *ast.SelectorExpr, x ast.Expr) (mutexCall, bool) {
+	s, ok := info.Selections[sel]
+	if !ok || (s.Kind() != types.MethodVal && s.Kind() != types.MethodExpr) {
+		return mutexCall{}, false
+	}
+	fn := s.Obj().(*types.Func)
+	if fn.Pkg() == nil || fn.Pkg().Path() != "sync" {
+		return mutexCall{}, false
+	}
+	mc := mutexCall{method: fn.Name()}
+	if x != nil {
+		mc.expr = types.ExprString(x)
+	} else {
+		mc.expr = types.ExprString(sel)
+	}
 	recv := fn.Signature().Recv().Type()
 	if named, ok := types.Unalias(recv).(*types.Named); ok && named.Obj().Name() == "Locker" {
 		mc.locker = true
@@ -124,6 +143,9 @@ func mutexMethod(info *types.Info, call *ast.CallExpr) (mutexCall, bool) {
 		return mutexCall{}, false
 	}
 	mc.slow = slowMethod(ptr, fn.Pkg(), fn.Name())
+	if x == nil {
+		return mc, true // a method expression value: the mutex has no name
+	}
 	if path := s.Index(); len(path) > 1 {
 		// Promoted from an embedded field: the mutex is the last one.
 		t := info.TypeOf(sel.X)
@@ -418,23 +440,59 @@ func (p *Program) findWaitLocks() bool {
 			heldEsc = true
 		}
 	}
+	wait := func(mc mutexCall) bool {
+		if mc.direct() {
+			return held[mc.key] || (indirect && p.escMutexes[mc.key])
+		}
+		return indirect || heldEsc
+	}
 	changed := false
 	for _, mc := range p.lockCalls {
-		if mc.slow == nil || p.waitLocks[mc.call] != nil {
-			continue
-		}
-		var wait bool
-		if mc.direct() {
-			wait = held[mc.key] || (indirect && p.escMutexes[mc.key])
-		} else {
-			wait = indirect || heldEsc
-		}
-		if wait {
+		if mc.slow != nil && p.waitLocks[mc.call] == nil && wait(mc) {
 			p.waitLocks[mc.call] = mc.slow
 			changed = true
 		}
 	}
+	for _, lv := range p.lockVals {
+		if p.waitLockVals[lv.sel] == nil && wait(lv.mc) {
+			p.waitLockVals[lv.sel] = lv.mc.slow
+			changed = true
+		}
+	}
 	return changed
+}
+
+// lockVal is a Lock or RLock method value (mu.Lock) or method expression
+// value ((*sync.Mutex).Lock). If its Lock may have to wait, it is bound to
+// the waiting variant and the function value is async: dynamic calls of its
+// signature may then block.
+type lockVal struct {
+	sel *ast.SelectorExpr
+	mc  mutexCall
+	sig *types.Signature
+}
+
+// addLockVal records sel, a method value with receiver x or (x nil) a
+// method expression used as a value, if it is a mutex's Lock or RLock.
+func (p *Program) addLockVal(pkg *packages.Package, sel *ast.SelectorExpr, x ast.Expr) {
+	if isSyncPkg(pkg) {
+		return
+	}
+	mc, ok := mutexSel(pkg.TypesInfo, sel, x)
+	if !ok || mc.slow == nil || !isLock(mc.method) {
+		return
+	}
+	sig, _ := pkg.TypesInfo.TypeOf(sel).Underlying().(*types.Signature)
+	if sig != nil {
+		p.lockVals = append(p.lockVals, lockVal{sel, mc, sig})
+	}
+}
+
+// WaitLockVal returns the waiting function a Lock method value or method
+// expression value is bound to, or nil (see WaitLock).
+func (p *Program) WaitLockVal(sel *ast.SelectorExpr) (fn *types.Func, locker bool) {
+	fn = p.waitLockVals[sel]
+	return fn, fn != nil && fn.Name() == "lockerSlow"
 }
 
 // WaitLock returns the waiting function to call instead of a Lock or RLock
@@ -446,7 +504,8 @@ func (p *Program) WaitLock(call *ast.CallExpr) (fn *types.Func, locker bool) {
 }
 
 // blocksAt returns the position of the first operation in n that may block.
-// Function literals and go statements run elsewhere and are skipped.
+// Function literals and the calls of go statements run elsewhere and are
+// skipped; a go statement's function value and arguments are evaluated here.
 func (p *Program) blocksAt(info *types.Info, n ast.Node) (token.Pos, bool) {
 	var at token.Pos
 	ast.Inspect(n, func(n ast.Node) bool {
@@ -454,7 +513,15 @@ func (p *Program) blocksAt(info *types.Info, n ast.Node) (token.Pos, bool) {
 			return false
 		}
 		switch n := n.(type) {
-		case *ast.FuncLit, *ast.GoStmt:
+		case *ast.FuncLit:
+			return false
+		case *ast.GoStmt:
+			for _, e := range append([]ast.Expr{n.Call.Fun}, n.Call.Args...) {
+				if pos, ok := p.blocksAt(info, e); ok {
+					at = pos
+					break
+				}
+			}
 			return false
 		case *ast.SendStmt:
 			at = n.Arrow

@@ -55,7 +55,7 @@ func tryHold(ch chan int) bool {
 	return false
 }
 
-var initLocked, valueLocked sync.Mutex
+var initLocked, valueLocked, goArgLocked, exprLocked sync.Mutex
 
 // lockInInit locks initLocked in an if initializer and holds it across a
 // receive.
@@ -74,17 +74,31 @@ func lockByValue(ch chan int) {
 	valueLocked.Unlock()
 }
 
+// goArg holds goArgLocked while a go statement's argument is received.
+func goArg(ch chan int) {
+	goArgLocked.Lock()
+	go func(int) {}(<-ch)
+	goArgLocked.Unlock()
+}
+
+// holdExpr holds exprLocked across a receive.
+func holdExpr(ch chan int) {
+	exprLocked.Lock()
+	<-ch
+	exprLocked.Unlock()
+}
+
 // contend runs hold, which locks a mutex and waits on ch, then a goroutine
-// locking the same mutex while it is held.
-func contend(hold func(chan int), lock, unlock func(), name string, ch chan int) {
+// running lockUnlock, which locks the same mutex while it is held (and
+// unlocks it).
+func contend(hold func(chan int), lockUnlock func(), name string, ch chan int) {
 	done := make(chan bool)
 	go func() {
 		hold(ch)
 		done <- true
 	}()
 	go func() {
-		lock()
-		unlock()
+		lockUnlock()
 		done <- true
 	}()
 	ch <- 1
@@ -192,7 +206,12 @@ func main() {
 	ch <- 1
 	<-done
 	os.Stdout.WriteString("TryLock: " + strconv.FormatBool(<-held) + ", then RLock\n")
-	contend(lockInInit, func() { initLocked.Lock() }, func() { initLocked.Unlock() }, "lock in initializer", ch)
-	contend(lockByValue, func() { valueLocked.Lock() }, func() { valueLocked.Unlock() }, "lock by method value", ch)
+	contend(lockInInit, func() { initLocked.Lock(); initLocked.Unlock() }, "lock in initializer", ch)
+	contend(lockByValue, func() { valueLocked.Lock(); valueLocked.Unlock() }, "lock by method value", ch)
+	lockInit := initLocked.Lock
+	contend(lockInInit, func() { lockInit(); initLocked.Unlock() }, "waiting method value", ch)
+	contend(goArg, func() { goArgLocked.Lock(); goArgLocked.Unlock() }, "go statement argument", ch)
+	lockExpr := (*sync.Mutex).Lock
+	contend(holdExpr, func() { lockExpr(&exprLocked); exprLocked.Unlock() }, "waiting method expression value", ch)
 	os.Stdout.WriteString("done\n")
 }
