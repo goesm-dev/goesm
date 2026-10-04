@@ -314,6 +314,9 @@ func (pe *pkgEmitter) zeroFn(t types.Type, tp tpScope) string {
 	if tpar, ok := types.Unalias(t).(*types.TypeParam); ok {
 		return pe.typeDesc(tpar, tp) + ".zero"
 	}
+	if b, ok := types.Unalias(t).Underlying().(*types.Basic); ok && b.Kind() == types.Uint8 {
+		return "$rt.zeroByte" // []byte is backed by a Uint8Array (runtime/src/slice.ts)
+	}
 	return "() => " + pe.zeroOf(t, tp)
 }
 

@@ -22,7 +22,7 @@ import {
   alignOf, arrayElemRef, arrayOf, bytesToString, c64, chanCap, chanOf, close, encodeRune, equal, fieldRef, canonical,
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
-  sliceElemRef, sliceLit, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt, topString,
+  sliceElemRef, sliceLit, sliceToArrayPtr, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt, topString,
   typeArgsName,
 } from "./index.ts";
 import type { S } from "./index.ts";
@@ -685,6 +685,7 @@ export function native$reflect$convertValue(dst: Type, src: Type, x: any): any {
   }
   if (dk === Kind.Pointer && sk === Kind.Slice) {
     if (x === null) return null;
+    if (x.$array instanceof Uint8Array && x.$length >= dst.elem!.len) return sliceToArrayPtr(x, dst.elem!.len);
     if (x.$offset === 0 && x.$array.length === dst.elem!.len) return x.$array;
     plainPanic("reflect: converting a slice to an array pointer that does not share its whole backing array is not supported by goesm");
   }
