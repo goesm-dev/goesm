@@ -48,11 +48,11 @@ Go 1.27.0 `test/` directory, Node.js 22, goesm at main of 2026-10-04 (after the 
 |---|---|---|
 | `test/` | 86.8% (118/136) | 9 |
 | `chan/` | 100.0% (17/17) | 0 |
-| `fixedbugs/` | 91.4% (563/616) | 30 |
+| `fixedbugs/` | 91.7% (565/616) | 30 |
 | `interface/` | 100.0% (11/11) | 0 |
 | `ken/` | 100.0% (40/40) | 0 |
 | `typeparam/` | 98.6% (139/141) | 0 |
-| **total** | **92.4% (888/961)** | 39 |
+| **total** | **92.6% (890/961)** | 39 |
 | tests without imports | 98.8% (506/512) | |
 
 With `GOESM_CONFORMANCE_NATIVE=1`, native `go run` reproduces the `.out` file for every selected test except 11 that shell out to the go command (`os/exec`), which goesm cannot build anyway.
@@ -65,7 +65,7 @@ Tests that import a standard library package, by package (a test counts once for
 | `runtime` | 67.3% (74/110) |
 | `reflect` | 76.5% (52/68) |
 | `os` | 86.2% (50/58) |
-| `unsafe` | 56.4% (31/55) |
+| `unsafe` | 60.0% (33/55) |
 | `strings` | 66.7% (28/42) |
 | `math` | 96.6% (28/29) |
 | `time` | 100.0% (19/19) |

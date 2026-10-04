@@ -475,6 +475,7 @@ fixedbugs/issue51913.go
 fixedbugs/issue52072.go
 fixedbugs/issue52438.go
 fixedbugs/issue5244.go
+fixedbugs/issue52612.go
 fixedbugs/issue52788.go
 fixedbugs/issue52788a.go
 fixedbugs/issue52953.go
@@ -503,6 +504,7 @@ fixedbugs/issue5793.go
 fixedbugs/issue5809.go
 fixedbugs/issue5820.go
 fixedbugs/issue58671.go
+fixedbugs/issue59293.go
 fixedbugs/issue59338.go
 fixedbugs/issue59367.go
 fixedbugs/issue59404part2.go

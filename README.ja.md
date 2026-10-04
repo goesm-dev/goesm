@@ -59,7 +59,7 @@ PoC は Go 言語の大部分と、標準ライブラリのかなりの部分を
 - **言語**: 関数とクロージャ、構造体、配列、スライス、マップ、ポインタ、インターフェース、型 switch、ジェネリクス（Go 1.27 のジェネリックメソッドを含む）、メソッド値、`defer` / `panic` / `recover`、goroutine、チャネル、`select`、整数と関数に対する range、`goto`、ラベル付き文、パッケージの初期化順序。
 - **標準ライブラリ**（Go のソースからコンパイル）: `strings`、`strconv`、`unicode`、`sort`、`slices`、`maps`、`errors`、`math`、`math/bits`、`fmt`、`reflect`、`encoding/json`、`sync`、`time`（ホストのタイマー上で動作）、`os` の標準入出力など。goesm がまだ変換できない関数は、呼ぶと panic するスタブになります。`goesm build -v` で一覧できます。
 - **compile-time instrumentation**: `goesm build -toolexec "otelc toolexec"` で OpenTelemetry の [otelc](https://github.com/open-telemetry/opentelemetry-go-compile-instrumentation) が計装したプログラムをビルドでき、ネイティブのビルドと同じ span を出力します（[docs/otelc.ja.md](docs/otelc.ja.md)）。package 間の `//go:linkname` と `//go:embed` も動きます。
-- **Go のテストスイート**: `$GOROOT/test` の実行可能なテスト 961 件のうち 888 件で、ネイティブ Go と同じ出力になります（[docs/conformance.ja.md](docs/conformance.ja.md)）。
+- **Go のテストスイート**: `$GOROOT/test` の実行可能なテスト 961 件のうち 890 件で、ネイティブ Go と同じ出力になります（[docs/conformance.ja.md](docs/conformance.ja.md)）。
 
 まだできないこと（詳細は [ARCHITECTURE.ja.md §11](ARCHITECTURE.ja.md)）:
 
