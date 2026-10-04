@@ -5,7 +5,7 @@
 
 import { Kind, Type } from "./types.ts";
 import { toJSString } from "./string.ts";
-import { GoMap } from "./map.ts";
+import { GoMap, mapRange } from "./map.ts";
 import { Slice } from "./slice.ts";
 
 export function toJS(t: Type, v: any): any {
@@ -24,7 +24,7 @@ export function toJS(t: Type, v: any): any {
     case Kind.Map: {
       if (v === null) return null;
       const o: Record<string, any> = {};
-      for (const [k, x] of (v as GoMap<any, any>).entries.values()) {
+      for (const [k, x] of mapRange(v as GoMap<any, any>)) {
         o[t.key!.kind === Kind.String ? toJSString(k) : String(k)] = toJS(t.elem!, x);
       }
       return o;
