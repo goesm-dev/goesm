@@ -186,8 +186,10 @@ func normalizeTelemetry(t *testing.T, out string) string {
 				t.Fatalf("%v: %s", err, line)
 			}
 			delete(m, "time")
-			for k, v := range m {
-				if s, ok := v.(string); ok && (k == "trace_id" || k == "span_id") {
+			// In a fixed order: numbering in map order would differ
+			// between the two runs.
+			for _, k := range []string{"trace_id", "span_id"} {
+				if s, ok := m[k].(string); ok {
 					m[k] = id(s)
 				}
 			}
