@@ -97,7 +97,7 @@ The weakness in 2 is covered by spilling to temporaries in the lowering where ev
 | string | JS string with one code unit per byte | `len`, indexing, slicing, comparison and invalid UTF-8 match Go; converted at the JS boundary with `toJSString` / `fromJSString` |
 | struct | instance of a generated class (`$clone` / `$set`) | value copies are inserted by the lowering; the object identity is the address |
 | array | JS array | copied explicitly, like structs |
-| slice | `Slice{$array,$offset,$length,$capacity}`, nil is `null` | append / re-slice aliasing as in Go |
+| slice | `Slice{$array,$offset,$length,$capacity}`, nil is `null`; `$array` is a JS array, or a `Uint8Array` for a `[]byte` made by `make`, `append` or `[]byte(s)` (slices of Go arrays and literals keep JS arrays) | append / re-slice aliasing as in Go |
 | map | `GoMap` (JS `Map` + hash keys with Go equality), nil is `null` | struct / interface / NaN keys, nil-map panics |
 | pointer | `*struct` / `*array` is the object itself; otherwise an object with a `.v` accessor (`Cell` / `FieldPtr` / `IndexPtr`) | `&x == &x` and `&s.f == &s.f` guaranteed by caching |
 | interface | `Iface{t: type descriptor, v: value}`, nil is `null` | keeps the dynamic type: `MyInt(1)` ≠ `int(1)`, an interface holding a nil `*T` is non-nil |
