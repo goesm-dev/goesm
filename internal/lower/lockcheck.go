@@ -192,6 +192,13 @@ func (p *Program) heldSections() []mutexCall {
 			ast.Inspect(f, func(n ast.Node) bool {
 				var list []ast.Stmt
 				switch n := n.(type) {
+				case *ast.CallExpr:
+					// A TryLock that succeeds starts a section that is not
+					// delimited by statements: count it as held.
+					if mc, ok := mutexMethod(info, n); ok && (mc.method == "TryLock" || mc.method == "TryRLock") {
+						out = append(out, mc)
+					}
+					return true
 				case *ast.BlockStmt:
 					list = n.List
 				case *ast.CaseClause:
