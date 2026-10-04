@@ -39,7 +39,9 @@ export class Chan<T> {
 }
 
 export function makeChan<T = any>(capacity: number, zero: () => T): Chan<T> {
-  if (capacity < 0) runtimePanic("makechan: size out of range");
+  // 2^48 bytes is gc's maxAlloc on 64-bit platforms; a channel buffer here
+  // grows as needed, so only its element count is checked.
+  if (!(capacity >= 0 && capacity < 2 ** 48)) runtimePanic("makechan: size out of range");
   return new Chan(capacity, zero);
 }
 
