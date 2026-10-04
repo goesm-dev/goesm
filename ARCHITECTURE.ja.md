@@ -97,7 +97,7 @@ docs/                 GopherJS 比較、生成物の実例
 | string | JS string、1 code unit = 1 byte | `len`、index、slice、比較、不正 UTF-8 が Go と一致。JS 境界で `toJSString` / `fromJSString` |
 | struct | 生成 class の instance (`$clone` / `$set`) | 値 copy は lowering が挿入。object identity がそのまま address |
 | array | JS array | struct と同じく copy は明示的 |
-| slice | `Slice{$array,$offset,$length,$capacity}`、nil は `null`。`$array` は JS array で、`make`・`append`・`[]byte(s)` で作った `[]byte` では `Uint8Array` (Go の array の slice と literal は JS array のまま) | append / re-slice の aliasing が Go と同じ |
+| slice | `Slice{$array,$offset,$length,$capacity}`、nil は `null`。`$array` は JS array で、`make`・`append`・`[]byte(s)` で作った `[]byte` では `Uint8Array` (Go の array の slice と literal は JS array のまま)。65 バイトから 4 KiB のものは共有の 16 KiB slab の view です (V8 はそれより大きい `Uint8Array` の領域を heap の外に 1 個 1〜3 µs かけて確保するため) | append / re-slice の aliasing が Go と同じ |
 | map | `GoMap` (JS `Map` + Go equality の hash key)、nil は `null` | struct / interface / NaN key、nil map の panic |
 | pointer | `*struct` / `*array` は object 自体。それ以外は `.v` を持つ object (`Cell` / `FieldPtr` / `IndexPtr`) | `&x == &x`、`&s.f == &s.f` を cache で保証 |
 | interface | `Iface{t: 型 descriptor, v: 値}`、nil は `null` | 動的型を保持。`MyInt(1)` と `int(1)` を区別、nil `*T` を入れた interface は non-nil |
@@ -147,7 +147,7 @@ function F() {
 }
 ```
 
-* panic は `GoPanic` (JS Error) を throw。値は interface 値として保持し、runtime error は `runtime.Error` を実装する型 (`Error()` / `RuntimeError()`) を持ちます。JS の `TypeError` (nil 参照) は nil pointer dereference の runtime error に変換します。
+* panic は `GoPanic` (JS Error) を throw。値は interface 値として保持し、runtime error は `runtime.Error` を実装する型 (`Error()` / `RuntimeError()`) を持ちます。JS の `TypeError` (nil 参照) は nil pointer dereference の runtime error に変換します。ポインタ経由のフィールドや要素のアクセス (`p.f`、`*p`、`*[N]T` の `p[i]`) は明示的な nil チェックをせずこれに頼ります (明示的なチェックがあると V8 の高速なプロパティアクセスが効かなくなるため)。entry package の exported な関数と method、JS から呼び戻される Go の関数は wrapper で包み、JS からは引き続き `GoPanic` に見えます。
 * defer の関数値と引数は defer 文の時点で評価し、closure に閉じ込めます。
 * recover() は deferred 関数自身の中でだけ recover します。各 deferred call は、静的に分かる場合 (関数、具象型の method、関数リテラル、`recover` builtin) は呼ぶ関数を記録し、recover() を呼ぶ関数は入口でその呼び出しかどうかを問い合わせます (`const $rf = $rt.recoverFrame("main.F")`。再帰呼び出しは該当しない)。答えは recover() が panic を recover する frame なので、await の後でも効きます。defer された `recover()` は、それを defer した関数が呼んだものとして扱います。
 * JS 側から見ると、捕捉されない panic は `GoPanic` 例外になり、`--enable-source-maps` で stack が `.go` の行を指します (テスト済み)。

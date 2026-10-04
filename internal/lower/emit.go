@@ -105,6 +105,7 @@ type pkgEmitter struct {
 	classes, phase1, consts, phase2, funcs, vars *writer
 	exports                                      [][2]string // local, exported
 	exportSet                                    map[string]bool
+	wrappers                                     map[string]string // function -> its exportWrapper
 
 	lastPos token.Pos
 
@@ -143,6 +144,7 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		funcs:      newWriter(tab),
 		vars:       newWriter(tab),
 		exportSet:  map[string]bool{},
+		wrappers:   map[string]string{},
 		std:        p.std[pkg],
 		dep:        p.Deps[pkg],
 	}
@@ -382,7 +384,11 @@ func (pe *pkgEmitter) emit() *Module {
 			break
 		}
 		if fn, ok := scope.Lookup(name).(*types.Func); ok && fn.Exported() && fn.Signature().TypeParams().Len() == 0 {
-			meta = append(meta, fmt.Sprintf("%s: { fn: %s, type: %s, async: %v }", jsPropName(name), jsName(name), pe.typeDesc(fn.Type(), tpScope{}), pe.prog.IsAsync(fn)))
+			f := jsName(name)
+			if js, ok := pe.wrappers[f]; ok {
+				f = js
+			}
+			meta = append(meta, fmt.Sprintf("%s: { fn: %s, type: %s, async: %v }", jsPropName(name), f, pe.typeDesc(fn.Type(), tpScope{}), pe.prog.IsAsync(fn)))
 		}
 	}
 	pe.vars.ln("const $goesm = { path: %s, funcs: { %s } };", jsString(pkg.PkgPath), strings.Join(meta, ", "))

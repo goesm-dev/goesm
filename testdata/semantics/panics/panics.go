@@ -139,3 +139,18 @@ func NilSelectorsAndCalls() []string {
 		log[0],
 	}
 }
+
+// NilStoreOrder stores through nil pointers: as in gc, the right-hand side
+// is evaluated before the nil dereference panics.
+func NilStoreOrder() []string {
+	var log []string
+	rhs := func(s string) int { log = append(log, s); return 1 }
+	var p *Node
+	var q *int
+	var a *[3]int
+	return append([]string{
+		catch(func() { p.Val = rhs("field") }),
+		catch(func() { *q = rhs("star") }),
+		catch(func() { a[1] = rhs("array") }),
+	}, log...)
+}
