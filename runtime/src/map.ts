@@ -12,7 +12,7 @@ import { Type } from "./types.ts";
 
 export class GoMap<K, V> {
   entries = new Map<any, [K, V]>();
-  keyType: Type;
+  declare keyType: Type;
   constructor(keyType: Type) {
     this.keyType = keyType;
   }

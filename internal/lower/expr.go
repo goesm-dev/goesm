@@ -423,7 +423,7 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 				return fmt.Sprintf("%s$rt.tpSliceElemAddr(%s, %s, %s)", fe.mark(x), fe.desc(t), fe.expr(x.X), fe.intNumber(x.Index))
 			}
 			if isAggregate(t) {
-				return fmt.Sprintf("%s$rt.index(%s, %s)", fe.mark(x), fe.expr(x.X), fe.intNumber(x.Index))
+				return fe.mark(x) + sliceIndex(fe.expr(x.X), fe.intNumber(x.Index))
 			}
 			return fmt.Sprintf("%s$rt.sliceElemPtr(%s, %s)", fe.mark(x), fe.expr(x.X), fe.intNumber(x.Index))
 		}
@@ -470,7 +470,7 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 	case *types.Basic:
 		return fmt.Sprintf("%s$rt.strIndex(%s, %s)", m, fe.expr(e.X), fe.intNumber(e.Index))
 	case *types.Slice:
-		return fmt.Sprintf("%s$rt.index(%s, %s)", m, fe.expr(e.X), fe.intNumber(e.Index))
+		return m + sliceIndex(fe.expr(e.X), fe.intNumber(e.Index))
 	case *types.Map:
 		return fmt.Sprintf("%s$rt.mapGet(%s, %s, %s)", m, fe.expr(e.X), fe.valueOf(e.Index, u.Key()), fe.zeroFn(u.Elem()))
 	case *types.Array:
@@ -1082,11 +1082,7 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 				prefix = fe.pe.methodFuncName(slow) + "("
 			}
 			if iface {
-				callee = fmt.Sprintf("$rt.icall(%s, %s", recv, jsString(methodKey(fn)))
-				if args != "" {
-					callee += ", " + args
-				}
-				callee += ")"
+				callee = icallExpr(recv, jsString(methodKey(fn)), args, sig.Params().Len())
 			} else {
 				if args != "" {
 					callee = prefix + recv + ", " + args + ")"
@@ -1131,6 +1127,60 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 		all += args
 	}
 	return fe.awaitIf(e, fmt.Sprintf("%s%s(%s)", fe.mark(e), callee, all))
+}
+
+// sliceIndex is s[i] for the JS expressions s (a slice) and i. When both are
+// plain references or literals, which can be evaluated again, the bounds
+// check and the load are inline: then each index expression has an inline
+// cache of its own for the backing array, where $rt.index, shared by every
+// slice of the program, sees all kinds of arrays and cannot be optimized for
+// any. $rt.index still produces the panic. The accesses are typed any: TS
+// does not narrow every reference (s may be typed null, or never after it).
+func sliceIndex(s, i string) string {
+	ss, is := stripMarks(s), stripMarks(i)
+	if !reusable(ss) || !reusable(is) {
+		return fmt.Sprintf("$rt.index(%s, %s)", s, i)
+	}
+	return fmt.Sprintf("(%s ? (%[2]s as any).$array[(%[2]s as any).$offset + %[3]s] : $rt.index(%[2]s, %[3]s))", inBounds(ss, is), ss, is)
+}
+
+// setSliceIndex is s[i] = v, inline like sliceIndex. JS evaluates the target
+// s.$array[...] before v, as Go evaluates s and i before the right-hand side;
+// v appears in both branches, so a long v keeps the call of $rt.setIndex.
+func setSliceIndex(s, i, v string) string {
+	ss, is := stripMarks(s), stripMarks(i)
+	if !reusable(ss) || !reusable(is) || len(v) > 120 {
+		return fmt.Sprintf("$rt.setIndex(%s, %s, %s)", s, i, v)
+	}
+	return fmt.Sprintf("(%s ? (%[2]s as any).$array[(%[2]s as any).$offset + %[3]s] = %[4]s : $rt.setIndex(%[2]s, %[3]s, %[4]s))", inBounds(ss, is), ss, is, v)
+}
+
+// inBounds is the condition that index i is in range for slice s. A literal
+// index is a constant go/types has checked to be non-negative.
+func inBounds(s, i string) string {
+	if jsLiteral.MatchString(i) {
+		return fmt.Sprintf("%[1]s !== null && %[2]s < (%[1]s as any).$length", s, i)
+	}
+	return fmt.Sprintf("%[1]s !== null && %[2]s >= 0 && %[2]s < (%[1]s as any).$length", s, i)
+}
+
+// reusable reports whether the JS expression s (without marks) has the same
+// value and no effect when evaluated again: a reference or a literal.
+func reusable(s string) bool {
+	return simpleRef.MatchString(s) || jsLiteral.MatchString(s)
+}
+
+// icallExpr calls method key of interface value recv with the arguments args
+// (a list of n values, or a spread), through the runtime's fixed-arity
+// icall0 to icall3 where it can.
+func icallExpr(recv, key, args string, n int) string {
+	switch {
+	case args == "":
+		return fmt.Sprintf("$rt.icall0(%s, %s)", recv, key)
+	case n <= 3 && !strings.HasPrefix(args, "..."):
+		return fmt.Sprintf("$rt.icall%d(%s, %s, %s)", n, recv, key, args)
+	}
+	return fmt.Sprintf("$rt.icall(%s, %s, %s)", recv, key, args)
 }
 
 // isStaticFunc reports whether fun names a declared function (never nil).

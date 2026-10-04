@@ -572,11 +572,11 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 		case *types.Slice:
 			s := stab(fe.expr(x.X))
 			i := stab(fe.intNumber(x.Index))
-			get := fmt.Sprintf("%s$rt.index(%s, %s)", fe.mark(x), s, i)
+			get := fe.mark(x) + sliceIndex(s, i)
 			if isAggregate(u.Elem()) {
 				return fe.simpleLvalue(get, t)
 			}
-			return lvalue{get: get, set: func(rhs string) string { return fmt.Sprintf("%s$rt.setIndex(%s, %s, %s)", fe.mark(x), s, i, rhs) }}
+			return lvalue{get: get, set: func(rhs string) string { return fe.mark(x) + setSliceIndex(s, i, rhs) }}
 		case *types.Interface: // type parameter without a core type ([]E | [n]E)
 			s := stab(fe.expr(x.X))
 			i := stab(fe.intNumber(x.Index))

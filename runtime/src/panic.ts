@@ -54,7 +54,7 @@ addMethods(panicNilErrorType, {
 });
 
 export class GoPanic extends Error {
-  value: Iface;
+  declare value: Iface;
   constructor(value: Iface) {
     super("panic: " + formatPanicValue(value));
     this.value = value;
