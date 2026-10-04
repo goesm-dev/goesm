@@ -100,6 +100,37 @@ export function sliceElemPtr(s: Slice<any> | null, i: number): any {
   return arrayElemPtr(s!.$array, s!.$offset + i);
 }
 
+// fieldRef, arrayElemRef and sliceElemRef are &o.k, &a[i] and &s[i] without
+// the cache that keeps pointer identity, for pointers that are only loaded
+// from and stored to (reflect's addressable Values); canonical returns the
+// cached pointer equal to one of them, for when it becomes a Go value.
+export function fieldRef(o: any, k: string): any {
+  if (o === null) runtimePanic("invalid memory address or nil pointer dereference");
+  return new FieldPtr(o, k);
+}
+
+export function arrayElemRef(a: any[], i: number): any {
+  if (i < 0 || i >= a.length) indexError(i, a.length);
+  const v = arrayViews.get(a);
+  if (v !== undefined) {
+    a = v.a;
+    i += v.off;
+  }
+  return new IndexPtr(a, i);
+}
+
+export function sliceElemRef(s: Slice<any> | null, i: number): any {
+  const n = s === null ? 0 : s.$length;
+  if (i < 0 || i >= n) indexError(i, n);
+  return arrayElemRef(s!.$array, s!.$offset + i);
+}
+
+export function canonical(p: any): any {
+  if (p instanceof FieldPtr) return cached((p as any).o, (p as any).k, () => p);
+  if (p instanceof IndexPtr) return cached((p as any).a, (p as any).i, () => p);
+  return p;
+}
+
 // &o.k, &a[i] and &s[i] for an element of a type parameter's type t: a
 // pointer to an aggregate is the object itself.
 export function tpFieldAddr(t: Type, o: any, k: string): any {
