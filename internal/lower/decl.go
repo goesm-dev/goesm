@@ -485,7 +485,9 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	}
 	w.ln("%s%sfunction %s%s(%s): %s {", pe.tab.mark(fd.Pos()), asyncKw, name, generics, strings.Join(params, ", "), ret)
 	w.indent++
+	pe.byteBools, pe.byteBoolMakes = byteBools(pe.info, fd.Body)
 	fe.funcBody(fd.Recv, fd.Type, fd.Body, sig)
+	pe.byteBools, pe.byteBoolMakes = nil, nil
 	w.indent--
 	w.ln("}")
 	if wrap {

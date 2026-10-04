@@ -569,7 +569,7 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 		case *types.Slice:
 			s := stab(fe.expr(x.X))
 			i := stab(fe.intNumber(x.Index))
-			get := fe.mark(x) + sliceIndex(s, i)
+			get := fe.byteBoolLoad(x.X, fe.mark(x)+sliceIndex(s, i))
 			if isAggregate(u.Elem()) {
 				return fe.simpleLvalue(get, t)
 			}

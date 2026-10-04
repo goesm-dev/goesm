@@ -1058,3 +1058,40 @@ var pkgRecv2, pkgRecvOk2 = <-pkgCh
 func PackageCommaOk() []any {
 	return []any{pkgV, pkgOk, pkgMissing, pkgOk2, pkgN, pkgIsInt, pkgS, pkgIsStr, pkgRecv, pkgRecvOk, pkgRecv2, pkgRecvOk2}
 }
+
+// LocalBools uses []bool variables that stay in the function (backed by
+// bytes, see byteBools in the lowering) next to ones that escape.
+func LocalBools(n int) []any {
+	seen := make([]bool, n)
+	var marks []bool
+	marks = make([]bool, 3, n+3)
+	for i := 2; i < n; i++ {
+		if !seen[i] {
+			for j := i * i; j < n; j += i {
+				seen[j] = true
+			}
+		}
+	}
+	seen[0], seen[1] = seen[1], !seen[0]
+	flip := func(i int) { marks[i] = !marks[i] }
+	flip(1)
+	flip(2)
+	flip(2)
+	count := 0
+	for i := range seen {
+		if seen[i] == false {
+			count++
+		}
+	}
+	var first any = seen[0]
+	escaped := make([]bool, 2)
+	escaped[1] = seen[4]
+	out := []any{count, len(seen), cap(marks), marks[1], marks[2], first, first == true, escaped, seen[n-1] != seen[n-2]}
+	seen = nil
+	out = append(out, len(seen))
+	func() {
+		defer func() { out = append(out, recover() != nil) }()
+		_ = marks[n]
+	}()
+	return out
+}
