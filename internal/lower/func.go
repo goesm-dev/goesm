@@ -39,8 +39,11 @@ type funcEmitter struct {
 	// statements, whose unlabelled break and continue a machine would capture.
 	gotoTargets map[types.Object]gotoTarget
 	hoisted     map[*types.Var]bool
-	breakables  []breakable
-	rangeFn     *rangeFuncCtx // the range-over-func body being lowered
+	// sharedRangeVars are the variables of range clauses in files before Go
+	// 1.22, declared once around their loop.
+	sharedRangeVars map[*types.Var]bool
+	breakables      []breakable
+	rangeFn         *rangeFuncCtx // the range-over-func body being lowered
 	// recoverTok identifies the function being lowered to recover(), which
 	// only recovers when called by the deferred function itself.
 	recoverTok string
@@ -288,6 +291,9 @@ func (fe *funcEmitter) mutatesVar(body *ast.BlockStmt, v *types.Var) bool {
 // signature line).
 func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, body *ast.BlockStmt, sig *types.Signature) {
 	w := fe.w
+	if fe.async && fe.pe.prog.TracksGoroutines {
+		w.ln("const $g = $rt.getG();") // the goroutine to restore after each await
+	}
 	// Parameters whose address is taken live in cells.
 	box := func(fields *ast.FieldList) {
 		if fields == nil {
@@ -373,7 +379,11 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 	fe.stmts(body.List)
 	w.indent--
 	if fe.async {
-		w.ln("} catch ($e) { $d.fail($e); } finally { await $d.runAsync(); }")
+		if fe.pe.prog.TracksGoroutines {
+			w.ln("} catch ($e) { $rt.resumeG($g, 0); $d.fail($e); } finally { %s; }", fe.await("$d.runAsync()"))
+		} else {
+			w.ln("} catch ($e) { $d.fail($e); } finally { await $d.runAsync(); }")
+		}
 	} else {
 		w.ln("} catch ($e) { $d.fail($e); } finally { $d.run(); }")
 	}
@@ -500,7 +510,27 @@ func (fe *funcEmitter) recvExpr(ch string) string {
 	if fe.syncOnly {
 		return "$rt.recvNow(" + ch + ")"
 	}
-	return "(await $rt.recv(" + ch + "))"
+	return "(" + fe.await("$rt.recv("+ch+")") + ")"
+}
+
+// await awaits the JS expression s. When the program tracks goroutines, the
+// running goroutine is restored once the await resumes.
+func (fe *funcEmitter) await(s string) string {
+	if fe.sig == nil {
+		return fe.pe.prog.awaitMain(s) // a package variable's initializer
+	}
+	if fe.pe.prog.TracksGoroutines {
+		return "$rt.resumeG($g, await " + s + ")"
+	}
+	return "await " + s
+}
+
+// awaitMain awaits s at the top level of a module, on the main goroutine.
+func (p *Program) awaitMain(s string) string {
+	if p.TracksGoroutines {
+		return "$rt.resumeG($rt.mainG, await " + s + ")"
+	}
+	return "await " + s
 }
 
 // containsRecover reports whether body calls recover itself (not in a

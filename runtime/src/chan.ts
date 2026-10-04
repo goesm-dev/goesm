@@ -197,9 +197,46 @@ export function numGoroutine(): number {
   return goroutines;
 }
 
+// G is a goroutine's identity: its goroutine-local storage (see
+// runtime.GetTraceContextFromGLS). curG is the running goroutine; generated
+// code that needs it (see lower.Program.TracksGoroutines) restores it after
+// every await, when the goroutine resumes.
+export class G {
+  traceContext: any = null;
+  baggage: any = null;
+}
+
+export const mainG = new G();
+let curG = mainG;
+
+export function getG(): G {
+  return curG;
+}
+
+// resumeG restores the goroutine g after an await and passes the awaited
+// value through.
+export function resumeG<T>(g: G, v: T): T {
+  curG = g;
+  return v;
+}
+
+// glsPropagate copies goroutine-local values to a new goroutine (registered
+// by goesm's package runtime).
+let glsPropagate: ((v: any) => any) | null = null;
+
+export function setGLSPropagate(f: (v: any) => any): void {
+  glsPropagate = f;
+}
+
 export function go(fn: (...args: any[]) => any, args: any[] = []): void {
   goroutines++;
+  const g = new G();
+  if (glsPropagate !== null) {
+    if (curG.traceContext !== null) g.traceContext = glsPropagate(curG.traceContext);
+    if (curG.baggage !== null) g.baggage = glsPropagate(curG.baggage);
+  }
   queueMicrotask(() => {
+    curG = g;
     let r: any;
     try {
       r = fn(...args);

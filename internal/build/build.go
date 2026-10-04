@@ -18,6 +18,7 @@ import (
 
 	"github.com/goesm-dev/goesm/internal/loader"
 	"github.com/goesm-dev/goesm/internal/lower"
+	"github.com/goesm-dev/goesm/internal/toolexec"
 	goesmruntime "github.com/goesm-dev/goesm/runtime"
 )
 
@@ -32,6 +33,9 @@ type Options struct {
 	// Overlay replaces or adds files by absolute path, as go build -overlay
 	// does. Nil means the files on disk.
 	Overlay map[string][]byte
+	// Toolexec is a program run on the build's compile commands, as with
+	// go build -toolexec (see internal/toolexec).
+	Toolexec string
 }
 
 // Result describes the outputs.
@@ -53,8 +57,8 @@ func (e *DiagError) Error() string { return strings.Join(e.Lines, "\n") }
 type Lowered struct {
 	Mods  []*lower.Module
 	Entry string // import path of the root package
-	// Warnings name standard library functions that goesm cannot lower yet;
-	// they were replaced by stubs that panic when called.
+	// Warnings name standard library and dependency functions that goesm
+	// cannot lower yet; they were replaced by stubs that panic when called.
 	Warnings []string
 }
 
@@ -81,6 +85,7 @@ func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) (*Lo
 	}
 	entry := prog.Roots[0].PkgPath
 	lp := lower.NewProgram(prog.Fset, prog.All, prog.Std)
+	lp.Deps = prog.Deps
 	mods := lp.LowerAll(lower.Options{Entry: entry})
 	if len(lp.Diags) > 0 {
 		var lines []string
@@ -94,6 +99,25 @@ func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) (*Lo
 		l.Warnings = append(l.Warnings, d.String())
 	}
 	return l, nil
+}
+
+// ToolexecOverlay runs the build of patterns through the -toolexec program
+// prog and returns overlay extended with the source its compiles saw. An
+// empty prog returns overlay as is.
+func ToolexecOverlay(dir, prog string, overlay map[string][]byte, patterns []string) (map[string][]byte, error) {
+	if prog == "" {
+		return overlay, nil
+	}
+	if len(overlay) > 0 {
+		return nil, fmt.Errorf("goesm: -toolexec cannot be combined with -overlay yet")
+	}
+	return toolexec.Capture(toolexec.Options{
+		Dir:        dir,
+		Program:    prog,
+		Env:        append(os.Environ(), loader.TargetEnv...),
+		BuildFlags: []string{"-tags=" + strings.Join(loader.BuildTags, ",")},
+		Patterns:   patterns,
+	})
 }
 
 // ReadOverlay reads an overlay file in the go command's -overlay format,
@@ -194,7 +218,11 @@ func Build(opts Options) (*Result, error) {
 	if opts.OutDir == "" {
 		opts.OutDir = "dist"
 	}
-	l, err := LowerOverlay(opts.Dir, opts.Overlay, opts.Patterns)
+	overlay, err := ToolexecOverlay(opts.Dir, opts.Toolexec, opts.Overlay, opts.Patterns)
+	if err != nil {
+		return nil, err
+	}
+	l, err := LowerOverlay(opts.Dir, overlay, opts.Patterns)
 	if err != nil {
 		return nil, err
 	}

@@ -924,6 +924,42 @@ func (v Value) Complex() complex128 {
 	panic(&ValueError{"reflect.Value.Complex", v.Kind()})
 }
 
+// OverflowInt reports whether the int64 x cannot be represented by v's type.
+func (v Value) OverflowInt(x int64) bool {
+	switch v.Kind() {
+	case Int, Int8, Int16, Int32, Int64:
+		return v.typ.OverflowInt(x)
+	}
+	panic(&ValueError{"reflect.Value.OverflowInt", v.Kind()})
+}
+
+// OverflowUint reports whether the uint64 x cannot be represented by v's type.
+func (v Value) OverflowUint(x uint64) bool {
+	switch v.Kind() {
+	case Uint, Uintptr, Uint8, Uint16, Uint32, Uint64:
+		return v.typ.OverflowUint(x)
+	}
+	panic(&ValueError{"reflect.Value.OverflowUint", v.Kind()})
+}
+
+// OverflowFloat reports whether the float64 x cannot be represented by v's type.
+func (v Value) OverflowFloat(x float64) bool {
+	switch v.Kind() {
+	case Float32, Float64:
+		return v.typ.OverflowFloat(x)
+	}
+	panic(&ValueError{"reflect.Value.OverflowFloat", v.Kind()})
+}
+
+// OverflowComplex reports whether the complex128 x cannot be represented by v's type.
+func (v Value) OverflowComplex(x complex128) bool {
+	switch v.Kind() {
+	case Complex64, Complex128:
+		return v.typ.OverflowComplex(x)
+	}
+	panic(&ValueError{"reflect.Value.OverflowComplex", v.Kind()})
+}
+
 // CanInt reports whether Int can be used without panicking.
 func (v Value) CanInt() bool {
 	switch v.Kind() {

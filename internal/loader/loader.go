@@ -44,6 +44,9 @@ type Program struct {
 	All []*packages.Package
 	// Std is the set of standard library packages (sources in GOROOT).
 	Std map[*packages.Package]bool
+	// Deps is the set of packages from modules other than those of the
+	// roots: third-party dependencies.
+	Deps map[*packages.Package]bool
 }
 
 // Diagnostic is a frontend error reported at its original .go position.
@@ -87,8 +90,14 @@ func Load(dir string, patterns ...string) (*Program, error) {
 // embed Go in other files (such as gosfc for Vue SFCs) use it to hand goesm a
 // generated file without writing it into the user's source tree.
 func LoadOverlay(dir string, overlay map[string][]byte, patterns ...string) (*Program, error) {
+	root, modcache := goEnv(dir)
+	return load(dir, root, modcache, overlay, patterns...)
+}
+
+// load is LoadOverlay for the given GOROOT and GOMODCACHE.
+func load(dir, root, modcache string, overlay map[string][]byte, patterns ...string) (*Program, error) {
 	fset := token.NewFileSet()
-	root := goroot(dir)
+	goOverlay, mem := splitOverlay(overlay, modcache)
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedDeps | packages.NeedTypes |
@@ -98,10 +107,16 @@ func LoadOverlay(dir string, overlay map[string][]byte, patterns ...string) (*Pr
 		Env:        append(os.Environ(), TargetEnv...),
 		BuildFlags: []string{"-tags=" + strings.Join(BuildTags, ",")},
 		Fset:       fset,
-		ParseFile:  replacingParser(root),
-		Overlay:    overlay,
+		ParseFile:  replacingParser(root, mem),
+		Overlay:    goOverlay,
 	}
-	roots, err := packages.Load(cfg, patterns...)
+	var roots []*packages.Package
+	var err error
+	if mem != nil {
+		roots, err = loadMem(cfg, mem, root, patterns)
+	} else {
+		roots, err = packages.Load(cfg, patterns...)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -137,42 +152,65 @@ func LoadOverlay(dir string, overlay map[string][]byte, patterns ...string) (*Pr
 			std[p] = true
 		}
 	}
-	return &Program{Fset: fset, Roots: roots, All: all, Std: std}, nil
+	rootMods := map[string]bool{}
+	for _, r := range roots {
+		if r.Module != nil {
+			rootMods[r.Module.Path] = true
+		}
+	}
+	deps := map[*packages.Package]bool{}
+	for _, p := range all {
+		if !std[p] && p.Module != nil && !rootMods[p.Module.Path] {
+			deps[p] = true
+		}
+	}
+	return &Program{Fset: fset, Roots: roots, All: all, Std: std, Deps: deps}, nil
 }
 
-func goroot(dir string) string {
-	cmd := exec.Command("go", "env", "GOROOT")
+// goEnv returns GOROOT and GOMODCACHE for the target.
+func goEnv(dir string) (goroot, modcache string) {
+	cmd := exec.Command("go", "env", "GOROOT", "GOMODCACHE")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), TargetEnv...)
 	out, err := cmd.Output()
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return strings.TrimSpace(string(out))
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 2 {
+		return "", ""
+	}
+	return strings.TrimSpace(lines[0]), strings.TrimSpace(lines[1])
 }
 
 // replacingParser parses Go files as go/packages would, except for the
 // standard library packages that goesm replaces (internal/natives): the
 // first file of such a package to be parsed becomes the replacement, the
 // others become empty files (only their package clause is kept).
-func replacingParser(goroot string) func(*token.FileSet, string, []byte) (*ast.File, error) {
+//
+// mem holds the part of an overlay the go command does not accept (see
+// splitOverlay), whose files the parser reads from memory.
+func replacingParser(goroot string, mem *memOverlay) func(*token.FileSet, string, []byte) (*ast.File, error) {
 	src := filepath.Join(goroot, "src") + string(filepath.Separator)
 	var mu sync.Mutex
 	replaced := map[string]bool{} // package dirs whose replacement was handed out
 	return func(fset *token.FileSet, filename string, data []byte) (*ast.File, error) {
 		const mode = parser.AllErrors | parser.ParseComments | parser.SkipObjectResolution
-		if goroot == "" || !strings.HasPrefix(filename, src) {
-			return parser.ParseFile(fset, filename, data, mode)
-		}
 		pkgDir := filepath.Dir(filename)
-		importPath := filepath.ToSlash(strings.TrimPrefix(pkgDir, src))
+		var importPath string
+		if goroot != "" && strings.HasPrefix(filename, src) {
+			importPath = filepath.ToSlash(strings.TrimPrefix(pkgDir, src))
+		}
 		repl, ok := natives.Replacement(importPath)
-		if !ok {
+		if importPath == "" || !ok {
+			if d, ok := mem.file(filename); ok {
+				data = d
+			}
 			f, err := parser.ParseFile(fset, filename, data, mode)
 			if err != nil {
 				return nil, err
 			}
-			if names := natives.Patched(importPath); names != nil {
+			if names := natives.Patched(importPath); importPath != "" && names != nil {
 				return patch(fset, f, names, importPath, filepath.Base(filename))
 			}
 			return f, nil
@@ -296,8 +334,15 @@ func reachable(roots, all []*packages.Package) []*packages.Package {
 		if p.Types == nil {
 			return
 		}
+		// p.Imports is keyed by the import path as written; a vendored
+		// standard library package (golang.org/x/net/idna imported by
+		// net/http) has the package path vendor/golang.org/x/net/idna.
+		byPath := map[string]*packages.Package{}
+		for _, dep := range p.Imports {
+			byPath[dep.PkgPath] = dep
+		}
 		for _, ip := range p.Types.Imports() {
-			if dep := p.Imports[ip.Path()]; dep != nil {
+			if dep := byPath[ip.Path()]; dep != nil {
 				visit(dep)
 			}
 		}
