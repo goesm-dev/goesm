@@ -136,6 +136,93 @@ export function native$internal$strconv$formatBits(
 }
 export const native$internal$strconv$float32frombits = native$math$Float32frombits;
 
+// formatDecimal and itoa are strconv's base 10 (patch
+// internal/strconv/itoa.go), through String below 2^53 (beyond, it writes
+// the shortest digits that read back, not all of them).
+export function native$internal$strconv$formatDecimal(u: bigint, neg: boolean): string {
+  const s = u < 9007199254740992n ? String(Number(u)) : u.toString();
+  return neg ? "-" + s : s;
+}
+
+export function native$internal$strconv$itoa(i: number): string {
+  return Number.isSafeInteger(i) ? String(i) : BigInt.asIntN(64, BigInt(i)).toString();
+}
+
+// ftoaDigits writes the decimal digits of the float64 val to buf for
+// strconv's fmtEFG (patch internal/strconv/ftoa.go): the shortest digits
+// that read back as val if prec < 0, else val correctly rounded to prec
+// digits for fmt ('e': prec+1 significant digits, 'g': prec, 'f': prec
+// after the point). It returns the decimal point position and the number of
+// digits without trailing zeros, or ok == false (zero, NaN, ±Inf, or beyond
+// toFixed's and toExponential's range), where the Go code formats val.
+//
+// The engine's Number formatting gives the same digits as Go's ftoa64 (on
+// uint64, BigInts under goesm), except on exact ties: it rounds them up,
+// Go to even.
+export function native$internal$strconv$ftoaDigits(
+  buf: S<number>, val: number, fmt: number, prec: number,
+): [number, number, boolean] {
+  if (val === 0 || !Number.isFinite(val)) return [0, 0, false];
+  const x = Math.abs(val);
+  let t: string, dp: number;
+  if (prec < 0) {
+    t = x.toExponential();
+    const e = t.indexOf("e");
+    dp = +t.slice(e + 1) + 1;
+    t = t.slice(0, e);
+  } else if (fmt === 102) { // 'f'
+    if (prec > 100 || x >= 1e21) return [0, 0, false];
+    t = x.toFixed(prec);
+    if (tieScale(x) === prec) t = roundToEven(t);
+    const p = t.indexOf(".");
+    dp = p < 0 ? t.length : p;
+  } else {
+    const n = fmt === 101 || fmt === 69 ? prec + 1 : Math.max(prec, 1); // 'e', 'E'
+    if (n > 101) return [0, 0, false];
+    t = x.toExponential(n - 1);
+    const e = t.indexOf("e");
+    const exp = +t.slice(e + 1);
+    t = t.slice(0, e);
+    if (tieScale(x) === n - 1 - exp) t = roundToEven(t);
+    dp = exp + 1;
+  }
+  const a = buf!.$array, o = buf!.$offset;
+  let nd = 0;
+  for (let i = 0; i < t.length; i++) {
+    const c = t.charCodeAt(i);
+    if (c === 46) continue; // '.'
+    if (nd === 0 && c === 48) { dp--; continue; } // leading '0'
+    a[o + nd++] = c;
+  }
+  while (nd > 0 && a[o + nd - 1] === 48) nd--;
+  return nd === 0 ? [0, 0, true] : [dp, nd, true];
+}
+
+// tieScale returns the s for which x·10^s lies exactly halfway between two
+// integers, or NaN if there is none. With x = m·2^e for an odd m, that is
+// when 2·m·2^e·10^s is an odd integer: e+s+1 = 0, and 5^-s divides m if
+// s < 0.
+function tieScale(x: number): number {
+  scratch.setFloat64(0, x);
+  const hi = scratch.getUint32(0), lo = scratch.getUint32(4);
+  const be = (hi >>> 20) & 0x7ff;
+  let m = (hi & 0xfffff) * 2 ** 32 + lo + (be === 0 ? 0 : 2 ** 52);
+  let e = (be === 0 ? 1 : be) - 1075;
+  const tz = lo !== 0 ? 31 - Math.clz32(lo & -lo) : 32 + 31 - Math.clz32(m / 2 ** 32 & -(m / 2 ** 32));
+  m /= 2 ** tz;
+  e += tz;
+  const s = -e - 1;
+  return s >= 0 || (s >= -22 && m % 5 ** -s === 0) ? s : NaN;
+}
+
+// roundToEven turns the digits t of a tie that the engine rounded up (its
+// last digit is odd then, unless the rounding carried) into the ones
+// rounded to even.
+function roundToEven(t: string): string {
+  const c = t.charCodeAt(t.length - 1);
+  return (c & 1) === 1 ? t.slice(0, -1) + String.fromCharCode(c - 1) : t;
+}
+
 // ---- math/bits (64-bit) ----
 //
 // The Go code is exact on BigInts too, but works bit by bit or in 32-bit

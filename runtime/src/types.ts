@@ -131,11 +131,20 @@ export function arrayOf(elem: Type, len: number): Type {
     t.elem = elem;
     t.len = len;
     t.str = `[${len}]${elem.str}`;
+    // An array of primitive zero values is a copy of a packed template,
+    // several times faster than filling a new (holey) Array.
+    let tmpl: any[] | undefined;
     t.zero = () => {
+      if (tmpl !== undefined) return tmpl.slice();
       const a = new Array(len);
       if (len === 0) return a;
       const z = elem.zero();
-      if (typeof z !== "object" || z === null) return a.fill(z);
+      if (typeof z !== "object" || z === null) {
+        if (z === undefined) return a.fill(z);
+        tmpl = [];
+        for (let i = 0; i < len; i++) tmpl.push(z);
+        return tmpl.slice();
+      }
       a[0] = z;
       for (let i = 1; i < len; i++) a[i] = elem.zero();
       return a;
