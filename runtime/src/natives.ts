@@ -23,7 +23,7 @@ import {
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
   sliceElemRef, sliceLit, sliceToArrayPtr, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt, topString,
-  toPanic, typeArgsName,
+  toPanic, typeArgsName, isASCII, noteASCII,
 } from "./index.ts";
 import type { S } from "./index.ts";
 import { fmtFixed, fmtShortest, mayTie, roundToEven, sprintf, tieScale } from "./fmt.ts";
@@ -148,15 +148,16 @@ export function native$internal$strconv$formatDecimal(u: bigint, neg: boolean): 
 
 // strings.ToUpper and ToLower of ASCII strings (see the strings patch). A Go
 // string holds bytes as UTF-16 code units below 256.
-const nonASCIIByte = /[\x80-\xff]/;
-export function native$strings$isASCII(s: string): boolean {
-  return !nonASCIIByte.test(s);
-}
+export const native$strings$isASCII = isASCII;
 export function native$strings$upperASCII(s: string): string {
-  return s.toUpperCase();
+  const u = s.toUpperCase();
+  noteASCII(u);
+  return u;
 }
 export function native$strings$lowerASCII(s: string): string {
-  return s.toLowerCase();
+  const l = s.toLowerCase();
+  noteASCII(l);
+  return l;
 }
 
 // slices.Sort of integers and strings (see the slices patch). A Go string's
