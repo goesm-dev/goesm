@@ -7,6 +7,7 @@ package main
 import (
 	"os"
 	"runtime"
+	"strconv"
 	"sync"
 )
 
@@ -40,6 +41,18 @@ func lockAndExit(stop bool) {
 		runtime.Goexit()
 	}
 	exited.Unlock()
+}
+
+var tried sync.RWMutex
+
+// tryHold holds tried across a channel receive if TryLock succeeds.
+func tryHold(ch chan int) bool {
+	if tried.TryLock() {
+		<-ch
+		tried.Unlock()
+		return true
+	}
+	return false
 }
 
 func main() {
@@ -124,5 +137,22 @@ func main() {
 	<-done
 	<-done
 	os.Stdout.WriteString("locked after Goexit\n")
+
+	held := make(chan bool, 1)
+	go func() {
+		held <- tryHold(ch)
+	}()
+	for tried.TryRLock() {
+		tried.RUnlock() // until the TryLock in tryHold holds it
+		runtime.Gosched()
+	}
+	go func() {
+		tried.RLock() // waits for tryHold's Unlock
+		tried.RUnlock()
+		done <- true
+	}()
+	ch <- 1
+	<-done
+	os.Stdout.WriteString("TryLock: " + strconv.FormatBool(<-held) + ", then RLock\n")
 	os.Stdout.WriteString("done\n")
 }
