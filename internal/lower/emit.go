@@ -93,11 +93,13 @@ type pkgEmitter struct {
 
 	reserved    map[string]bool // package-level JS names
 	imports     map[*types.Package]string
+	direct      map[*types.Package]string // aliases of the Go source's imports
 	importOrder []*types.Package
 
 	typeConsts  typeutil.Map // types.Type -> hoisted descriptor const name
 	anonStructs typeutil.Map // *types.Struct -> class name
 	localTypes  map[*types.TypeName]string
+	localGen    map[*types.TypeName]int // gc's numbering of local types
 	counter     int
 
 	classes, phase1, consts, phase2, funcs, vars *writer
@@ -133,6 +135,7 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		reserved:   map[string]bool{"$rt": true, "$natives": true},
 		imports:    map[*types.Package]string{},
 		localTypes: map[*types.TypeName]string{},
+		localGen:   map[*types.TypeName]int{},
 		classes:    newWriter(tab),
 		phase1:     newWriter(tab),
 		consts:     newWriter(tab),
@@ -146,6 +149,19 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 	scope := pkg.Types.Scope()
 	for _, name := range scope.Names() {
 		pe.reserved[jsName(name)] = true
+	}
+	// The aliases of the packages the Go source imports are reserved up
+	// front, so that no local name takes one before its package is first
+	// referenced.
+	pe.direct = map[*types.Package]string{}
+	for _, ip := range pkg.Types.Imports() {
+		base := jsName(ip.Name())
+		a := base
+		for i := 2; pe.reserved[a]; i++ {
+			a = fmt.Sprintf("%s$%d", base, i)
+		}
+		pe.reserved[a] = true
+		pe.direct[ip] = a
 	}
 	return pe
 }
@@ -198,8 +214,17 @@ func (pe *pkgEmitter) importAlias(p *types.Package) string {
 	if a, ok := pe.imports[p]; ok {
 		return a
 	}
-	base := jsName(p.Name())
-	a := base
+	a, ok := pe.direct[p]
+	if ok {
+		pe.imports[p] = a
+		pe.importOrder = append(pe.importOrder, p)
+		return a
+	}
+	// A package the Go source does not import (it is referenced for a type
+	// descriptor, say) may be first needed after a local took its name:
+	// "$pkg" keeps it apart from Go identifiers and their "$N" renamings.
+	base := jsName(p.Name()) + "$pkg"
+	a = base
 	for i := 2; pe.reserved[a]; i++ {
 		a = fmt.Sprintf("%s$%d", base, i)
 	}
@@ -254,19 +279,21 @@ func (pe *pkgEmitter) emit() *Module {
 			typeNames = append(typeNames, tn)
 		}
 	}
+	// Local types are those declared in a block (of a function or a
+	// function literal); they are numbered across the package in source
+	// order like gc's (see generic in runtime/src/types.ts).
+	gen := 0
 	for _, f := range files {
 		ast.Inspect(f, func(n ast.Node) bool {
-			fd, ok := n.(*ast.FuncDecl)
-			if !ok || fd.Body == nil {
+			b, ok := n.(*ast.BlockStmt)
+			if !ok {
 				return true
 			}
-			ast.Inspect(fd.Body, func(n ast.Node) bool {
+			ast.Inspect(b, func(n ast.Node) bool {
 				if ts, ok := n.(*ast.TypeSpec); ok {
 					if tn, ok := pe.info.Defs[ts.Name].(*types.TypeName); ok && !tn.IsAlias() {
-						if hasTypeParam(tn.Type().Underlying()) {
-							pe.errorf(ts.Pos(), "local type %s depending on type parameters is not supported yet", tn.Name())
-							return true
-						}
+						gen++
+						pe.localGen[tn] = gen
 						name := jsName(tn.Name()) + "$L"
 						for i := 1; ; i++ {
 							c := fmt.Sprintf("%s%d", name, i)
