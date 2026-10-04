@@ -98,7 +98,7 @@ docs/                 GopherJS 比較、生成物の実例
 | struct | 生成 class の instance (`$clone` / `$set`) | 値 copy は lowering が挿入。object identity がそのまま address |
 | array | JS array | struct と同じく copy は明示的 |
 | slice | `Slice{$array,$offset,$length,$capacity}`、nil は `null`。`$array` は JS array で、`make`・`append`・`[]byte(s)` で作った `[]byte` では `Uint8Array` (Go の array の slice と literal は JS array のまま)。65 バイトから 4 KiB のものは共有の 16 KiB slab の view です (V8 はそれより大きい `Uint8Array` の領域を heap の外に 1 個 1〜3 µs かけて確保するため)。値が関数の外に出ない (make・添字アクセス・`len`/`cap` だけに使う) ローカルの `[]bool` 変数もバイト列で持ち (boolean の配列の 4 分の 1 のメモリ)、読み出しを boolean に戻します。`s[i]` の境界チェックはインラインで、添字が構造上範囲内のとき (`for i := range s`、`lo >= 0` の `for i := lo; i < len(s); i++` で `s` と `i` を他で代入しない) は省きます | append / re-slice の aliasing が Go と同じ |
-| map | `GoMap` (JS `Map` + Go equality の hash key)、nil は `null` | struct / interface / NaN key、nil map の panic |
+| map | JS `Map` の上の `GoMap`、nil は `null`。bool・整数・string・channel の key はそのまま `Map` の key で値を直接持ち (`Map` の等価性がこれらでは Go と同じ)、それ以外の key は Go equality で hash して `[key, value]` を持つ | struct / interface / NaN key、nil map の panic |
 | pointer | `*struct` / `*array` は object 自体。それ以外は `.v` を持つ object (`Cell` / `FieldPtr` / `IndexPtr`) | `&x == &x`、`&s.f == &s.f` を cache で保証 |
 | interface | `Iface{t: 型 descriptor, v: 値}`、nil は `null` | 動的型を保持。`MyInt(1)` と `int(1)` を区別、nil `*T` を入れた interface は non-nil |
 | func | JS function | |
