@@ -49,6 +49,11 @@ class IndexPtr {
   set v(x: any) { this.a[this.i] = x; }
 }
 
+// fieldPtrTarget returns the object and property a field pointer refers to.
+export function fieldPtrTarget(p: unknown): { o: any; k: string } | undefined {
+  return p instanceof FieldPtr ? { o: (p as any).o, k: (p as any).k } : undefined;
+}
+
 // indexPtrTarget returns the array and index an element pointer refers to.
 export function indexPtrTarget(p: unknown): { a: any[]; i: number } | undefined {
   return p instanceof IndexPtr ? { a: (p as any).a, i: (p as any).i } : undefined;
@@ -186,11 +191,14 @@ export function zeroSizePtrEq(a: unknown, b: unknown): boolean {
 }
 
 const addresses = new WeakMap<object, number>();
+const pointers = new Map<number, WeakRef<object>>();
+const forgetAddress = new FinalizationRegistry<number>((a) => pointers.delete(a));
 let nextAddress = 0xc000010000;
 
 // addressOf stands in for uintptr(unsafe.Pointer(p)): a stable number per
 // pointer object, distinct for distinct pointers. There is no memory behind
-// it, so arithmetic on it means nothing.
+// it: arithmetic on it means nothing, but unsafe.Pointer of the number
+// (fromAddress) is the pointer again.
 export function addressOf(p: any): number {
   if (p === null || p === undefined || (typeof p !== "object" && typeof p !== "function")) return 0;
   let a = addresses.get(p);
@@ -198,8 +206,19 @@ export function addressOf(p: any): number {
     a = nextAddress;
     nextAddress += 0x1000;
     addresses.set(p, a);
+    pointers.set(a, new WeakRef(p));
+    forgetAddress.register(p, a);
   }
   return a;
+}
+
+// fromAddress is unsafe.Pointer(a) for a uintptr a: the pointer addressOf
+// gave a, or nil for 0.
+export function fromAddress(a: number): any {
+  if (a === 0) return null;
+  const p = pointers.get(a)?.deref();
+  if (p === undefined) runtimePanic("goesm: unsafe.Pointer of a uintptr that is not the address of a live pointer (goesm has no address space)");
+  return p;
 }
 
 // embedFS builds the embed.FS value of a //go:embed variable: entries are
