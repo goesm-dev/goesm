@@ -237,20 +237,35 @@ function crash(e: unknown): void {
 // running. If the host's event loop runs dry while main is still blocked,
 // nothing can wake it any more: that is Go's deadlock, reported the same way.
 // Hosts without a process (browsers) keep running whatever is left.
+// mainGoexit records that main called runtime.Goexit.
+let mainGoexit = false;
+let watching = false;
+
+// deadlock runs when the event loop has run dry while the program is still
+// initializing its packages or running main. beforeExit fires only then:
+// not for an exit the program or a JavaScript callback asked for, nor for
+// an uncaught JavaScript exception.
+function deadlock(): void {
+  if (exiting) return;
+  writeStd(2, mainGoexit && goroutines === 0
+    ? "fatal error: no goroutines (main called runtime.Goexit) - deadlock!\n"
+    : "fatal error: all goroutines are asleep - deadlock!\n\ngoroutine 1 [running]:\nmain.main()\n");
+  exitProcess(2);
+}
+
+// watchDeadlock reports a deadlock if the event loop runs dry before main
+// returns. program.ts calls it before any package is initialized, so that a
+// blocked init function is reported too.
+export function watchDeadlock(): void {
+  const proc = (globalThis as any).process;
+  if (watching || typeof proc?.once !== "function") return;
+  watching = true;
+  proc.once("beforeExit", deadlock);
+}
+
 export function runMain(main: () => void | Promise<void>): void {
   const proc = (globalThis as any).process;
-  let goexit = false;
-  // beforeExit fires only when the event loop has run dry: not for an exit
-  // the program or a JavaScript callback asked for, nor for an uncaught
-  // JavaScript exception.
-  const deadlock = () => {
-    if (exiting) return;
-    writeStd(2, goexit && goroutines === 0
-      ? "fatal error: no goroutines (main called runtime.Goexit) - deadlock!\n"
-      : "fatal error: all goroutines are asleep - deadlock!\n\ngoroutine 1 [running]:\nmain.main()\n");
-    exitProcess(2);
-  };
-  if (typeof proc?.once === "function") proc.once("beforeExit", deadlock);
+  watchDeadlock();
   const done = () => {
     proc?.off?.("beforeExit", deadlock);
     if (typeof proc?.exit === "function") exitProcess(0);
@@ -258,7 +273,7 @@ export function runMain(main: () => void | Promise<void>): void {
   // runtime.Goexit in main ends the main goroutine; the others go on.
   const fail = (e: unknown) => {
     if (e instanceof Goexit) {
-      goexit = true;
+      mainGoexit = true;
       goroutines--;
       return;
     }

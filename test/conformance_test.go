@@ -108,11 +108,16 @@ func TestGoConformance(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Timeouts are rechecked one at a time on an otherwise idle machine:
-	// with every CPU busy compiling, a CI runner can stall a trivial
-	// program past its limit. A test that still times out alone fails.
+	// Timeouts of baseline tests are rechecked one at a time on an
+	// otherwise idle machine: with every CPU busy compiling, a CI runner can
+	// stall a trivial program past its limit. A test that still times out
+	// alone fails. Other tests are rechecked only when updating the
+	// baseline, since each recheck can take a minute.
+	baseline := filepath.Join("conformance", "passing.txt")
+	want := readBaseline(t, baseline)
+	update := os.Getenv("GOESM_CONFORMANCE_UPDATE") != ""
 	for i, res := range results {
-		if res.Status != statusTimeout {
+		if res.Status != statusTimeout || (!want[res.Name] && !update) {
 			continue
 		}
 		results[i] = r.run(cases[i])
@@ -127,8 +132,6 @@ func TestGoConformance(t *testing.T) {
 		}
 	}
 
-	baseline := filepath.Join("conformance", "passing.txt")
-	want := readBaseline(t, baseline)
 	var newPasses []string
 	for _, res := range results {
 		passed := res.Status == statusPass
@@ -139,7 +142,7 @@ func TestGoConformance(t *testing.T) {
 			newPasses = append(newPasses, res.Name)
 		}
 	}
-	if os.Getenv("GOESM_CONFORMANCE_UPDATE") != "" {
+	if update {
 		if err := writeBaseline(baseline, want, results); err != nil {
 			t.Fatal(err)
 		}

@@ -43,6 +43,20 @@ func lockAndExit(stop bool) {
 	exited.Unlock()
 }
 
+var exitedVia sync.Mutex
+
+// exitGoroutine ends the calling goroutine.
+func exitGoroutine() { runtime.Goexit() }
+
+// lockAndExitVia is lockAndExit with the Goexit in a helper.
+func lockAndExitVia(stop bool) {
+	exitedVia.Lock()
+	if stop {
+		exitGoroutine()
+	}
+	exitedVia.Unlock()
+}
+
 var tried sync.RWMutex
 
 // tryHold holds tried across a channel receive if TryLock succeeds.
@@ -178,6 +192,7 @@ func main() {
 	<-done
 	go func() {
 		exited.Lock() // waits for the Unlock below
+		exited.Unlock()
 		done <- true
 	}()
 	go func() {
@@ -189,6 +204,26 @@ func main() {
 	<-done
 	<-done
 	os.Stdout.WriteString("locked after Goexit\n")
+
+	go func() {
+		defer func() { done <- true }()
+		lockAndExitVia(true)
+	}()
+	<-done
+	go func() {
+		exitedVia.Lock() // waits for the Unlock below
+		exitedVia.Unlock()
+		done <- true
+	}()
+	go func() {
+		<-ch
+		exitedVia.Unlock()
+		done <- true
+	}()
+	ch <- 1
+	<-done
+	<-done
+	os.Stdout.WriteString("locked after Goexit in a helper\n")
 
 	held := make(chan bool, 1)
 	go func() {
