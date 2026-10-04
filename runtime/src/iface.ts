@@ -57,12 +57,20 @@ function assertionError(x: Iface | null, src: Type, t: Type): never {
   if (x !== null && t.kind === Kind.Interface) {
     const missing = t.imethods.find((m) => !x.t.methods.has(m.pkgPath ? `${m.pkgPath}.${m.name}` : m.name));
     msg = `interface conversion: ${x.t.str} is not ${t.str}: missing method ${missing ? missing.name : "?"}`;
+  } else if (x !== null && x.t.str === t.str) {
+    msg += x.t.pkgPath !== t.pkgPath ? " (types from different packages)" : " (types from different scopes)";
   }
   throw new GoPanic(new Iface(typeAssertionErrorType, msg));
 }
 
 export function assert(x: Iface | null, src: Type, t: Type): any {
   if (!typeIs(x, t)) assertionError(x, src, t);
+  return t.kind === Kind.Interface ? x : copy(t, x!.v);
+}
+
+// unboxAs is the value of x, known to have type t, as a t: a type switch's
+// variable in a case of type parameter type.
+export function unboxAs(t: Type, x: Iface | null): any {
   return t.kind === Kind.Interface ? x : copy(t, x!.v);
 }
 
@@ -146,6 +154,14 @@ export function hashKey(t: Type, v: any): any {
       runtimePanic(`hash of unhashable type ${t.str}`);
   }
   return v;
+}
+
+// ifaceKeyString returns a string that is equal for equal interface values
+// (hash/maphash.Comparable); it panics for unhashable dynamic types.
+export function ifaceKeyString(x: Iface | null): string {
+  if (x === null) return "nil";
+  if (!comparable(x.t)) runtimePanic(`hash of unhashable type ${x.t.str}`);
+  return `<${x.t.id}>` + serialize(x.t, x.v);
 }
 
 const zerobaseKey = Symbol("zerobase");

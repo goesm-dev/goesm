@@ -226,8 +226,11 @@ func (p *Program) analyzeBlocking() {
 					if natives.Sync(fn.FullName()) && p.std[pkg] {
 						p.syncOnly[fn] = true
 						ast.Inspect(n.Body, func(m ast.Node) bool {
-							if lit, ok := m.(*ast.FuncLit); ok {
-								p.syncOnly[lit] = true
+							switch m := m.(type) {
+							case *ast.FuncLit:
+								p.syncOnly[m] = true
+							case *ast.RangeStmt:
+								p.syncOnly[m] = true
 							}
 							return true
 						})
@@ -236,6 +239,14 @@ func (p *Program) analyzeBlocking() {
 				case *ast.FuncLit:
 					sig, _ := info.TypeOf(n).(*types.Signature)
 					units = append(units, p.scanUnit(pkg, n, sig, false, "", n.Body))
+				case *ast.RangeStmt:
+					// A range-over-func body is the yield function passed
+					// to the iterator: its own unit, and a function value.
+					if sig, ok := info.TypeOf(n.X).Underlying().(*types.Signature); ok && sig.Params().Len() == 1 {
+						if yield, ok := sig.Params().At(0).Type().Underlying().(*types.Signature); ok {
+							units = append(units, p.scanUnit(pkg, n, yield, false, "", n.Body))
+						}
+					}
 				}
 				return true
 			})
@@ -243,6 +254,11 @@ func (p *Program) analyzeBlocking() {
 	}
 	p.units = units
 	p.funcValues, p.methodExprs = p.findFuncValues()
+	for _, u := range units {
+		if _, ok := u.key.(*ast.RangeStmt); ok {
+			p.funcValues[u.key] = true
+		}
+	}
 	p.findIfaceTypes()
 	p.propagateBlocking()
 	for p.findWaitLocks() {
@@ -390,6 +406,8 @@ func (p *Program) scanUnit(pkg *packages.Package, key any, sig *types.Signature,
 	info := pkg.TypesInfo
 	u := &unit{key: key, sig: sig, isMethod: isMethod, name: name}
 	var inGo map[*ast.CallExpr]bool
+	// The channel operations of a select with a default case never wait.
+	var nowait map[ast.Node]bool
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.FuncLit:
@@ -400,9 +418,11 @@ func (p *Program) scanUnit(pkg *packages.Package, key any, sig *types.Signature,
 			}
 			inGo[n.Call] = true
 		case *ast.SendStmt:
-			u.blocking = true
+			if !nowait[n] {
+				u.blocking = true
+			}
 		case *ast.UnaryExpr:
-			if n.Op == token.ARROW {
+			if n.Op == token.ARROW && !nowait[n] {
 				u.blocking = true
 			}
 		case *ast.SelectStmt:
@@ -414,6 +434,20 @@ func (p *Program) scanUnit(pkg *packages.Package, key any, sig *types.Signature,
 			}
 			if !hasDefault {
 				u.blocking = true
+				break
+			}
+			if nowait == nil {
+				nowait = map[ast.Node]bool{}
+			}
+			for _, c := range n.Body.List {
+				switch comm := c.(*ast.CommClause).Comm.(type) {
+				case *ast.SendStmt:
+					nowait[comm] = true
+				case *ast.ExprStmt:
+					nowait[unparen(comm.X)] = true
+				case *ast.AssignStmt:
+					nowait[unparen(comm.Rhs[0])] = true
+				}
 			}
 		case *ast.RangeStmt:
 			switch info.TypeOf(n.X).Underlying().(type) {
@@ -613,6 +647,10 @@ func (p *Program) RangeBlocks(info *types.Info, s *ast.RangeStmt) bool {
 
 // LitAsync reports whether a function literal may block.
 func (p *Program) LitAsync(lit *ast.FuncLit) bool { return p.async[lit] }
+
+// RangeBodyAsync reports whether the body of a range-over-func loop (its
+// yield function) may block.
+func (p *Program) RangeBodyAsync(s *ast.RangeStmt) bool { return p.async[s] }
 
 // IsAsync reports whether the function declared by fn may block.
 func (p *Program) IsAsync(fn *types.Func) bool { return p.async[fn.Origin()] }

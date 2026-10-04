@@ -393,7 +393,7 @@ func (pe *pkgEmitter) emit() *Module {
 	sm := sourcemap.NewBuilder()
 	for _, m := range out.maps {
 		pos := pe.prog.Fset.Position(m.pos)
-		if pos.Filename == "" {
+		if pos.Filename == "" || pos.Line < 1 {
 			continue
 		}
 		idx, ok := sm.SourceIndex(pos.Filename)

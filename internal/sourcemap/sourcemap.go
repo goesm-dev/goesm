@@ -58,6 +58,9 @@ func (b *Builder) SourceIndex(name string) (int, bool) {
 // UTF16Col converts a 1-based byte column on a 1-based line of source i
 // (as reported by go/token) into a 0-based UTF-16 column.
 func (b *Builder) UTF16Col(i, line, byteCol int) int {
+	if byteCol < 1 { // unknown column (a //line directive without one)
+		return 0
+	}
 	lines := b.lines[i]
 	if line-1 < 0 || line-1 >= len(lines) {
 		return byteCol - 1

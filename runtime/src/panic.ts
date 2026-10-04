@@ -90,6 +90,26 @@ export function runtimePanic(msg: string): never {
   throw new GoPanic(new Iface(runtimeErrorType, msg));
 }
 
+// indexError and sliceError panic with gc's bounds error messages
+// (runtime/error.go): a negative index is reported without the length.
+export function indexError(i: number, n: number): never {
+  runtimePanic(i < 0 ? `index out of range [${i}]` : `index out of range [${i}] with length ${n}`);
+}
+
+// sliceError reports the first failing check of x[lo:hi] (max undefined) or
+// x[lo:hi:max]; c is the capacity (what = "capacity") or, for strings and
+// arrays sliced with two indices, the length.
+export function sliceError(lo: number, hi: number, max: number | undefined, c: number, what = "capacity"): never {
+  const p = "slice bounds out of range ";
+  if (max === undefined) {
+    if (hi < 0 || hi > c) runtimePanic(hi < 0 ? `${p}[:${hi}]` : `${p}[:${hi}] with ${what} ${c}`);
+    runtimePanic(lo < 0 ? `${p}[${lo}:]` : `${p}[${lo}:${hi}]`);
+  }
+  if (max < 0 || max > c) runtimePanic(max < 0 ? `${p}[::${max}]` : `${p}[::${max}] with ${what} ${c}`);
+  if (hi < 0 || hi > max) runtimePanic(hi < 0 ? `${p}[:${hi}:]` : `${p}[:${hi}:${max}]`);
+  runtimePanic(lo < 0 ? `${p}[${lo}::]` : `${p}[${lo}:${hi}:]`);
+}
+
 // toPanic converts anything thrown into a GoPanic. JS TypeErrors arise from
 // touching null (nil pointers, nil maps on read paths that skipped a check);
 // they are reported as Go's nil dereference runtime error.
@@ -109,9 +129,13 @@ export function toPanic(e: unknown): GoPanic {
 }
 
 // The defer frame whose deferred call is currently executing (synchronously).
-// recover() consults it. See ARCHITECTURE.md for the known gap: Go only lets
-// recover() work when called directly by the deferred function; the PoC
-// accepts any call made synchronously during that deferred call.
+// recover() consults it. Go lets recover() work only when called directly by
+// the deferred function: each deferred call carries a token naming the
+// function it calls when the lowering knows it statically, and a function
+// that calls recover() asks recoverFrame on entry whether it is that call
+// (the first entry of the function with that token: a recursive call is
+// not), which gives it the frame recover() recovers. A deferred call without a token (a function value, an interface
+// method) accepts any recover() made synchronously during it.
 let current: Defers | null = null;
 
 // Goexit is thrown by runtime.Goexit: deferred calls run, recover() does
@@ -120,20 +144,27 @@ export class Goexit {}
 
 export class Defers {
   private list: Array<() => any> = [];
+  private toks: Array<string | undefined> = [];
+  // tok is the token of the deferred call that is running; claimed is set
+  // once its function has been entered.
+  tok: string | undefined = undefined;
+  claimed = false;
   panicking: GoPanic | null = null;
   exiting: Goexit | null = null;
   // halt is os.Exit's unwinding where the host cannot stop the program: no
   // deferred call runs and nothing recovers it.
   halt: ProgramExit | null = null;
 
-  defer(fn: () => any): void {
+  defer(fn: () => any, tok?: string): void {
     this.list.push(fn);
+    this.toks.push(tok);
   }
 
   fail(e: unknown): void {
     if (e instanceof ProgramExit) {
       this.halt = e;
       this.list.length = 0;
+      this.toks.length = 0;
     } else if (this.halt) return;
     else if (e instanceof Goexit) this.exiting = e;
     else this.panicking = toPanic(e);
@@ -142,6 +173,8 @@ export class Defers {
   run(): void {
     while (this.list.length > 0) {
       const fn = this.list.pop()!;
+      this.tok = this.toks.pop();
+      this.claimed = false;
       const prev = current;
       current = this;
       try {
@@ -160,6 +193,8 @@ export class Defers {
   async runAsync(): Promise<void> {
     while (this.list.length > 0) {
       const fn = this.list.pop()!;
+      this.tok = this.toks.pop();
+      this.claimed = false;
       const prev = current;
       current = this;
       let r: any;
@@ -184,8 +219,18 @@ export class Defers {
   }
 }
 
-export function recover(): Iface | null {
+export function recoverFrame(tok: string): Defers | null {
   const f = current;
+  if (f === null || f.tok === undefined) return f;
+  if (f.claimed || f.tok !== tok) return null;
+  f.claimed = true;
+  return f;
+}
+
+// recover implements the builtin; f is the calling function's recoverFrame
+// result: the frame whose deferred call it is, if it is one. (A deferred
+// recover() is called by the function that defers it.)
+export function recover(f: Defers | null): Iface | null {
   if (f === null || f.panicking === null) return null;
   const v = f.panicking.value;
   f.panicking = null;

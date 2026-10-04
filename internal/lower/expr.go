@@ -159,6 +159,11 @@ func (fe *funcEmitter) genericFuncValue(fn string, targs *types.TypeList) string
 }
 
 func (fe *funcEmitter) funcInstance(e ast.Expr, x ast.Expr) string {
+	if sel, ok := unparen(x).(*ast.SelectorExpr); ok && fe.info.Selections[sel] != nil {
+		// A generic method value or expression with explicit type
+		// arguments (s.M[int]): they are recorded on the selector.
+		return fe.selector(sel)
+	}
 	id := identOf(x)
 	inst, ok := fe.info.Instances[id]
 	if !ok {
@@ -297,7 +302,14 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 		}
 		// The same function as the method table entry: it follows embedded
 		// fields (promoted methods) and adjusts the receiver.
-		return "(" + fe.pe.methodWrapper(recvT, sel, fe.tp) + ")"
+		targs := ""
+		if inst, ok := fe.info.Instances[e.Sel]; ok { // T.M[int]: the method's own type arguments come last
+			n, m := inst.TypeArgs.Len(), fn.Signature().TypeParams().Len()
+			for i := n - m; i < n; i++ {
+				targs += fe.desc(inst.TypeArgs.At(i)) + ", "
+			}
+		}
+		return "(" + fe.pe.methodWrapper(recvT, sel, fe.tp, targs) + ")"
 	}
 	return "undefined"
 }
@@ -369,8 +381,8 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 	switch x := unparen(e).(type) {
 	case *ast.Ident:
 		v := fe.info.Uses[x].(*types.Var)
-		if _, isTP := types.Unalias(t).(*types.TypeParam); isTP {
-			fe.errorf(e.Pos(), "taking the address of a type-parameter-typed variable is not supported yet")
+		if _, isTP := types.Unalias(t).(*types.TypeParam); isTP && fe.boxed(v) {
+			return fmt.Sprintf("$rt.tpAddr(%s, %s)", fe.desc(t), fe.nameOf(v))
 		}
 		if isAggregate(t) {
 			return fe.nameOf(v)
@@ -385,6 +397,9 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 			return fe.nameOf(v)
 		}
 		obj, prop := fe.fieldBase(x)
+		if isTypeParam(t) {
+			return fmt.Sprintf("%s$rt.tpFieldAddr(%s, %s, %s)", fe.mark(x), fe.desc(t), obj, jsString(prop))
+		}
 		if isAggregate(t) {
 			return obj + "." + prop
 		}
@@ -392,10 +407,20 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 	case *ast.IndexExpr:
 		xt := fe.info.TypeOf(x.X)
 		if _, ok := xt.Underlying().(*types.Slice); ok {
+			if isTypeParam(t) {
+				return fmt.Sprintf("%s$rt.tpSliceElemAddr(%s, %s, %s)", fe.mark(x), fe.desc(t), fe.expr(x.X), fe.intNumber(x.Index))
+			}
 			if isAggregate(t) {
 				return fmt.Sprintf("%s$rt.index(%s, %s)", fe.mark(x), fe.expr(x.X), fe.intNumber(x.Index))
 			}
 			return fmt.Sprintf("%s$rt.sliceElemPtr(%s, %s)", fe.mark(x), fe.expr(x.X), fe.intNumber(x.Index))
+		}
+		if isTypeParam(t) {
+			a := fe.expr(x.X)
+			if _, isPtr := under(xt).(*types.Pointer); isPtr {
+				a = "$rt.deref(" + a + ")"
+			}
+			return fmt.Sprintf("%s$rt.tpArrayElemAddr(%s, %s, %s)", fe.mark(x), fe.desc(t), a, fe.intNumber(x.Index))
 		}
 		if isAggregate(t) {
 			return fmt.Sprintf("%s[%s]", fe.expr(x.X), fe.arrayIndex(x))
@@ -495,20 +520,52 @@ func (fe *funcEmitter) compositeLitOf(e *ast.CompositeLit) string {
 			vals[i] = fe.zero(u.Field(i).Type())
 		}
 		var elems []elemVal
+		var promoted []string // property paths of promoted fields, slots NumFields+k
 		for i, el := range e.Elts {
 			if kv, ok := el.(*ast.KeyValueExpr); ok {
 				name := kv.Key.(*ast.Ident).Name
+				found := false
 				for j := 0; j < u.NumFields(); j++ {
 					if u.Field(j).Name() == name {
 						elems = append(elems, elemVal{j, fe.valueOf(kv.Value, u.Field(j).Type())})
+						found = true
 					}
+				}
+				if !found { // a promoted field (A{b: x} with b in an embedded B)
+					obj, path, _ := types.LookupFieldOrMethod(t, false, fe.pe.pkg.Types, name)
+					st, props := u, ""
+					for _, k := range path {
+						props += "." + fieldProp(st, k)
+						ft, _ := derefType(st.Field(k).Type())
+						st, _ = under(ft).(*types.Struct)
+					}
+					elems = append(elems, elemVal{u.NumFields() + len(promoted), fe.valueOf(kv.Value, obj.Type())})
+					promoted = append(promoted, props)
 				}
 				continue
 			}
-			elems = append(elems, elemVal{i, fe.valueOf(el, u.Field(i).Type())})
+			v := fe.valueOf(el, u.Field(i).Type())
+			if u.Field(i).Name() == "_" { // evaluated, but a blank field stays zero
+				switch x := unparen(el).(type) {
+				case *ast.Ident, *ast.BasicLit, *ast.FuncLit:
+					v = fe.zero(u.Field(i).Type())
+				default:
+					if tv := fe.info.Types[x]; tv.Value != nil {
+						v = fe.zero(u.Field(i).Type())
+					} else {
+						v = "(" + v + ", " + fe.zero(u.Field(i).Type()) + ")"
+					}
+				}
+			}
+			elems = append(elems, elemVal{i, v})
 		}
 		pre := fe.spillOutOfOrder(elems)
+		var sets []string
 		for _, ev := range elems {
+			if ev.slot >= len(vals) {
+				sets = append(sets, "$o"+promoted[ev.slot-len(vals)]+" = "+ev.val)
+				continue
+			}
 			vals[ev.slot] = ev.val
 		}
 		class := ""
@@ -517,7 +574,11 @@ func (fe *funcEmitter) compositeLitOf(e *ast.CompositeLit) string {
 		} else {
 			class = fe.pe.structClass(t)
 		}
-		return wrapPre(pre, fmt.Sprintf("%snew %s(%s)", m, class, strings.Join(vals, ", ")))
+		lit := fmt.Sprintf("%snew %s(%s)", m, class, strings.Join(vals, ", "))
+		if len(sets) > 0 {
+			lit = fmt.Sprintf("(($o: any) => (%s, $o))(%s)", strings.Join(sets, ", "), lit)
+		}
+		return wrapPre(pre, lit)
 	case *types.Array:
 		pre, vals := fe.indexedElems(e, u.Elem(), int(u.Len()))
 		return wrapPre(pre, m+"["+strings.Join(vals, ", ")+"]")
@@ -791,6 +852,12 @@ func (fe *funcEmitter) shiftCount(e ast.Expr) string {
 // length, a shift count): BigInts are converted (a value beyond 2^53 is out
 // of range either way).
 func (fe *funcEmitter) intNumber(e ast.Expr) string {
+	if tv, ok := fe.info.Types[e]; ok && tv.Value != nil {
+		// A constant, possibly untyped float or complex (x << 1.0).
+		if v := constant.ToInt(tv.Value); v.Kind() == constant.Int {
+			return v.ExactString()
+		}
+	}
 	t := fe.info.TypeOf(e)
 	if isTypeParam(t) {
 		return "$rt.intNumber(" + fe.expr(e) + ")"
@@ -956,6 +1023,9 @@ func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
 
 func (fe *funcEmitter) call(e *ast.CallExpr) string {
 	fun := unparen(e.Fun)
+	if sel, ok := unparen(funcIdent(fun)).(*ast.SelectorExpr); ok && fe.info.Selections[sel] != nil {
+		fun = sel // s.M[int](): the method's type arguments are recorded on M
+	}
 	if tv, ok := fe.info.Types[fun]; ok && tv.IsType() {
 		return fe.conversion(e, tv.Type)
 	}
@@ -1247,12 +1317,11 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 	if p, ok := tu.(*types.Pointer); ok {
 		if _, ok := under(p.Elem()).(*types.Array); ok {
 			if _, ok := fu.(*types.Slice); ok {
-				fe.errorf(e.Pos(), "conversion from slice to array pointer is not supported yet")
-				return s
+				return fmt.Sprintf("$rt.sliceToArrayPtr(%s, %d)", s, under(p.Elem()).(*types.Array).Len())
 			}
 		}
 	}
-	if st, ok := tu.(*types.Struct); ok && !types.Identical(to, from) && !isGenericType(to) && !isGenericType(from) {
+	if st, ok := tu.(*types.Struct); ok && !types.Identical(to, from) {
 		// Another struct type: build an instance of its class so the value
 		// carries the destination type's representation.
 		x := fe.tmp()
@@ -1266,9 +1335,9 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 }
 
 func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
-	if len(e.Args) == 1 && (name == "complex" || name == "append" || name == "copy") {
+	if len(e.Args) == 1 && (name == "complex" || name == "append" || name == "copy" || name == "delete") {
 		if tt, ok := fe.info.TypeOf(e.Args[0]).(*types.Tuple); ok {
-			// complex(f()), append(f()), copy(f()): the results of f are
+			// complex(f()), append(f()), copy(f()), delete(f()): the results of f are
 			// the arguments.
 			t := fe.tmp()
 			call := *e
@@ -1356,7 +1425,13 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			if len(e.Args) > 1 {
 				c = fe.intNumber(e.Args[1])
 			}
-			return fmt.Sprintf("%s$rt.makeChan(%s, %s)", m, c, fe.zeroFn(u.Elem()))
+			size := ""
+			if sizes := fe.pe.pkg.TypesSizes; sizes != nil && !isGenericType(u.Elem()) {
+				if n := sizes.Sizeof(u.Elem()); n > 1 {
+					size = fmt.Sprintf(", %d", n) // for the size limit
+				}
+			}
+			return fmt.Sprintf("%s$rt.makeChan(%s, %s%s)", m, c, fe.zeroFn(u.Elem()), size)
 		}
 	case "new":
 		t := fe.info.TypeOf(e).(*types.Pointer).Elem()
@@ -1381,7 +1456,7 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 	case "panic":
 		return fmt.Sprintf("%s$rt.panic(%s)", m, fe.valueOf(e.Args[0], types.Universe.Lookup("any").Type()))
 	case "recover":
-		return m + "$rt.recover()"
+		return m + "$rt.recover($rf)"
 	case "print", "println":
 		if len(e.Args) == 1 {
 			if tt, ok := fe.info.TypeOf(e.Args[0]).(*types.Tuple); ok { // println(f())
@@ -1395,6 +1470,11 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		}
 		var vals []string
 		for i, a := range e.Args {
+			if tv := fe.info.Types[a]; tv.Value != nil && tv.Value.Kind() == constant.Int && isIntegerType(tv.Type) {
+				// Exact even where int is a JS number (beyond 2^53).
+				vals = append(vals, jsString(tv.Value.ExactString()))
+				continue
+			}
 			vals = append(vals, fe.printArg(fe.info.TypeOf(a), arg(i)))
 		}
 		return m + "$rt." + name + "(" + strings.Join(vals, ", ") + ")"
@@ -1570,4 +1650,9 @@ func (fe *funcEmitter) printArg(t types.Type, v string) string {
 		return "$rt.printPointer(" + v + ")"
 	}
 	return v
+}
+
+func isIntegerType(t types.Type) bool {
+	b, ok := under(t).(*types.Basic)
+	return ok && b.Info()&types.IsInteger != 0
 }
