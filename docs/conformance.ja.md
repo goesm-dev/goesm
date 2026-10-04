@@ -42,18 +42,18 @@ GOTOOLCHAIN=go1.27.0 GOESM_CONFORMANCE=1 GOESM_GOROOT_TEST=/tmp/go/test \
 
 ## 結果
 
-Go 1.27.0 の `test/` ディレクトリ、Node.js 22、2026-10-03 時点の main（このスイートが最初に見つけたバグの大半の修正と複素数のサポートを入れた #5 のあと）での結果です。
+Go 1.27.0 の `test/` ディレクトリ、Node.js 22、2026-10-04 時点の main（このスイートに対する 2 回目の修正のあと）での結果です。
 
 | ディレクトリ | 通過率 | skip |
 |---|---|---|
-| `test/` | 46.3% (63/136) | 9 |
-| `chan/` | 58.8% (10/17) | 0 |
-| `fixedbugs/` | 60.6% (373/616) | 30 |
-| `interface/` | 72.7% (8/11) | 0 |
-| `ken/` | 82.5% (33/40) | 0 |
-| `typeparam/` | 50.4% (71/141) | 0 |
-| **合計** | **58.1% (558/961)** | 39 |
-| import のないテスト | 94.7% (485/512) | |
+| `test/` | 86.8% (118/136) | 9 |
+| `chan/` | 100.0% (17/17) | 0 |
+| `fixedbugs/` | 91.4% (563/616) | 30 |
+| `interface/` | 100.0% (11/11) | 0 |
+| `ken/` | 100.0% (40/40) | 0 |
+| `typeparam/` | 98.6% (139/141) | 0 |
+| **合計** | **92.4% (888/961)** | 39 |
+| import のないテスト | 98.8% (506/512) | |
 
 `GOESM_CONFORMANCE_NATIVE=1` で確認すると、native の `go run` は対象テストのすべてで `.out` を再現します。例外は go コマンドを呼び出す（`os/exec`）11 本で、これはどのみち goesm ではビルドできません。
 
@@ -61,30 +61,27 @@ Go 1.27.0 の `test/` ディレクトリ、Node.js 22、2026-10-03 時点の mai
 
 | パッケージ | 通過率 |
 |---|---|
-| `fmt` | 0.0% (0/209) |
-| `runtime` | 26.4% (29/110) |
-| `reflect` | 0.0% (0/68) |
-| `os` | 0.0% (0/58) |
-| `unsafe` | 23.6% (13/55) |
-| `strings` | 26.2% (11/42) |
-| `math` | 20.7% (6/29) |
-| `time` | 0.0% (0/19) |
-| `strconv` | 18.8% (3/16) |
-| `sync` | 20.0% (3/15) |
+| `fmt` | 89.5% (187/209) |
+| `runtime` | 67.3% (74/110) |
+| `reflect` | 76.5% (52/68) |
+| `os` | 86.2% (50/58) |
+| `unsafe` | 56.4% (31/55) |
+| `strings` | 66.7% (28/42) |
+| `math` | 96.6% (28/29) |
+| `time` | 100.0% (19/19) |
+| `strconv` | 87.5% (14/16) |
+| `sync` | 100.0% (15/15) |
 
-この表は毎回の実行結果にも出力されます。大きな阻害要因は次の 2 つです。
-
-* **`fmt` のリフレクション**: `fmt` はコンパイルできるようになりましたが、`fmt` を使うテストはすべて実行時に "internal/abi.TypeOf is not supported yet" で panic します（246 本）。`fmt` は `reflect` を通して書式化するので、`internal/abi` の裏に goesm の型記述子が必要です。
-* **`os` の出力**: `js/wasm` では `os.Stdout` への書き込みが `syscall/js` を経由するため、50 本が "syscall/js.valueGet is not supported yet" で panic します。
-
-import のない 512 本のうち、失敗した 27 本は次のように分類できます。
+この表は毎回の実行結果にも出力されます。失敗した 73 本は次のように分類できます。
 
 | 分類 | テスト |
 |---|---|
-| 未実装: 後方への `goto` | `ken/label`、`fixedbugs/bug005`、`bug178`、`issue40367`、`issue75569` |
-| 未実装: その他 | `convert4`（スライスから配列ポインタへの変換）、`range4` と `fixedbugs/issue71675`（range-over-func 本体の `defer`）、`typeparam/issue54537`（型パラメータ変数のアドレス） |
-| 64 ビット整数（既知の差異） | `intcvt`、`printbig`、`divmod`（タイムアウト）、`fixedbugs/issue2615`、`issue4448`、`issue43480`、`issue50854`、`issue70481`、`issue23305` |
-| 間接的な `recover`（既知の差異） | `fixedbugs/issue73916`、`issue73916b`、`issue73917`、`issue73920` |
-| 複素数 | `fixedbugs/issue79812`（float の型パラメータに対する `T(0 + 0i)` が複素数の値になる）、`issue5793`（多値を返す複素数の呼び出しの lowering で internal error） |
-| generics | `typeparam/typeswitch3`（`reading 'methods'`） |
-| リソース | `fixedbugs/issue34395`（100 MiB の配列リテラルのビルドに 4 GB 以上必要）、`issue13169`（10 万回のチャネル送信が 20 秒以内に終わらない） |
+| アドレス空間がない: `unsafe` のポインタ演算、`uintptr` からポインタへの変換、`unsafe.Pointer` を介したメモリの読み替え | `cmp`、`strcopy`、`unsafebuiltins`、`fixedbugs/issue15329` など 23 本（goesm がビルド時に報告） |
+| `runtime.Caller`、スタックトレース、PC テーブル | `inline_literal`、`devirtualization_nil_panics`、`fixedbugs/bug347`、`issue4562`、`issue5856`、`issue7690`、`issue14646`、`issue18149`、`issue21879`、`issue22083`、`issue22662`、`issue27201`、`issue29504`、`issue33724`、`issue56990`、`issue58300`、`issue58300b`、`issue79762` |
+| GC の観測（finalizer、`MemStats`、liveness） | `init1`、`stackobj`、`stackobj3`、`fixedbugs/issue15281`、`issue27518b`、`issue32477`、`issue46725`、`issue54343` |
+| 未実装 | `range4` と `fixedbugs/issue71675`（range-over-func 本体の `defer`）、`fixedbugs/issue72063` と `typeparam/nested`（型パラメータに依存するローカル型）、`fixedbugs/issue30606`、`issue30606b`、`issue49110`（`reflect.StructOf`）、`fixedbugs/issue73748a`、`issue73748b`（`runtime/trace`） |
+| メソッドを包む関数値を通した `recover`（既知の差異） | `fixedbugs/issue73917`、`issue73920`。`recover` と `recover1` は再帰呼び出しや reflect で作った deferred 呼び出しも検査する |
+| 64 ビットの `int`（JS の number で、2^53 未満で正確） | `divmod`（タイムアウト）、`fixedbugs/issue30116u` |
+| アドレスとメモリレイアウト | `nilptr`、`fixedbugs/bug260`、`bug348`、`issue29190`（JS の配列の上限より長い、サイズ 0 の要素のスライス） |
+| リソース | `fixedbugs/issue34395`（100 MiB の配列リテラルのビルドに 4 GB 以上必要）、`issue25897a`、`issue30977`、`issue78081`（20 秒以内に終わらない） |
+| 環境 | `winbatch`（GOROOT の `src/all.bat` を読む） |

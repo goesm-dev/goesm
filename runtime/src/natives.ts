@@ -17,7 +17,7 @@
 // runtime only through its public module, so split builds share one runtime.
 import {
   GoMap, addressOf, go, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, assign, chanLen, copy, exitProcess,
-  fromJSString, hostNodeFS, implementsIface, isAggregate, load, toJSString, writeConsole, writeSyncAll,
+  fromJSString, hostNodeFS, ifaceKeyString, implementsIface, isAggregate, load, toJSString, writeConsole, writeStd, writeSyncAll,
   makeSlice, mapLen, numGoroutine, runtimePanic, sizeOf, store, panic, types, append,
   alignOf, arrayElemPtr, arrayOf, bytesToString, c64, chanCap, chanOf, close, encodeRune, equal, fieldPtr,
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
@@ -293,6 +293,9 @@ const or = (w: (x: any) => any) => (p: any, m: any) => { const old = p.v; p.v = 
 const i32 = (x: number) => x | 0, u32 = (x: number) => x >>> 0, n64 = (x: number) => x;
 const i64 = (x: bigint) => BigInt.asIntN(64, x), u64 = (x: bigint) => BigInt.asUintN(64, x);
 
+export function native$sync$atomic$sameType(x: Iface, y: Iface): boolean {
+  return x.t === y.t;
+}
 export const native$sync$atomic$LoadInt32 = ld, native$sync$atomic$LoadInt64 = ld, native$sync$atomic$LoadUint32 = ld,
   native$sync$atomic$LoadUint64 = ld, native$sync$atomic$LoadUintptr = ld, native$sync$atomic$LoadPointer = ld;
 export const native$sync$atomic$StoreInt32 = st, native$sync$atomic$StoreInt64 = st, native$sync$atomic$StoreUint32 = st,
@@ -334,6 +337,7 @@ export function native$internal$reflectlite$typeName(t: Type): string {
 }
 
 export function native$internal$reflectlite$typePkgPath(t: Type): string {
+  if (t.kind === Kind.UnsafePointer) return "unsafe";
   return t.named ? t.pkgPath : "";
 }
 
@@ -692,6 +696,13 @@ export function native$reflect$mapKeys(m: any): S<any> {
   return keys.length === 0 ? null : sliceLit(keys);
 }
 
+export function native$reflect$mapIter(m: any): any { return mapRange(m); }
+
+export function native$reflect$mapNext(it: Generator<[any, any]>): [any, any, boolean] {
+  const r = it.next();
+  return r.done ? [null, null, false] : [r.value[0], r.value[1], true];
+}
+
 export function native$reflect$makeChan(t: Type, n: number): any { return makeChan(n, t.elem!.zero); }
 
 export function native$reflect$trySend(ch: any, x: any): boolean {
@@ -1036,6 +1047,100 @@ export function native$syscall$runtimeSetenv(_k: string, _v: string): void {}
 export function native$syscall$runtimeUnsetenv(_k: string): void {}
 export function native$syscall$runtimeClearenv(): void {}
 
+// ---- internal/godebug and runtime/debug ----
+
+// GODEBUG settings come from the host's environment at start-up; goesm has
+// no default GODEBUG of its own, and no runtime metrics.
+export function native$internal$godebug$writeStderr(b: Slice<number> | null): void {
+  if (b === null) return;
+  let s = "";
+  for (let i = 0; i < b.$length; i++) s += String.fromCharCode(b.$array[b.$offset + i]);
+  writeStd(2, s);
+}
+// crypto/internal/fips140's service indicator and crypto/fips140's bypass
+// flag are per-goroutine in gc; goroutines never run in parallel here, and
+// both are only set and read within one synchronous call.
+let fipsIndicator = 0, fipsBypass = false;
+export function native$crypto$internal$fips140$getIndicator(): number { return fipsIndicator; }
+export function native$crypto$internal$fips140$setIndicator(x: number): void { fipsIndicator = x; }
+export function native$crypto$internal$fips140$fatal(msg: string): never {
+  writeStd(2, "fatal error: " + msg + "\n");
+  return exitProcess(2);
+}
+export function native$crypto$internal$fips140$alias$AnyOverlap(x: Slice<number> | null, y: Slice<number> | null): boolean {
+  return x !== null && y !== null && x.$length > 0 && y.$length > 0 && x.$array === y.$array &&
+    x.$offset < y.$offset + y.$length && y.$offset < x.$offset + x.$length;
+}
+// weak pointers: a weak handle per pointer (weak.Make(p) == weak.Make(p)),
+// holding a WeakRef where the host has one.
+const weakHandles = new WeakMap<object, { ref: { deref(): any } }>();
+export function native$weak$runtime_registerWeakPointer(p: any): any {
+  let h = weakHandles.get(p);
+  if (h === undefined) {
+    const W = (globalThis as any).WeakRef;
+    h = { ref: W ? new W(p) : { deref: () => p } };
+    weakHandles.set(p, h);
+  }
+  return h;
+}
+export function native$weak$runtime_makeStrongFromWeak(h: any): any {
+  return h.ref.deref() ?? null;
+}
+
+// crypto/internal/boring/sig's markers are empty assembly functions that
+// only label the binary.
+export function native$crypto$internal$boring$sig$BoringCrypto(): void {}
+export function native$crypto$internal$boring$sig$FIPSOnly(): void {}
+export function native$crypto$internal$boring$sig$StandardCrypto(): void {}
+export function native$crypto$fips140$setBypass(): void { fipsBypass = true; }
+export function native$crypto$fips140$isBypassed(): boolean { return fipsBypass; }
+export function native$crypto$fips140$unsetBypass(): void { fipsBypass = false; }
+export function native$internal$godebug$setUpdate(update: (def: string, env: string) => void): void {
+  update(fromJSString(""), fromJSString(gproc?.env?.GODEBUG ?? ""));
+}
+export function native$internal$godebug$registerMetric(_name: string, _read: () => bigint): void {}
+export function native$internal$godebug$setNewIncNonDefault(_f: (name: string) => () => void): void {}
+
+// The runtime/debug knobs have nothing to tune in a JS host: each setter
+// records its value and returns the previous one.
+const debugKnobs = { gcPercent: 100, maxStack: 1000000000, panicOnFault: false, maxThreads: 10000, memoryLimit: 0x7fffffffffffffffn };
+export function native$runtime$debug$setGCPercent(p: number): number {
+  const old = debugKnobs.gcPercent;
+  debugKnobs.gcPercent = p;
+  return old;
+}
+export function native$runtime$debug$setMaxStack(n: number): number {
+  const old = debugKnobs.maxStack;
+  debugKnobs.maxStack = n;
+  return old;
+}
+export function native$runtime$debug$setPanicOnFault(b: boolean): boolean {
+  const old = debugKnobs.panicOnFault;
+  debugKnobs.panicOnFault = b;
+  return old;
+}
+export function native$runtime$debug$setMaxThreads(n: number): number {
+  const old = debugKnobs.maxThreads;
+  debugKnobs.maxThreads = n;
+  return old;
+}
+export function native$runtime$debug$setMemoryLimit(n: bigint): bigint {
+  const old = debugKnobs.memoryLimit;
+  if (n >= 0n) debugKnobs.memoryLimit = n; // a negative limit only reads it
+  return old;
+}
+// No garbage collection has run: the pause history is empty, and the last
+// GC time, GC count and total pause (the three values after it) are zero.
+export function native$runtime$debug$readGCStats(pauses: { v: Slice<bigint> | null }): void {
+  pauses.v = new Slice([0n, 0n, 0n], 0, 3, 3);
+}
+export function native$runtime$debug$freeOSMemory(): void {}
+export function native$runtime$debug$SetTraceback(_level: string): void {}
+export function native$runtime$debug$WriteHeapDump(_fd: number): void {}
+export function native$runtime$debug$modinfo(): string {
+  return fromJSString("");
+}
+
 export function native$syscall$Getpagesize(): number {
   return 65536;
 }
@@ -1058,10 +1163,92 @@ export function native$os$runtime_args(): Slice<string> {
 export function native$os$runtime_beforeExit(_code: number): void {}
 export function native$os$sigpipe(): void {}
 
-export function native$os$runtime_rand(): bigint {
-  const r = () => BigInt(Math.floor(Math.random() * 2 ** 32));
-  return (r() << 32n) | r();
+// runtime.rand, which packages reach by linkname: random uint64s from the
+// host's CSPRNG, drawn a block at a time.
+const randBuf = new BigUint64Array(64);
+let randPos = randBuf.length;
+function runtimeRand(): bigint {
+  if (randPos === randBuf.length) {
+    const c = (globalThis as any).crypto;
+    if (c?.getRandomValues) c.getRandomValues(randBuf);
+    else for (let i = 0; i < randBuf.length; i++) randBuf[i] = (BigInt(Math.floor(Math.random() * 2 ** 32)) << 32n) | BigInt(Math.floor(Math.random() * 2 ** 32));
+    randPos = 0;
+  }
+  return randBuf[randPos++];
 }
+
+
+// crypto/rand reads the host's CSPRNG (Crypto.getRandomValues) in blocks of
+// at most 64 KiB.
+export function native$crypto$internal$sysrand$getRandomValues(b: Slice<number> | null): void {
+  if (b === null || b.$length === 0) return;
+  const c = (globalThis as any).crypto;
+  if (!c?.getRandomValues) runtimePanic("crypto/rand: the host has no crypto.getRandomValues");
+  const buf = new Uint8Array(b.$length);
+  c.getRandomValues(buf);
+  for (let i = 0; i < buf.length; i++) b.$array[b.$offset + i] = buf[i];
+}
+
+export function native$crypto$internal$sysrand$fatal(msg: string): never {
+  writeStd(2, "fatal error: " + msg + "\n");
+  return exitProcess(2);
+}
+// hash/maphash's hashes (runtime.memhash and the map hashers in gc): two
+// 32-bit MurmurHash3 lanes seeded with the two halves of the seed. Go strings
+// are byte strings, so a string and its bytes hash alike.
+function murmurRound(h: number, k: number): number {
+  k = Math.imul(k, 0xcc9e2d51);
+  k = (k << 15) | (k >>> 17);
+  h ^= Math.imul(k, 0x1b873593);
+  h = (h << 13) | (h >>> 19);
+  return (Math.imul(h, 5) + 0xe6546b64) | 0;
+}
+function murmurFinal(h: number): number {
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  return h ^ (h >>> 16);
+}
+function hash64(n: number, at: (i: number) => number, seed: bigint): bigint {
+  let h1 = Number(seed & 0xffffffffn) | 0, h2 = Number(seed >> 32n) | 0;
+  let i = 0;
+  for (; i + 4 <= n; i += 4) {
+    const k = at(i) | (at(i + 1) << 8) | (at(i + 2) << 16) | (at(i + 3) << 24);
+    h1 = murmurRound(h1, k);
+    h2 = murmurRound(h2, k ^ 0x5bd1e995);
+  }
+  let k = 0;
+  for (let j = 0; i < n; i++, j += 8) k |= at(i) << j;
+  h1 = murmurRound(h1 ^ n, k);
+  h2 = murmurRound(h2 ^ n, k ^ 0x5bd1e995);
+  h1 = (h1 + h2) | 0;
+  h2 = (h2 + h1) | 0;
+  h1 = murmurFinal(h1);
+  h2 = murmurFinal(h2);
+  h1 = (h1 + h2) | 0;
+  h2 = (h2 + h1) | 0;
+  return (BigInt(h2 >>> 0) << 32n) | BigInt(h1 >>> 0);
+}
+export function native$hash$maphash$hashBytes(b: Slice<number>, seed: bigint): bigint {
+  const a = b.$array, off = b.$offset;
+  return hash64(b.$length, (i) => a[off + i], seed);
+}
+export function native$hash$maphash$hashString(s: string, seed: bigint): bigint {
+  return hash64(s.length, (i) => s.charCodeAt(i), seed);
+}
+export function native$hash$maphash$hashComparable(v: Iface | null, seed: bigint): bigint {
+  const s = ifaceKeyString(v);
+  return hash64(s.length, (i) => s.charCodeAt(i), seed);
+}
+
+export const native$os$runtime_rand = runtimeRand;
+export const native$math$rand$runtime_rand = runtimeRand;
+export const native$math$rand$v2$runtime_rand = runtimeRand;
+export const native$hash$maphash$runtime_rand = runtimeRand;
+export const native$net$runtime_rand = runtimeRand;
+export const native$unique$runtime_rand = runtimeRand;
+export const native$internal$sync$runtime_rand = runtimeRand;
 
 // ---- internal/poll ----
 //

@@ -34,7 +34,16 @@ type funcEmitter struct {
 	resultTs []types.Type
 	named    bool                     // results are named Go variables (their address may escape)
 	gotos    map[*ast.BranchStmt]bool // forward gotos, lowered to labelled breaks
-	rangeFn  *rangeFuncCtx            // the range-over-func body being lowered
+	// Goto state machines (see gotoMachine): the targets of their labels,
+	// the variables declared before them, and the enclosing breakable
+	// statements, whose unlabelled break and continue a machine would capture.
+	gotoTargets map[types.Object]gotoTarget
+	hoisted     map[*types.Var]bool
+	breakables  []breakable
+	rangeFn     *rangeFuncCtx // the range-over-func body being lowered
+	// recoverTok identifies the function being lowered to recover(), which
+	// only recovers when called by the deferred function itself.
+	recoverTok string
 }
 
 func (pe *pkgEmitter) newFuncEmitter(w *writer, sig *types.Signature) *funcEmitter {
@@ -295,6 +304,11 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 	}
 	box(recvList)
 	box(ftype.Params)
+	if fe.containsRecover(body) {
+		// Whether this call is the deferred call itself, the one frame in
+		// which recover() recovers (see recover in runtime/src/panic.ts).
+		w.ln("const $rf = $rt.recoverFrame(%s);", jsString(fe.recoverTok))
+	}
 	// A value receiver is a copy in Go; copy only if the body could tell.
 	if recv := sig.Recv(); recv != nil && recvList != nil && isAggregate(recv.Type()) && !fe.boxed(recv) {
 		if _, isPtr := recv.Type().(*types.Pointer); !isPtr {
@@ -414,6 +428,7 @@ func (fe *funcEmitter) funcLit(lit *ast.FuncLit) string {
 	w := newRawWriter(fe.pe.tab)
 	w.indent = fe.w.indent + 1
 	c := fe.child(w, sig)
+	c.recoverTok = litRecoverTok(lit)
 	c.async = fe.pe.prog.LitAsync(lit)
 	c.syncOnly = fe.pe.prog.SyncOnly(lit)
 	params := c.paramList(lit.Type.Params, nil)
@@ -486,4 +501,24 @@ func (fe *funcEmitter) recvExpr(ch string) string {
 		return "$rt.recvNow(" + ch + ")"
 	}
 	return "(await $rt.recv(" + ch + "))"
+}
+
+// containsRecover reports whether body calls recover itself (not in a
+// function literal).
+func (fe *funcEmitter) containsRecover(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.CallExpr:
+			if id, ok := unparen(n.Fun).(*ast.Ident); ok {
+				if b, ok := fe.info.Uses[id].(*types.Builtin); ok && b.Name() == "recover" {
+					found = true
+				}
+			}
+		}
+		return !found
+	})
+	return found
 }
