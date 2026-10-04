@@ -221,7 +221,12 @@ func (fe *funcEmitter) convert(s string, from, to types.Type) string {
 		if b, ok := from.(*types.Basic); ok && b.Info()&types.IsUntyped != 0 {
 			from = types.Default(from)
 		}
-		return fmt.Sprintf("$rt.box(%s, %s)", fe.desc(from), s)
+		if _, isTP := types.Unalias(from).(*types.TypeParam); isTP {
+			// The type argument may be an interface type, which $rt.box
+			// leaves as it is.
+			return fmt.Sprintf("$rt.box(%s, %s)", fe.desc(from), s)
+		}
+		return fmt.Sprintf("new $rt.Iface(%s, %s)", fe.desc(from), s)
 	}
 	return s
 }
@@ -481,9 +486,11 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 	m := fe.mark(e)
 	switch u := under(xt).(type) {
 	case *types.Basic:
-		return m + strIndex(fe.expr(e.X), fe.intNumber(e.Index))
+		x, set, i := fe.indexTemp(fe.expr(e.X), fe.intNumber(e.Index))
+		return m + set + strIndex(x, i) + closeIf(set)
 	case *types.Slice:
-		return m + sliceIndex(fe.expr(e.X), fe.intNumber(e.Index))
+		x, set, i := fe.indexTemp(fe.expr(e.X), fe.intNumber(e.Index))
+		return m + set + sliceIndex(x, i) + closeIf(set)
 	case *types.Map:
 		return fmt.Sprintf("%s$rt.mapGet(%s, %s, %s)", m, fe.expr(e.X), fe.valueOf(e.Index, u.Key()), fe.zeroFn(u.Elem()))
 	case *types.Array:
@@ -897,12 +904,28 @@ func (fe *funcEmitter) arith(op token.Token, a, b string, t types.Type) string {
 				}
 				return wrap(q, ii)
 			}
+			if pa, ra, pb, rb, ok := fe.reuse2(a, b); ok {
+				// Inline, as with a constant divisor; $rt.div is a call
+				// that large functions may not inline.
+				q := "(" + pa + pb + rb + " === 0 ? $rt.divZero() : $rt.trunc(" + ra + " / " + rb + ") + 0)"
+				if ii.bits == 64 && ii.signed {
+					return q
+				}
+				return wrap(q, ii)
+			}
 			return wrap("$rt.div("+a+", "+b+")", ii)
 		case token.REM:
 			if constDivisor(b) {
 				r := "((" + a + ") % " + b + ")"
 				if ii.bits == 64 && ii.signed {
 					return "(" + r + " + 0)"
+				}
+				return wrap(r, ii)
+			}
+			if pa, ra, pb, rb, ok := fe.reuse2(a, b); ok {
+				r := "(" + pa + pb + rb + " === 0 ? $rt.divZero() : " + ra + " % " + rb + " + 0)"
+				if ii.bits == 64 && ii.signed {
+					return r
 				}
 				return wrap(r, ii)
 			}
@@ -1292,6 +1315,49 @@ func sliceIndex(s, i string) string {
 	return fmt.Sprintf("(%s ? (%[2]s as any).$array[(%[2]s as any).$offset + %[3]s] : $rt.index(%[2]s, %[3]s))", inBounds(ss, is), ss, is)
 }
 
+// reuse2 makes the operands a and b of an inline binary operation
+// reusable: an operand that cannot be evaluated again is assigned to a
+// variable of the function, by the prefixes pa and pb ("t = x, "), which
+// keep Go's order. ok is false outside a function body.
+func (fe *funcEmitter) reuse2(a, b string) (pa, ra, pb, rb string, ok bool) {
+	tmp := func(x string) (string, string) {
+		if reusable(stripMarks(x)) {
+			return "", stripMarks(x)
+		}
+		t := fe.declareName("$v")
+		fe.temps = append(fe.temps, t)
+		return t + " = " + x + ", ", t
+	}
+	if !fe.inBody {
+		return "", "", "", "", false
+	}
+	pa, ra = tmp(a)
+	pb, rb = tmp(b)
+	return pa, ra, pb, rb, true
+}
+
+// indexTemp prepares the index i of a load from s for sliceIndex or
+// strIndex: an i that cannot be evaluated again (i + 1, a call) is assigned
+// to a variable of the function first, so the load stays inline. It returns
+// s, the assignment "(t = i, " (to be closed by closeIf), and the index.
+// JS evaluates i before s then; s is a plain reference, whose read Go does
+// not order against the evaluation of i.
+func (fe *funcEmitter) indexTemp(s, i string) (string, string, string) {
+	if !fe.inBody || !simpleRef.MatchString(stripMarks(s)) || reusable(stripMarks(i)) {
+		return s, "", i
+	}
+	t := fe.declareName("$i")
+	fe.temps = append(fe.temps, t)
+	return s, "(" + t + " = " + i + ", ", t
+}
+
+func closeIf(set string) string {
+	if set == "" {
+		return ""
+	}
+	return ")"
+}
+
 // strIndex is the byte s[i] of a string s, inline like sliceIndex.
 func strIndex(s, i string) string {
 	ss, is := stripMarks(s), stripMarks(i)
@@ -1628,6 +1694,13 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		case *types.Basic:
 			return arg(0) + ".length"
 		case *types.Slice:
+			if a := arg(0); reusable(stripMarks(a)) {
+				prop := "$length"
+				if name == "cap" {
+					prop = "$capacity"
+				}
+				return fmt.Sprintf("(%[1]s === null ? 0 : (%[1]s as any).%[2]s)", stripMarks(a), prop)
+			}
 			return "$rt." + name + "(" + arg(0) + ")"
 		case *types.Array:
 			if tv := fe.info.Types[e]; tv.Value == nil {

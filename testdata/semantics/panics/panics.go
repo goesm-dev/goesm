@@ -154,3 +154,35 @@ func NilStoreOrder() []string {
 		catch(func() { a[1] = rhs("array") }),
 	}, log...)
 }
+
+// DivOrder divides by variable divisors: both operands are evaluated, left
+// to right, before division by zero panics; remainders keep the dividend's
+// sign (never -0), and an index computed by a call is evaluated once.
+func DivOrder() []string {
+	var log []string
+	op := func(s string, v int) int { log = append(log, s); return v }
+	zero, two := 0, 2
+	var nilS []int
+	s := []int{10, 20, 30}
+	var i32, z32 int32 = -7, 0
+	out := []string{
+		catch(func() { _ = op("a", 7) / op("b", zero) }),
+		catch(func() { _ = op("c", 7) % op("d", zero) }),
+		catch(func() { _ = i32 % z32 }),
+		catch(func() { _ = s[op("e", 2)%len(nilS)] }),
+	}
+	for _, v := range []int{-7, -4, 7, 0} {
+		out = append(out, itoa(v%two), itoa(v/two), itoa(int(int32(v)%int32(two))), itoa(s[op("i", v&1)+1]))
+	}
+	return append(out, log...)
+}
+
+func itoa(v int) string {
+	if v < 0 {
+		return "-" + itoa(-v)
+	}
+	if v < 10 {
+		return string(rune('0' + v))
+	}
+	return itoa(v/10) + string(rune('0'+v%10))
+}

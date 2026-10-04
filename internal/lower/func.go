@@ -25,9 +25,11 @@ type funcEmitter struct {
 	override map[ast.Expr]string
 	tmpN     *int
 	// inBody: emitting a function body, which declares ir, the receiver
-	// of interface calls (icall), if any, with var at its end.
+	// of interface calls (icall), and temps (see indexTemp), if any, with
+	// var at its end.
 	inBody bool
 	ir     string
+	temps  []string
 
 	tp       tpScope
 	sig      *types.Signature
@@ -295,10 +297,14 @@ func (fe *funcEmitter) mutatesVar(body *ast.BlockStmt, v *types.Var) bool {
 // signature line).
 func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, body *ast.BlockStmt, sig *types.Signature) {
 	w := fe.w
-	fe.inBody, fe.ir = true, ""
+	fe.inBody, fe.ir, fe.temps = true, "", nil
 	defer func() {
+		vs := fe.temps
 		if fe.ir != "" {
-			w.ln("var %s: any; // hoisted", fe.ir)
+			vs = append([]string{fe.ir}, vs...)
+		}
+		if len(vs) > 0 {
+			w.ln("var %s: any; // hoisted", strings.Join(vs, ": any, "))
 		}
 	}()
 	if fe.async && fe.pe.prog.TracksGoroutines {
