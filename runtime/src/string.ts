@@ -128,9 +128,33 @@ export function stringToRunes(s: string): Slice<number> {
 // differ.
 const nonASCII = /[\u0080-\uffff]/;
 
+// isASCII reports whether s holds only code units below 0x80, where a Go
+// (byte) string and a JS string are the same. A string that JS passes to Go
+// and gets back is checked at each step (fromJSString, strings.ToUpper,
+// toJSString), each a scan of about 1 ns per unit; the two latest ASCII
+// strings are remembered, so that checking one of them again is an identity
+// (or, for an equal copy, a content) comparison. Strings over 4 KiB are not
+// remembered, so as not to keep them alive.
+let ascii0 = "";
+let ascii1 = "";
+export function isASCII(s: string): boolean {
+  if (s === ascii0 || s === ascii1) return true;
+  if (nonASCII.test(s)) return false;
+  noteASCII(s);
+  return true;
+}
+
+// noteASCII remembers s, known to be ASCII, for isASCII.
+export function noteASCII(s: string): void {
+  if (s.length <= 4096) {
+    ascii1 = ascii0;
+    ascii0 = s;
+  }
+}
+
 // toJSString decodes a Go (byte) string as UTF-8 into a JS string.
 export function toJSString(s: string): string {
-  if (!nonASCII.test(s)) return s;
+  if (isASCII(s)) return s;
   let out = "";
   for (let i = 0; i < s.length; ) {
     const [r, w] = decodeRune(s, i);
@@ -142,7 +166,7 @@ export function toJSString(s: string): string {
 
 // fromJSString encodes a JS string as UTF-8 into a Go (byte) string.
 export function fromJSString(s: string): string {
-  if (!nonASCII.test(s)) return s;
+  if (isASCII(s)) return s;
   let out = "";
   for (const ch of s) out += encodeRune(ch.codePointAt(0)!);
   return out;
