@@ -1147,7 +1147,7 @@ func funcIdent(fun ast.Expr) ast.Expr {
 
 func (fe *funcEmitter) awaitIf(call *ast.CallExpr, s string) string {
 	if fe.pe.prog.CallBlocks(fe.info, call) {
-		return "(await " + s + ")"
+		return "(" + fe.await(s) + ")"
 	}
 	return s
 }
@@ -1562,6 +1562,9 @@ func (fe *funcEmitter) unsafeConversion(e *ast.CallExpr, to, from types.Type, s 
 	if inner, ok := unparen(e.Args[0]).(*ast.CallExpr); ok && len(inner.Args) == 1 {
 		if tv, ok := fe.info.Types[inner.Fun]; ok && tv.IsType() && isUnsafePointer(under(tv.Type)) {
 			if up, ok := under(fe.info.TypeOf(inner.Args[0])).(*types.Pointer); ok && !types.Identical(under(up.Elem()), under(tp.Elem())) {
+				if pointerShaped(up.Elem()) && pointerShaped(tp.Elem()) {
+					return s // a pointer variable read as another pointer type: the same reference
+				}
 				if !reinterpretable(up.Elem(), tp.Elem()) {
 					fe.errorf(e.Pos(), "reinterpreting %s as %s through unsafe.Pointer is not supported", up, to)
 					return s
@@ -1579,15 +1582,7 @@ func (fe *funcEmitter) unsafeConversion(e *ast.CallExpr, to, from types.Type, s 
 // an interface ({type, data}), in both directions for strings and slices.
 func reinterpretable(from, to types.Type) bool {
 	fu, tu := under(from), under(to)
-	ptrLike := func(t types.Type) bool {
-		switch u := under(t).(type) {
-		case *types.Pointer, *types.Map, *types.Chan, *types.Signature:
-			return true
-		case *types.Basic:
-			return u.Kind() == types.UnsafePointer
-		}
-		return false
-	}
+	ptrLike := pointerShaped
 	isInt := func(t types.Type) bool {
 		b, ok := under(t).(*types.Basic)
 		return ok && b.Info()&types.IsInteger != 0 && b.Kind() != types.Uintptr
@@ -1658,6 +1653,17 @@ func reinterpretable(from, to types.Type) bool {
 		return fu.Info()&types.IsString != 0 && header(to, ptrLike, isInt)
 	case *types.Slice:
 		return header(to, ptrLike, isInt, isInt)
+	}
+	return false
+}
+
+// pointerShaped reports whether a value of type t is one machine pointer.
+func pointerShaped(t types.Type) bool {
+	switch u := under(t).(type) {
+	case *types.Pointer, *types.Map, *types.Chan, *types.Signature:
+		return true
+	case *types.Basic:
+		return u.Kind() == types.UnsafePointer
 	}
 	return false
 }
