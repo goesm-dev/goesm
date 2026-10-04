@@ -1,6 +1,7 @@
 // Command lockforms locks mutexes held across a channel receive through
 // method expressions and through a type parameter constrained by
-// sync.Locker; the second Lock has to wait.
+// sync.Locker, and a Lock whose function may return with the mutex still
+// locked; the second Lock has to wait.
 package main
 
 import (
@@ -15,6 +16,18 @@ func hold[L sync.Locker](l L, ch chan int, kind string) {
 	v := <-ch
 	os.Stdout.WriteString(kind + " got " + string(rune('0'+v)) + "\n")
 	l.Unlock()
+}
+
+var owned sync.Mutex
+
+// acquire returns with owned locked when keep is set.
+func acquire(keep bool) bool {
+	owned.Lock()
+	if keep {
+		return true
+	}
+	owned.Unlock()
+	return false
 }
 
 func main() {
@@ -58,6 +71,26 @@ func main() {
 	}
 	ch <- 1
 	ch <- 2
+	<-done
+	<-done
+
+	locked := make(chan bool)
+	go func() {
+		acquire(true)
+		locked <- true
+		v := <-ch
+		os.Stdout.WriteString("owner got " + string(rune('0'+v)) + "\n")
+		owned.Unlock()
+		done <- true
+	}()
+	<-locked
+	go func() {
+		owned.Lock()
+		os.Stdout.WriteString("second locked\n")
+		owned.Unlock()
+		done <- true
+	}()
+	ch <- 1
 	<-done
 	<-done
 	os.Stdout.WriteString("done\n")

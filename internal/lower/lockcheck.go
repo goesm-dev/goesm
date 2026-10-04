@@ -218,7 +218,7 @@ func (p *Program) heldSections() []mutexCall {
 							break
 						}
 					}
-					if !unlocked {
+					if !unlocked || bypasses(info, list[i+1:end], mc.expr, false, false) {
 						out = append(out, mc) // still locked on return
 						continue
 					}
@@ -234,6 +234,80 @@ func (p *Program) heldSections() []mutexCall {
 		}
 	}
 	return out
+}
+
+// bypasses reports whether a path through list leaves it (return, panic,
+// or a break, continue or goto out of it) before an Unlock of expr: the
+// function may then return with the mutex locked. inLoop and inBreakable
+// tell whether an unlabeled continue or break stays inside list.
+func bypasses(info *types.Info, list []ast.Stmt, expr string, inLoop, inBreakable bool) bool {
+	for _, s := range list {
+		if u, ok := lockStmt(info, s); ok && isUnlock(u.method) && u.expr == expr {
+			return false // the rest of this path is unlocked (or unlocks on return)
+		}
+		switch s := s.(type) {
+		case *ast.ReturnStmt:
+			return true
+		case *ast.ExprStmt:
+			if c, ok := unparen(s.X).(*ast.CallExpr); ok {
+				if b, ok := info.Uses[identOf(unparen(c.Fun))].(*types.Builtin); ok && b.Name() == "panic" {
+					return true
+				}
+			}
+		case *ast.BranchStmt:
+			switch {
+			case s.Tok == token.FALLTHROUGH:
+			case s.Label != nil || s.Tok == token.GOTO:
+				return true
+			case s.Tok == token.CONTINUE && !inLoop, s.Tok == token.BREAK && !inBreakable:
+				return true
+			}
+		case *ast.LabeledStmt:
+			if bypasses(info, []ast.Stmt{s.Stmt}, expr, inLoop, inBreakable) {
+				return true
+			}
+		case *ast.BlockStmt:
+			if bypasses(info, s.List, expr, inLoop, inBreakable) {
+				return true
+			}
+		case *ast.IfStmt:
+			if bypasses(info, s.Body.List, expr, inLoop, inBreakable) ||
+				(s.Else != nil && bypasses(info, []ast.Stmt{s.Else}, expr, inLoop, inBreakable)) {
+				return true
+			}
+		case *ast.ForStmt:
+			if bypasses(info, s.Body.List, expr, true, true) {
+				return true
+			}
+		case *ast.RangeStmt:
+			if bypasses(info, s.Body.List, expr, true, true) {
+				return true
+			}
+		case *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+			var body *ast.BlockStmt
+			switch s := s.(type) {
+			case *ast.SwitchStmt:
+				body = s.Body
+			case *ast.TypeSwitchStmt:
+				body = s.Body
+			case *ast.SelectStmt:
+				body = s.Body
+			}
+			for _, c := range body.List {
+				var stmts []ast.Stmt
+				switch c := c.(type) {
+				case *ast.CaseClause:
+					stmts = c.Body
+				case *ast.CommClause:
+					stmts = c.Body
+				}
+				if bypasses(info, stmts, expr, inLoop, true) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // escapingMutexes returns the direct mutexes whose address escapes (see the

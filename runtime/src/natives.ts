@@ -425,6 +425,7 @@ export function native$syscall$js$valueGet(v: any, p: string): any {
   if (o === globalThis) {
     if (name === "fs") return hostFS();
     if (name === "process" && (globalThis as any).process === undefined) return hostProcess();
+    if (name === "path" && (globalThis as any).path === undefined) return hostPath();
   }
   return toRef(Reflect.get(o, name));
 }
@@ -543,6 +544,12 @@ const fsCalls = [
 ];
 
 let theFS: any = null;
+
+// hostPath is node:path for syscall's jsPath.resolve, as wasm_exec_node.js
+// provides it; without one (browsers) paths stay as they are.
+function hostPath(): any {
+  return (globalThis as any).process?.getBuiltinModule?.("path") ?? { resolve: (p: string) => p };
+}
 
 function hostFS(): any {
   if (theFS === null) {
