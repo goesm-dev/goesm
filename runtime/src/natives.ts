@@ -213,6 +213,104 @@ export function native$math$bits$Rem64(hi: bigint, lo: bigint, y: bigint): bigin
   return ((hi << 64n) | lo) % y;
 }
 
+// ---- math/bits (32-bit) ----
+//
+// Exact on numbers: sums stay below 2^34, and products and dividends are
+// taken in 16-bit halves (Hacker's Delight mulhu, divlu).
+
+export function native$math$bits$Add32(x: number, y: number, carry: number): [number, number] {
+  const s = x + y + carry;
+  return [s >>> 0, s > 0xffffffff ? 1 : 0];
+}
+
+export function native$math$bits$Sub32(x: number, y: number, borrow: number): [number, number] {
+  const d = x - y - borrow;
+  return [d >>> 0, d < 0 ? 1 : 0];
+}
+
+export function native$math$bits$Mul32(x: number, y: number): [number, number] {
+  const xl = x & 0xffff, xh = x >>> 16, yl = y & 0xffff, yh = y >>> 16;
+  const t = xh * yl + ((xl * yl) >>> 16);
+  const w = (t & 0xffff) + xl * yh;
+  return [xh * yh + (t >>> 16) + (w >>> 16), Math.imul(x, y) >>> 0];
+}
+
+function div32(hi: number, lo: number, y: number): [number, number] {
+  // hi < y, so each 16-bit step's dividend is below 2^48 and its quotient
+  // digit below 2^16.
+  const n1 = hi * 0x10000 + (lo >>> 16);
+  const q1 = Math.floor(n1 / y);
+  const n0 = (n1 - q1 * y) * 0x10000 + (lo & 0xffff);
+  const q0 = Math.floor(n0 / y);
+  return [q1 * 0x10000 + q0, n0 - q0 * y];
+}
+
+export function native$math$bits$Div32(hi: number, lo: number, y: number): [number, number] {
+  if (y === 0) runtimePanic("integer divide by zero");
+  if (y <= hi) runtimePanic("integer overflow");
+  return div32(hi, lo, y);
+}
+
+export function native$math$bits$Rem32(hi: number, lo: number, y: number): number {
+  if (y === 0) runtimePanic("integer divide by zero");
+  return div32(hi % y, lo, y)[1];
+}
+
+// ---- multi-precision arithmetic ----
+//
+// The inner loops of math/big's and crypto/internal/fips140/bigmod's
+// multiplications, on 32-bit words (both use 32-bit words under goesm).
+// Their Go bodies go through bits.Mul32 and bits.Add32, whose results are
+// tuples; here each word product is taken as two exact float products.
+
+const B32 = 4294967296;
+
+// mulAdd32 sets z[i] = x[i]*y + a[i] + carry for i < n (a may be null for
+// zeros) and returns the final carry. a[i] and x[i] are read before z[i] is
+// written, so z may alias them.
+function mulAdd32(
+  za: number[], zo: number, n: number, xa: number[], xo: number, y: number,
+  aa: number[] | null, ao: number, c: number,
+): number {
+  const yl = y & 0xffff, yh = y >>> 16;
+  for (let i = 0; i < n; i++) {
+    const xi = xa[xo + i];
+    // x*y = b*2^16 + a with a, b < 2^48; s < 2^49: all exact.
+    const a = xi * yl, b = xi * yh, bl = b & 0xffff;
+    const s = a + bl * 0x10000 + (aa === null ? 0 : aa[ao + i]) + c;
+    const lo = s >>> 0;
+    za[zo + i] = lo;
+    c = (b - bl) / 0x10000 + (s - lo) / B32;
+  }
+  return c;
+}
+
+const sliceLen = (s: S<number>) => (s === null ? 0 : s.$length);
+
+// math/big.mulAddVWW_g(z, x []Word, y, r Word) (c Word): z = x*y + r.
+export function native$math$big$mulAddVWW_g(z: S<number>, x: S<number>, y: number, r: number): number {
+  const n = sliceLen(z);
+  if (sliceLen(x) !== n) panic(new Iface(types.string, "mulAddVWW len"));
+  if (n === 0) return r;
+  return mulAdd32(z!.$array, z!.$offset, n, x!.$array, x!.$offset, y, null, 0, r);
+}
+
+// math/big.addMulVVWW_g(z, x, y []Word, m, a Word) (c Word): z = x + y*m + a.
+export function native$math$big$addMulVVWW_g(z: S<number>, x: S<number>, y: S<number>, m: number, a: number): number {
+  const n = sliceLen(z);
+  if (sliceLen(x) !== n || sliceLen(y) !== n) panic(new Iface(types.string, "addMulVVWW len"));
+  if (n === 0) return a;
+  return mulAdd32(z!.$array, z!.$offset, n, y!.$array, y!.$offset, m, x!.$array, x!.$offset, a);
+}
+
+// crypto/internal/fips140/bigmod.addMulVVW(z, x []uint32, y uint32)
+// (carry uint32): z += x*y.
+export function native$crypto$internal$fips140$bigmod$addMulVVW(z: S<number>, x: S<number>, y: number): number {
+  const n = sliceLen(z);
+  if (n - 1 < 0 || n - 1 >= sliceLen(x)) runtimePanic(n - 1 < 0 ? `index out of range [${n - 1}]` : `index out of range [${n - 1}] with length ${sliceLen(x)}`);
+  return mulAdd32(z!.$array, z!.$offset, n, x!.$array, x!.$offset, y, z!.$array, z!.$offset, 0);
+}
+
 // ---- maps, slices ----
 
 // maps.clone(m any) any: a shallow copy (keys and values are assigned, so

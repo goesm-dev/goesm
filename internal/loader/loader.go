@@ -296,8 +296,14 @@ func reachable(roots, all []*packages.Package) []*packages.Package {
 		if p.Types == nil {
 			return
 		}
+		// p.Imports is keyed by the import path as written, which for a
+		// vendored package (vendor/golang.org/x/...) is not its path.
+		byPath := map[string]*packages.Package{}
+		for _, dep := range p.Imports {
+			byPath[dep.PkgPath] = dep
+		}
 		for _, ip := range p.Types.Imports() {
-			if dep := p.Imports[ip.Path()]; dep != nil {
+			if dep := byPath[ip.Path()]; dep != nil {
 				visit(dep)
 			}
 		}

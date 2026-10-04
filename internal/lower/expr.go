@@ -752,7 +752,9 @@ func wrap(s string, ii intInfo) string {
 	case ii.bits == 8:
 		return "((" + s + ") & 0xff)"
 	}
-	return s
+	// Parenthesized so that an operand position (an op-assignment's
+	// right side, an identity conversion) keeps Go's grouping.
+	return "(" + s + ")"
 }
 
 func isTypeParam(t types.Type) bool {
