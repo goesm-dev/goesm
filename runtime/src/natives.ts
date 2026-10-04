@@ -26,6 +26,7 @@ import {
   toPanic, typeArgsName,
 } from "./index.ts";
 import type { S } from "./index.ts";
+import { jsonMarshal, jsonUnmarshal } from "./json.ts";
 
 // ---- runtime ----
 
@@ -194,6 +195,15 @@ export function native$slices$sortBuiltin(i: Iface): boolean {
   tmp.sort();
   for (let i = 0; i < n; i++) a[off + i] = tmp[i];
   return true;
+}
+
+// encoding/json's Marshal and Unmarshal of plain values (see the
+// encoding/json patch and json.ts).
+export function native$encoding$json$fastMarshal(v: Iface | null): S<number> {
+  return jsonMarshal(v);
+}
+export function native$encoding$json$fastUnmarshal(data: S<number>, v: Iface | null): boolean {
+  return jsonUnmarshal(data, v);
 }
 
 // fmt.Sprintf's fast path (see the fmt patch).
