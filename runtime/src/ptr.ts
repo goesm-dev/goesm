@@ -139,3 +139,20 @@ export function nilFunc(): never {
 export function zeroSizePtrEq(a: unknown, b: unknown): boolean {
   return a === null ? b === null : b !== null;
 }
+
+const addresses = new WeakMap<object, number>();
+let nextAddress = 0xc000010000;
+
+// addressOf stands in for uintptr(unsafe.Pointer(p)): a stable number per
+// pointer object, distinct for distinct pointers. There is no memory behind
+// it, so arithmetic on it means nothing.
+export function addressOf(p: any): number {
+  if (p === null || p === undefined || (typeof p !== "object" && typeof p !== "function")) return 0;
+  let a = addresses.get(p);
+  if (a === undefined) {
+    a = nextAddress;
+    nextAddress += 0x1000;
+    addresses.set(p, a);
+  }
+  return a;
+}

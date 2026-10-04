@@ -36,7 +36,7 @@ JavaScript ESM (+ source maps pointing at .go with goesm build)
 ```
 cmd/goesm/            CLI: goesm build / goesm emit-ts
 internal/loader/      go/packages frontend and diagnostics (tagged go list / go/parser / go/types)
-internal/natives/     goesm's Go-source replacements for standard library packages (runtime, internal/reflectlite, sync)
+internal/natives/     goesm's Go-source replacements for standard library packages (runtime, reflect, internal/reflectlite, sync, syscall/js)
 internal/lower/       typed AST → TypeScript lowering
   program.go          whole-program analysis (address-taken variables, blocking analysis)
   emit.go decl.go     package = one TS module, type descriptors, struct classes, method tables
@@ -184,13 +184,13 @@ Only what the fixtures need is implemented; no scheduler or reflect was built ah
 
 ## 7. reflect / unsafe / memory representation
 
-* **reflect**: codegen always keeps named type identity, field names, tags and embedding, method sets (names and signatures) and type arguments in runtime descriptors. `reflect.TypeOf` can be the `t` of an interface value, `reflect.Value` a pair of (descriptor, value or pointer object), and `Kind` already uses reflect's numbering. The reflect package itself is planned as a target replacement of its Go source (see below), swapping its `internal/abi` dependencies for descriptors.
+* **reflect**: codegen always keeps named type identity, field names, tags and embedding, method sets (names and signatures) and type arguments in runtime descriptors, and `Kind` uses reflect's numbering. Package `reflect` is replaced by Go source over them (§9): a `reflect.Type` is the descriptor of an interface value, and a `reflect.Value` is (descriptor, value), or (descriptor, goesm pointer) when it is addressable, so `Set` writes through the pointer. Building on that, `fmt` and `encoding/json` (Go 1.27's json v2 underneath) compile from their own Go source. What needs memory addresses (`UnsafeAddr`, `NewAt`, `StructOf`) panics, `Value.Call` of a function that blocks panics, and channel operations through reflect work only when they do not block.
 * **Pointer representation**: currently "aggregates are the object itself, everything else is an accessor object". All pointer creation goes through `ptr.ts`, so the representation can be replaced when `unsafe.Pointer` interop arrives.
 * **unsafe / linear memory**: the architecture does not close with "JS has no pointers, so unsupported". The planned direction, step by step: (1) back numeric slices such as `[]byte` with TypedArrays (the slice backing store is private to `slice.ts`); (2) represent `unsafe.Pointer` as a tagged (ArrayBuffer, byte offset) or (object, field) value and implement `unsafe.Slice` / `unsafe.String` / `unsafe.Add` on DataView; (3) lay out structs in linear memory (ArrayBuffer) only for packages that need it. Today:
   * an `unsafe.Pointer` holds the pointer object itself, so `*T` → `unsafe.Pointer` → `*T` is the identity (`strings.Builder`, `sync/atomic.Pointer`, `internal/race` rely on it);
   * `unsafe.String(&b[i], n)`, `unsafe.String(unsafe.SliceData(b), n)`, `unsafe.Slice(&a[i], n)` and `unsafe.SliceData(s)` work on slice and array elements (a slice over the same backing array); `unsafe.Slice(unsafe.StringData(s), n)` copies, which is unobservable because the bytes are immutable;
   * `unsafe.Sizeof` / `Alignof` of a type parameter are computed from the descriptor with the wasm sizes;
-  * reinterpreting memory (`(*T)(unsafe.Pointer(&u))` with a different `T`), conversions to and from `uintptr` and `unsafe.Add` are goesm diagnostics. In the standard library the few functions that do this are natives instead (`math.Float64bits`, `slices.overlaps`, ...).
+  * reinterpreting memory (`(*T)(unsafe.Pointer(&u))` with a different `T`), conversions from `uintptr` and `unsafe.Add` are goesm diagnostics; `uintptr(unsafe.Pointer(p))` is a stand-in address, stable and distinct per pointer, which is enough for printing (`%p`) and identity maps. In the standard library the few functions that do this are natives instead (`math.Float64bits`, `slices.overlaps`, ...).
 
 ## 8. Source maps and diagnostics
 
@@ -209,6 +209,7 @@ The policy is to compile the ordinary Go source, not to port packages to TS by h
 | replaced package | replacement |
 |---|---|
 | `runtime` | the exported API other packages use (`GOOS`, `Error`, `Goexit`, `Gosched`, `KeepAlive`, `Caller`, `MemStats`, ...); scheduling and memory stay in `@goesm/runtime` |
+| `reflect` | the full API (types, values, `Set*`, `Call`, `MakeFunc`, maps, slices, `Convert`, `DeepEqual`, `VisibleFields`, ...) over the runtime type descriptors; enough for `fmt` and `encoding/json` |
 | `internal/reflectlite` | `Type` = a runtime type descriptor, `Value` = (descriptor, value or pointer); enough for `errors.Is` / `errors.As`, `sort.Slice`, `context` |
 | `sync` | `Mutex` and `RWMutex` lock synchronously, and wait (async) only for the mutexes held across a blocking operation (§5); `WaitGroup` and `Cond` wait on channels; `Once`, `Map`, `Pool` are plain Go |
 | `syscall/js` | the js/wasm `syscall/js` API over the JS values themselves (a `Value` holds the value). goesm compiles the standard library for js/wasm, so `os`, `syscall` and `time` reach the host through it: `js.Global().Get("fs")` is always goesm's own file system with the callback API package `syscall` expects, calling back before it returns (over `node:fs` in Node, Bun and Deno, a console-backed stand-in in browsers), whatever `globalThis.fs` holds, so `os.Stdout` and `os.Stderr` work everywhere and do not make callers async; `process` is the host's, or a minimal stand-in in browsers |
@@ -217,13 +218,13 @@ How it works:
 
 * The loader sets `packages.Config.ParseFile`: when go/packages parses a file of a replaced package under `$GOROOT/src`, the first file becomes the replacement and the others become empty files. go/types therefore type-checks every importer against the replacement, and the package graph the go command resolved is unchanged. `packages.Config.Overlay` cannot do this: the go command refuses to overlay files under the module cache, where `go tool goesm`'s toolchain lives.
 * Only packages reachable through the type-checked imports (after replacement) are lowered, so the gc runtime's internals (`internal/runtime/*`, `internal/abi` users, ...) drop out.
-* A function without a Go body (assembly, `//go:linkname` declarations, or left bodyless by a replacement) is implemented in `runtime/src/natives.ts`, one export per function named after `types.Func.FullName`. goesm checks at compile time that the export exists. A short fixed list (`natives.Override`) also replaces functions whose Go body reinterprets memory: `math.Float64bits` and friends, the 64-bit `math/bits` functions (on BigInt halves), `internal/strconv.formatBits` (whose Go body narrows `uint64` digits through `uint`), `slices.overlaps`, `internal/abi.NoEscape`.
+* A function without a Go body (assembly, `//go:linkname` declarations, or left bodyless by a replacement) is implemented in `runtime/src/natives.ts`, one export per function named after `types.Func.FullName`. goesm checks at compile time that the export exists. A short fixed list (`natives.Override`) also replaces functions whose Go body reinterprets memory: `math.Float64bits` and friends, the 64-bit `math/bits` functions (on BigInt halves), `internal/strconv.formatBits` (whose Go body narrows `uint64` digits through `uint`), `slices.overlaps`, `internal/abi.NoEscape`. The math functions whose results IEEE 754 fixes (`Floor`, `Ceil`, `Trunc`, `Round`, `RoundToEven`, `Sqrt`, `Abs`, `Signbit`, `Copysign`, `Inf`) are JS builtins too, several times faster than their Go bodies' bit manipulation.
 * Replacements, overrides and natives are a fixed set compiled into goesm. They apply only to files under `$GOROOT/src`, and nothing a dependency contains can add to them.
 
 Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/semantics/stdlibuse`):
 
 * Compiled from Go source and matching native Go: `errors` (`Is`, `As`, `Join`, `Unwrap`), `strings` (search, split, fields, case mapping, `Builder`, `Replacer`, `EqualFold`), `strconv` (integer formatting, `Atoi`, quoting, `NumError`), `sort`, `slices`, `maps`, `sync`, `unicode`, `unicode/utf8`, `math/bits`, `strconv` 64-bit parsing and shortest float formatting (`testdata/semantics/int64s`).
-* `encoding/json` and `fmt` need `reflect` (and complex numbers), which are not replaced yet.
+* `fmt` (verbs, flags, width and precision, `Stringer` / `error` / `Formatter` / `GoStringer`, `Errorf` with `%w`, `Sscanf`), `reflect` and `encoding/json` (struct tags, embedding, maps, `RawMessage`, `Marshaler` / `TextMarshaler`, `Decoder` streams, `UseNumber`, errors) match native Go in `testdata/programs/fmtverbs`, `reflection` and `jsoncodec`.
 
 ## 10. Tooling compatibility and security
 
@@ -237,7 +238,7 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 
 **Not implemented** (produces a goesm diagnostic or does not work):
 * exact 64-bit `int` and `uint` (they are numbers, see §5)
-* `reflect`, `fmt`, `time`, `encoding/json`, `iter.Pull` (coroutines), and the parts of `unsafe` beyond §7
+* `time` timers, `iter.Pull` (coroutines), and the parts of `unsafe` and `reflect` beyond §7
 * backward `goto`; blocking operations, select, defer or goto inside a range-over-func body (reported as diagnostics); taking the address of type-parameter-typed variables; local types depending on type parameters; conversion from a slice to an array pointer (`(*[N]T)(s)`)
 * deadlock detection while the host still has pending work (timers, I/O), goroutine preemption, goroutine-local recover state
 * a JS calling ABI (automatic Go ⇔ JS value conversion)
@@ -252,9 +253,10 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 * Blocking of dynamic calls is decided conservatively (§5), which can add unneeded `await`s (behaviour is unchanged).
 * `print` / `println` write to stderr in the Go runtime's format, but pointer, map, channel, func, slice and interface values print a fixed address instead of a real one.
 * `sync`: a `Lock` the analysis (§5) left synchronous panics if it would have to wait; the analysis is meant to rule that out, so it is a goesm bug. A second `Once.Do` while the first call's function is blocked panics instead of waiting; misuse such as unlocking an unlocked `Mutex` is a recoverable panic, not a fatal error. `runtime.Caller` / `Callers` / `Stack` report nothing and `SetFinalizer` is a no-op.
+* Under Bun, JavaScriptCore does not keep NaN payloads, so `math.Float64bits` of a NaN can differ from Go's.
 
 ## 12. Next three items
 
-1. **`reflect` as a Go-source replacement on the runtime descriptors** (extending the `internal/reflectlite` replacement), which unlocks `fmt` and `encoding/json`.
-2. **`time`**: timers and `Sleep` on the host's timers, wall and monotonic clocks (now exact as `int64`), and deadlock detection while timers are pending.
-3. **Completing the goroutine runtime**: goroutine-local panic / recover state (recover across async boundaries), `iter.Pull`, and a JS calling ABI (converting arguments and results of exported functions).
+1. **`time`**: timers and `Sleep` on the host's timers, wall and monotonic clocks (exact as `int64`), and deadlock detection while timers are pending.
+2. **Completing the goroutine runtime**: goroutine-local panic / recover state (recover across async boundaries), `iter.Pull`, and a JS calling ABI (converting arguments and results of exported functions).
+3. **Bundle size**: package-level tables such as `unicode`'s are built eagerly and survive tree shaking (a `fmt` hello world is about 210 KB gzipped).

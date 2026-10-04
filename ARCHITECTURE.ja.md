@@ -36,7 +36,7 @@ JavaScript ESM (+ goesm build では .go を指す source map)
 ```
 cmd/goesm/            CLI: goesm build / goesm emit-ts
 internal/loader/      go/packages による frontend と診断 (go list / go/parser / go/types の layer 付き)
-internal/natives/     goesm が持つ stdlib package の Go source 置換 (runtime、internal/reflectlite、sync)
+internal/natives/     goesm が持つ stdlib package の Go source 置換 (runtime、reflect、internal/reflectlite、sync、syscall/js)
 internal/lower/       typed AST → TypeScript lowering
   program.go          whole-program 解析 (address-taken 変数、blocking 解析)
   emit.go decl.go     package = 1 TS module、型 descriptor、struct class、method table
@@ -184,13 +184,13 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 
 ## 7. reflect / unsafe / メモリ表現の方針
 
-* **reflect**: codegen は named type identity、field 名・tag・embedded、method set (名前・signature)、型引数を runtime descriptor として常に残しています。`reflect.TypeOf` は interface 値の `t`、`reflect.Value` は (descriptor, 値 or pointer object) で実装でき、`Kind` は reflect と同じ番号です。reflect package 自体は Go source を target 置換 (後述) し、`internal/abi` 依存部分を descriptor に差し替える計画です。
+* **reflect**: codegen は named type identity、field 名・tag・embedded、method set (名前・signature)、型引数を runtime descriptor として常に残し、`Kind` は reflect と同じ番号です。`reflect` package はその上の Go source で置換しています (§9)。`reflect.Type` は interface 値の descriptor、`reflect.Value` は (descriptor, 値)、addressable なら (descriptor, goesm の pointer) で、`Set` はその pointer 経由で書き込みます。これにより `fmt`、`encoding/json` (内部は Go 1.27 の json v2) を自身の Go source から compile できます。メモリアドレスが必要なもの (`UnsafeAddr`、`NewAt`、`StructOf`) は panic し、block する関数の `Value.Call` も panic します。reflect 経由の channel 操作は block しない場合のみ動きます。
 * **pointer 表現**: 現在は「aggregate は object 自体、他は accessor object」。`unsafe.Pointer` との相互変換を将来入れるため、pointer 生成は `ptr.ts` の関数に集約してあり、表現を差し替えられます。
 * **unsafe / linear memory**: 「JS に pointer は無いので非対応」とはしません。予定している方向は、(1) `[]byte` 等の数値 slice を TypedArray backing にする (slice の backing store は `slice.ts` の private な表現)、(2) `unsafe.Pointer` を (ArrayBuffer, byte offset) または (object, field) の tagged 表現にし、`unsafe.Slice` / `unsafe.String` / `unsafe.Add` を DataView 上で実装する、(3) 必要な package だけ linear memory (ArrayBuffer) 上に struct を layout する、の段階的導入です。現状は次のとおりです:
   * `unsafe.Pointer` は pointer object そのものを保持するので、`*T` → `unsafe.Pointer` → `*T` は恒等変換です (`strings.Builder`、`sync/atomic.Pointer`、`internal/race` がこれに依存)。
   * `unsafe.String(&b[i], n)`、`unsafe.String(unsafe.SliceData(b), n)`、`unsafe.Slice(&a[i], n)`、`unsafe.SliceData(s)` は slice / array の要素に対して動きます (同じ backing array 上の slice)。`unsafe.Slice(unsafe.StringData(s), n)` は copy しますが、byte は不変なので区別できません。
   * 型 parameter の `unsafe.Sizeof` / `Alignof` は wasm の size で descriptor から計算します。
-  * メモリの再解釈 (異なる `T` への `(*T)(unsafe.Pointer(&u))`)、`uintptr` との相互変換、`unsafe.Add` は goesm 診断です。stdlib でこれを行う少数の関数は natives に置き換えています (`math.Float64bits`、`slices.overlaps` など)。
+  * メモリの再解釈 (異なる `T` への `(*T)(unsafe.Pointer(&u))`)、`uintptr` からの変換、`unsafe.Add` は goesm 診断です。`uintptr(unsafe.Pointer(p))` は pointer ごとに安定して異なる代理のアドレスで、表示 (`%p`) や identity の map には足ります。stdlib でこれを行う少数の関数は natives に置き換えています (`math.Float64bits`、`slices.overlaps` など)。
 
 ## 8. Source maps と diagnostics
 
@@ -209,6 +209,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 | 置換する package | 置換の内容 |
 |---|---|
 | `runtime` | 他の package が使う exported API (`GOOS`、`Error`、`Goexit`、`Gosched`、`KeepAlive`、`Caller`、`MemStats` など)。scheduling とメモリは `@goesm/runtime` 側 |
+| `reflect` | runtime の型 descriptor の上の全 API (type、value、`Set*`、`Call`、`MakeFunc`、map、slice、`Convert`、`DeepEqual`、`VisibleFields` など)。`fmt` と `encoding/json` に足りる範囲 |
 | `internal/reflectlite` | `Type` = runtime の型 descriptor、`Value` = (descriptor, 値 or pointer)。`errors.Is` / `errors.As`、`sort.Slice`、`context` に足りる範囲 |
 | `sync` | `Mutex` と `RWMutex` は同期的に lock し、block を跨いで保持される mutex (§5) だけ待つ (async)。`WaitGroup` と `Cond` は channel で待つ。`Once`、`Map`、`Pool` は普通の Go |
 | `syscall/js` | js/wasm の `syscall/js` API を JS の値そのものの上に実装 (`Value` が値を持つ)。goesm は stdlib を js/wasm 向けに compile するので、`os`・`syscall`・`time` はこれを通じて host に届く。`js.Global().Get("fs")` は `globalThis.fs` が何であっても常に goesm 自身の file system で、`syscall` package が期待する callback API を持ち、return する前に callback を呼ぶ (Node・Bun・Deno では `node:fs` の上に、browser では console を使う代替)。そのため `os.Stdout` と `os.Stderr` はどこでも動き、呼び出し側を async にしない。`process` は host のもの、browser では最小限の代替 |
@@ -217,13 +218,13 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 
 * loader は `packages.Config.ParseFile` を設定します。go/packages が `$GOROOT/src` 以下の置換対象 package の file を parse するとき、最初の file が置換 source になり、残りは空 file になります。したがって go/types はすべての importer を置換後の package に対して型検査し、go command が解決した package graph は変わりません。`packages.Config.Overlay` ではできません: `go tool goesm` の toolchain がある module cache 以下の file は go command が overlay を拒否します。
 * 型検査済みの import (置換後) で到達できる package だけを lowering するので、gc runtime の内部 (`internal/runtime/*` など) は外れます。
-* Go の body を持たない関数 (assembly、`//go:linkname` 宣言、置換で body を省いたもの) は `runtime/src/natives.ts` に、`types.Func.FullName` から決まる名前の export として実装します。export の有無は goesm が compile 時に確認します。メモリを再解釈する Go body を持つ関数も、短い固定 list (`natives.Override`) で natives に置き換えます: `math.Float64bits` など、64-bit の `math/bits` 関数 (BigInt の半分ずつで計算)、`internal/strconv.formatBits` (Go の body が `uint64` の桁を `uint` 経由で狭めるため)、`slices.overlaps`、`internal/abi.NoEscape`。
+* Go の body を持たない関数 (assembly、`//go:linkname` 宣言、置換で body を省いたもの) は `runtime/src/natives.ts` に、`types.Func.FullName` から決まる名前の export として実装します。export の有無は goesm が compile 時に確認します。メモリを再解釈する Go body を持つ関数も、短い固定 list (`natives.Override`) で natives に置き換えます: `math.Float64bits` など、64-bit の `math/bits` 関数 (BigInt の半分ずつで計算)、`internal/strconv.formatBits` (Go の body が `uint64` の桁を `uint` 経由で狭めるため)、`slices.overlaps`、`internal/abi.NoEscape`。結果が IEEE 754 で決まる math の関数 (`Floor`、`Ceil`、`Trunc`、`Round`、`RoundToEven`、`Sqrt`、`Abs`、`Signbit`、`Copysign`、`Inf`) も JS の builtin にしています。Go の body の bit 操作より数倍速くなります。
 * 置換・override・natives は goesm に compile される固定の集合です。適用されるのは `$GOROOT/src` 以下の file だけで、依存 package の内容がこれを増やすことはできません。
 
 現状 (`go test ./test -run TestStdlibStatus -v`、golden テストは `testdata/semantics/stdlibuse`):
 
 * Go source のまま compile でき native Go と一致: `errors` (`Is`、`As`、`Join`、`Unwrap`)、`strings` (検索、split、fields、大文字小文字、`Builder`、`Replacer`、`EqualFold`)、`strconv` (整数の format、`Atoi`、quote、`NumError`)、`sort`、`slices`、`maps`、`sync`、`unicode`、`unicode/utf8`、`math/bits`、`strconv` の 64-bit parse と最短表現の float format (`testdata/semantics/int64s`)。
-* `encoding/json` と `fmt` は `reflect` (と complex) が必要で、まだ置換していません。
+* `fmt` (verb、flag、幅と精度、`Stringer` / `error` / `Formatter` / `GoStringer`、`%w` 付き `Errorf`、`Sscanf`)、`reflect`、`encoding/json` (struct tag、embedded、map、`RawMessage`、`Marshaler` / `TextMarshaler`、`Decoder` の stream、`UseNumber`、error) は `testdata/programs/fmtverbs`、`reflection`、`jsoncodec` で native Go と一致します。
 
 ## 10. Tooling compatibility と security
 
@@ -237,7 +238,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 
 **未実装** (goesm 診断になるか、動作しないもの):
 * 64-bit の `int` と `uint` の正確な表現 (number のまま、§5 参照)
-* `reflect`、`fmt`、`time`、`encoding/json`、`iter.Pull` (coroutine)、§7 を超える `unsafe`
+* `time` の timer、`iter.Pull` (coroutine)、§7 を超える `unsafe` と `reflect`
 * 後方への `goto`、range-over-func の body 内での blocking 操作 / select / defer / goto (診断として報告)、型 parameter 型の変数の address、型 parameter に依存する local type、slice から配列 pointer への変換 (`(*[N]T)(s)`)
 * host に未完了の処理 (timer、I/O) が残っている間の deadlock 検出、goroutine の preemption、goroutine-local な recover 状態
 * JS からの呼び出し ABI (Go の値 ⇔ JS 値の自動変換)
@@ -252,9 +253,10 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * 動的呼び出しの blocking 判定は保守的 (§5) なので、不要な `await` が入ることがある (意味は変わらない)。
 * `print` / `println` は Go ランタイムと同じ書式で stderr に出力するが、ポインタ・map・channel・func・スライス・interface の値は実アドレスではなく固定のアドレスを表示する。
 * `sync`: 解析 (§5) が同期のままにした `Lock` は、待つ必要があると panic する。解析はこれを起こさないはずなので、goesm の bug である。最初の呼び出しの関数が block している間に 2 回目の `Once.Do` を呼ぶと、待たずに panic する。unlock 済み `Mutex` の unlock などの誤用は fatal error ではなく recover できる panic。`runtime.Caller` / `Callers` / `Stack` は何も報告せず、`SetFinalizer` は何もしない。
+* Bun では JavaScriptCore が NaN の payload を保たないので、NaN の `math.Float64bits` が Go と異なることがある。
 
 ## 12. 次に実装すべき 3 項目
 
-1. **runtime descriptor の上に `reflect` を Go source 置換で実装** (`internal/reflectlite` の置換を拡張)。これで `fmt` と `encoding/json` が通るようになります。
-2. **`time`**: host の timer の上の timer と `Sleep`、wall clock と monotonic clock (`int64` で正確になった)、timer が残っている間の deadlock 検出。
-3. **goroutine runtime の完成**: goroutine-local な panic / recover 状態 (async 境界を跨ぐ recover)、`iter.Pull`、JS 呼び出し ABI (exported 関数の引数・戻り値の変換)。
+1. **`time`**: host の timer の上の timer と `Sleep`、wall clock と monotonic clock (`int64` で正確)、timer が残っている間の deadlock 検出。
+2. **goroutine runtime の完成**: goroutine-local な panic / recover 状態 (async 境界を跨ぐ recover)、`iter.Pull`、JS 呼び出し ABI (exported 関数の引数・戻り値の変換)。
+3. **bundle size**: `unicode` の表のような package-level の表は eager に構築され、tree shaking で落ちません (`fmt` の hello world は gzip で約 210 KB)。
