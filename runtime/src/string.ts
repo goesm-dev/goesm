@@ -5,7 +5,7 @@
 // toJSString / fromJSString.
 
 import { indexError, runtimePanic, sliceError } from "./panic.ts";
-import { Slice } from "./slice.ts";
+import { newBytes, Slice } from "./slice.ts";
 import type { S } from "./slice.ts";
 
 export function strIndex(s: string, i: number): number {
@@ -80,7 +80,7 @@ export function bytesToString(b: S<number>): string {
 }
 
 export function stringToBytes(s: string): Slice<number> {
-  const a = new Uint8Array(s.length); // see makeSlice
+  const a = newBytes(s.length);
   for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
   return new Slice(a as any, 0, a.length, a.length);
 }

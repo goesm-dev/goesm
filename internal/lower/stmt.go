@@ -552,12 +552,9 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 			v := fe.info.Uses[x.Sel].(*types.Var) // package-qualified variable
 			return fe.simpleLvalue(fe.varRef(v), t)
 		}
+		// p.f = v, ...: p is evaluated first, the nil check happens when
+		// this assignment is carried out (nilChecked).
 		obj, prop := fe.fieldBase(x)
-		if inner, ok := strings.CutPrefix(obj, "$rt.deref("); ok && prepare && strings.HasSuffix(inner, ")") && balanced(inner[:len(inner)-1]) {
-			// p.f = v, ...: p is evaluated first, the nil check happens
-			// when this assignment is carried out.
-			return fe.simpleLvalue("$rt.deref("+stab(inner[:len(inner)-1])+")."+prop, t)
-		}
 		return fe.simpleLvalue(stab(obj)+"."+prop, t)
 	case *ast.IndexExpr:
 		xt := fe.info.TypeOf(x.X)
@@ -587,7 +584,7 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 		default:
 			a := fe.expr(x.X)
 			if _, isPtr := under(xt).(*types.Pointer); isPtr {
-				a = "$rt.deref(" + a + ")"
+				a = nilChecked(a)
 			}
 			a = stab(a)
 			i := stab(fe.arrayIndex(x))
@@ -602,7 +599,7 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 		if isAggregate(t) {
 			return fe.simpleLvalue("$rt.deref("+p+")", t)
 		}
-		return fe.simpleLvalue("$rt.deref("+p+").v", t)
+		return fe.simpleLvalue(nilChecked(p)+".v", t)
 	}
 	fe.errorf(e.Pos(), "unsupported assignment target %T", e)
 	return lvalue{get: "undefined", set: func(rhs string) string { return rhs }}
@@ -1865,35 +1862,6 @@ func (fe *funcEmitter) branchesFromMachine(s ast.Stmt, loop bool) bool {
 	}
 	visit(s, true, loop, false)
 	return found
-}
-
-// balanced reports whether the parentheses in JS expression s balance (so
-// that "$rt.deref(" + s + ")" is one call), ignoring those in string
-// literals.
-func balanced(s string) bool {
-	depth := 0
-	var quote byte
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case quote != 0:
-			if c == '\\' {
-				i++
-			} else if c == quote {
-				quote = 0
-			}
-		case c == '"' || c == '\'' || c == '`':
-			quote = c
-		case c == '(':
-			depth++
-		case c == ')':
-			depth--
-			if depth < 0 {
-				return false
-			}
-		}
-	}
-	return depth == 0 && quote == 0
 }
 
 // litRecoverTok is the recover token (funcEmitter.recoverTok) of a function

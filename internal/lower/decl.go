@@ -363,17 +363,23 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 		return
 	}
 	var name string
+	// JS calls the exported functions and methods of the entry package
+	// through a wrapper (see exportWrapper).
+	wrap := pe.isEntry && fn.Exported() && fd.Body != nil && fd.Name.Name != "init" &&
+		sig.TypeParams().Len() == 0 && sig.RecvTypeParams().Len() == 0
 	switch {
 	case fd.Recv != nil:
 		name = pe.funcDeclName(fd, fn)
-		pe.export(name, name)
+		if !wrap {
+			pe.export(name, name)
+		}
 	case fd.Name.Name == "init":
 		name = pe.fresh("init")
 		pe.inits = append(pe.inits, name)
 		pe.initObjs = append(pe.initObjs, fn)
 	default:
 		name = pe.funcDeclName(fd, fn)
-		if fn.Exported() {
+		if fn.Exported() && !wrap {
 			pe.export(name, fn.Name())
 		}
 	}
@@ -468,6 +474,43 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	fe.funcBody(fd.Recv, fd.Type, fd.Body, sig)
 	w.indent--
 	w.ln("}")
+	if wrap {
+		exported := fn.Name()
+		if fd.Recv != nil {
+			exported = name
+		}
+		pe.exportWrapper(name, exported, params, ret, fe.async)
+	}
+}
+
+// exportWrapper emits and exports, as exported, the function JS calls for
+// the entry package's function name. Go code dereferences pointers without
+// an explicit nil check (nilChecked), so a nil pointer is a JS TypeError
+// until something converts it; the wrapper does, so that a panic reaches JS
+// as a GoPanic. Go callers call name itself, and V8 inlines name into the
+// wrapper.
+func (pe *pkgEmitter) exportWrapper(name, exported string, params []string, ret string, async bool) {
+	var args []string
+	for _, p := range params {
+		n, _, _ := strings.Cut(p, ": ")
+		args = append(args, n)
+	}
+	call := fmt.Sprintf("%s(%s)", name, strings.Join(args, ", "))
+	kw := ""
+	if async {
+		kw, call = "async ", "await "+call
+	}
+	w := pe.funcs
+	js := pe.fresh(name + "$js")
+	w.ln("%sfunction %s(%s): %s {", kw, js, strings.Join(params, ", "), ret)
+	w.ln("  try {")
+	w.ln("    return %s;", call)
+	w.ln("  } catch (e) {")
+	w.ln("    throw $rt.toPanic(e);")
+	w.ln("  }")
+	w.ln("}")
+	pe.export(js, exported)
+	pe.wrappers[name] = js
 }
 
 // panicwrapMsg is Go's panic message for a value method called through a nil
