@@ -481,7 +481,7 @@ export function native$maps$clone(m: Iface | null): Iface | null {
   if (m === null || m.v === null) return m;
   const src = m.v as GoMap<any, any>, t = m.t;
   const dst = new GoMap<any, any>(src.keyType);
-  for (const [h, [k, v]] of src.entries) dst.entries.set(h, [copy(t.key!, k), copy(t.elem!, v)]);
+  for (const [k, v] of mapRange(src)) mapSet(dst, copy(t.key!, k), copy(t.elem!, v));
   return new Iface(t, dst);
 }
 

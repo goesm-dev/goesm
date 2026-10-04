@@ -287,3 +287,45 @@ func BuilderSplitJoin() []any {
 		strings.Join(parts, "-"), strings.Join(sub, "+"), strings.Join(nil, ","), strings.Join([]string{"é"}, ","), strings.Join([]string{"", ""}, ""),
 	}
 }
+
+// MapKeyKinds uses maps whose keys JS Map compares directly (booleans,
+// integers, strings, channels) next to float keys, which it does not.
+func MapKeyKinds() []any {
+	type empty struct{}
+	ints := map[int]int{-1: 1, 0: 2}
+	ints[1<<40] = 3
+	ints[-1] += 10
+	delete(ints, 0)
+	_, has0 := ints[0]
+	set := map[string]empty{"a": {}}
+	set["b"] = empty{}
+	_, hasB := set["b"]
+	_, hasC := set["c"]
+	ptrs := map[int64]*int{1 << 62: nil}
+	p, hasP := ptrs[1<<62]
+	bools := map[bool]string{true: "t"}
+	ch1, ch2 := make(chan int), make(chan int)
+	chans := map[chan int]int{ch1: 1, ch2: 2}
+	chans[ch1]++
+	floats := map[float64]int{}
+	zero, nan := 0.0, 0.0
+	nan /= nan
+	floats[-zero] = 1
+	floats[zero] = 2
+	floats[nan] = 3
+	floats[nan] = 4
+	var negZeroKey bool
+	for k := range floats {
+		if k == 0 {
+			negZeroKey = 1/k < 0
+		}
+	}
+	sum := 0
+	for k, v := range ints {
+		sum += k + v
+		delete(ints, k)
+	}
+	var nilMap map[string]int
+	keys := slices.Sorted(maps.Keys(set))
+	return []any{has0, hasB, hasC, p == nil, hasP, bools[true], bools[false], chans[ch1], chans[ch2], len(floats), floats[0], negZeroKey, sum, len(ints), nilMap["x"], keys}
+}
