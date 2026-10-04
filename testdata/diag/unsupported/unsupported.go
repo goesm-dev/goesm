@@ -1,15 +1,5 @@
 package unsupported
 
-func Loop() int {
-	i := 0
-again:
-	i++
-	if i < 3 {
-		goto again
-	}
-	return i
-}
-
 func seq(yield func(int) bool) {
 	for i := 0; i < 3; i++ {
 		if !yield(i) {
@@ -18,12 +8,14 @@ func seq(yield func(int) bool) {
 	}
 }
 
-func recvOne(ch chan int) int { return <-ch }
-
-func BlockingInRangeFunc(ch chan int) int {
-	n := 0
+func DeferInRangeFunc() (n int) {
 	for i := range seq {
-		n += i + recvOne(ch)
+		defer func() { n += i }()
 	}
 	return n
+}
+
+func Local[T any]() any {
+	type pair struct{ a, b T }
+	return pair{}
 }

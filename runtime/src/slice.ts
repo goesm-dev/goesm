@@ -7,8 +7,8 @@
 // slices (needed for unsafe and efficient []byte) later.
 
 import { copy } from "./iface.ts";
-import { runtimePanic } from "./panic.ts";
-import { arrayElemPtr, assign } from "./ptr.ts";
+import { indexError, runtimePanic, sliceError } from "./panic.ts";
+import { arrayElemPtr, arrayViews as views, assign } from "./ptr.ts";
 import { isAggregate, Type } from "./types.ts";
 
 export class Slice<T> {
@@ -31,10 +31,14 @@ export function sliceLit<T = any>(arr: T[]): Slice<T> {
 }
 
 // makeSlice implements make([]T, len, cap); cap is undefined for make([]T, len).
+// A slice's backing array is a JS array, so maxSliceLen (the most elements a
+// JS array can hold) plays the part of gc's maxAlloc/elemsize.
+const maxSliceLen = 2 ** 32 - 1;
+
 export function makeSlice<T = any>(len: number, cap: number | undefined, zero: () => T): Slice<T> {
-  if (len < 0 || !Number.isInteger(len)) runtimePanic("makeslice: len out of range");
+  if (!(len >= 0 && len <= maxSliceLen) || !Number.isInteger(len)) runtimePanic("makeslice: len out of range");
   cap = cap ?? len;
-  if (cap < len) runtimePanic("makeslice: cap out of range");
+  if (!(cap >= len && cap <= maxSliceLen)) runtimePanic("makeslice: cap out of range");
   const arr = new Array<T>(cap);
   for (let i = 0; i < cap; i++) arr[i] = zero();
   return new Slice(arr, 0, len, cap);
@@ -49,7 +53,7 @@ export function cap(s: S<any>): number {
 }
 
 function indexPanic(i: number, n: number): never {
-  runtimePanic(`index out of range [${i}] with length ${n}`);
+  indexError(i, n);
 }
 
 export function index<T = any>(s: S<T>, i: number): T {
@@ -69,19 +73,13 @@ export function arrayIndex(n: number, i: number): number {
   return i;
 }
 
-function boundsPanic(lo: number, hi: number, max: number, c: number): never {
-  if (max > c) runtimePanic(`slice bounds out of range [::${max}] with capacity ${c}`);
-  if (hi > max) runtimePanic(`slice bounds out of range [:${hi}] with capacity ${c}`);
-  runtimePanic(`slice bounds out of range [${lo}:${hi}]`);
-}
-
 // slice implements s[lo:hi:max] on a slice.
 export function slice<T = any>(s: S<T>, lo?: number, hi?: number, max?: number): S<T> {
   const c = s === null ? 0 : s.$capacity;
   const l = lo ?? 0;
   const h = hi ?? (s === null ? 0 : s.$length);
   const m = max ?? c;
-  if (l < 0 || h < l || m < h || m > c) boundsPanic(l, h, m, c);
+  if (l < 0 || h < l || m < h || m > c) sliceError(l, h, max, c);
   if (s === null) return null;
   return new Slice(s.$array, s.$offset + l, h - l, m - l);
 }
@@ -92,8 +90,62 @@ export function sliceArray<T = any>(a: T[], lo?: number, hi?: number, max?: numb
   const l = lo ?? 0;
   const h = hi ?? c;
   const m = max ?? c;
-  if (l < 0 || h < l || m < h || m > c) boundsPanic(l, h, m, c);
+  if (l < 0 || h < l || m < h || m > c) sliceError(l, h, max, c, "length");
+  const v = views.get(a);
+  if (v !== undefined) return new Slice(v.a, v.off + l, h - l, m - l);
   return new Slice(a, l, h - l, m - l);
+}
+
+// sliceToArrayPtr implements the conversion (*[n]T)(s). A pointer to an array
+// is the JS array itself, so the result must be an array that aliases s's
+// backing array: the backing array itself when s covers all of it (as for
+// make([]T, n) or a[:]), otherwise a Proxy that views s's elements.
+const viewCache = new WeakMap<object, Map<string, any[]>>();
+
+export function sliceToArrayPtr<T = any>(s: S<T>, n: number): T[] | null {
+  const l = s === null ? 0 : s.$length;
+  if (l < n) runtimePanic(`cannot convert slice with length ${l} to array or pointer to array with length ${n}`);
+  if (s === null) return null;
+  const a = s.$array, off = s.$offset;
+  if (off === 0 && a.length === n) return a;
+  let m = viewCache.get(a);
+  if (m === undefined) viewCache.set(a, (m = new Map()));
+  const key = off + ":" + n;
+  let p = m.get(key);
+  if (p === undefined) {
+    const index = (k: string | symbol): number => {
+      if (typeof k !== "string") return -1;
+      const i = +k;
+      return Number.isInteger(i) && i >= 0 && i < n && String(i) === k ? i : -1;
+    };
+    p = new Proxy(new Array<T>(n), {
+      get(t, k, r) {
+        const i = index(k);
+        return i >= 0 ? a[off + i] : Reflect.get(t, k, r);
+      },
+      set(t, k, x, r) {
+        const i = index(k);
+        if (i >= 0) {
+          a[off + i] = x;
+          return true;
+        }
+        return Reflect.set(t, k, x, r);
+      },
+      has(t, k) {
+        return index(k) >= 0 || Reflect.has(t, k);
+      },
+      getOwnPropertyDescriptor(t, k) {
+        const i = index(k);
+        return i >= 0 ? { value: a[off + i], writable: true, enumerable: true, configurable: true } : Reflect.getOwnPropertyDescriptor(t, k);
+      },
+      ownKeys(t) {
+        return [...Array.from({ length: n }, (_, i) => String(i)), ...Reflect.ownKeys(t)];
+      },
+    });
+    views.set(p, { a, off });
+    m.set(key, p);
+  }
+  return p;
 }
 
 function grow(oldCap: number, needed: number): number {
@@ -128,7 +180,8 @@ export function append<T = any>(s: S<T>, vals: T[], zero: () => T, et?: Type): S
     }
     return new Slice(s.$array, s.$offset, newLen, c);
   }
-  const newCap = grow(c, newLen);
+  if (newLen > maxSliceLen) runtimePanic("growslice: len out of range");
+  const newCap = Math.min(grow(c, newLen), maxSliceLen);
   const arr = new Array<T>(newCap);
   for (let i = 0; i < n; i++) {
     const v = s!.$array[s!.$offset + i];
@@ -197,21 +250,27 @@ export function indexAny(x: any, i: number): any {
     if (i < 0 || i >= x.length) indexPanic(i, x.length);
     return x.charCodeAt(i);
   }
+  if (Array.isArray(x)) return x[arrayIndex(x.length, i)]; // an array or *array
   return index(x, i);
 }
 
+export function setIndexAny(x: any, i: number, v: any): void {
+  if (Array.isArray(x)) x[arrayIndex(x.length, i)] = v;
+  else setIndex(x, i, v);
+}
+
 export function lenAny(x: any): number {
-  return typeof x === "string" ? x.length : len(x);
+  return typeof x === "string" || Array.isArray(x) ? x.length : len(x);
 }
 
 export function capAny(x: any): number {
-  return cap(x);
+  return Array.isArray(x) ? x.length : cap(x);
 }
 
 export function sliceAny(x: any, lo?: number, hi?: number): any {
   if (typeof x === "string") {
     const l = lo ?? 0, h = hi ?? x.length;
-    if (l < 0 || h < l || h > x.length) runtimePanic(`slice bounds out of range [${l}:${h}] with length ${x.length}`);
+    if (l < 0 || h < l || h > x.length) sliceError(l, h, undefined, x.length, "length");
     return x.substring(l, h);
   }
   return slice(x, lo, hi);

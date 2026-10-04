@@ -117,7 +117,7 @@ func (pe *pkgEmitter) methodEntries(T types.Type, named *types.Named, tp tpScope
 		}
 		s := fn.Signature()
 		sig := types.NewSignatureType(nil, nil, nil, s.Params(), s.Results(), s.Variadic())
-		entries = append(entries, fmt.Sprintf("%s: [%s, %s]", jsString(methodKey(fn)), pe.methodWrapper(T, sel, tp), pe.typeDesc(sig, mtp)))
+		entries = append(entries, fmt.Sprintf("%s: [%s, %s]", jsString(methodKey(fn)), pe.methodWrapper(T, sel, tp, ""), pe.typeDesc(sig, mtp)))
 	}
 	return entries
 }
@@ -145,7 +145,9 @@ func derefType(t types.Type) (types.Type, bool) {
 // methodWrapper returns a JS function (recv, ...args) invoking method sel
 // on a receiver of type T, following embedded fields and adjusting the
 // receiver between value and pointer forms.
-func (pe *pkgEmitter) methodWrapper(T types.Type, sel *types.Selection, tp tpScope) string {
+// methodTargs are the dictionaries of a generic method's own type arguments
+// ("d1, d2, "), for a method expression that instantiates it.
+func (pe *pkgEmitter) methodWrapper(T types.Type, sel *types.Selection, tp tpScope, methodTargs string) string {
 	fn := sel.Obj().(*types.Func)
 	path := sel.Index()
 	recv := "r"
@@ -180,7 +182,7 @@ func (pe *pkgEmitter) methodWrapper(T types.Type, sel *types.Selection, tp tpSco
 			recv += ".v" // otherwise the object is the pointer
 		}
 	}
-	args := pe.recvTypeArgs(base, tp)
+	args := pe.recvTypeArgs(base, tp) + methodTargs
 	return fmt.Sprintf("(r: any, ...a: any[]) => (%s as any)(%s%s, ...a)", pe.methodFuncName(fn), args, recv)
 }
 
@@ -379,6 +381,7 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	}
 	fe := pe.newFuncEmitter(w, sig)
 	fe.file = file
+	fe.recoverTok = fn.Origin().FullName()
 	fe.async = pe.prog.IsAsync(fn)
 	fe.syncOnly = pe.prog.SyncOnly(fn)
 
