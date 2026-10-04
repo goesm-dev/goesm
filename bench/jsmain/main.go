@@ -4,8 +4,9 @@
 // the compilers that build programs rather than packages: GopherJS, Go's
 // js/wasm port and TinyGo's wasm target. It sets globalThis.goBench to an
 // object with one function per kernel, then blocks so the functions stay
-// callable. Channels returns a Promise: a syscall/js callback must not block,
-// so the kernel runs on its own goroutine.
+// callable. Upper and Handle take and return strings. Channels returns a
+// Promise: a syscall/js callback must not block, so the kernel runs on its
+// own goroutine.
 package main
 
 import (
@@ -46,6 +47,12 @@ func main() {
 			go func() { resolve.Invoke(kernels.Channels(n)) }()
 			return nil
 		}))
+	}))
+	exports.Set("Upper", js.FuncOf(func(this js.Value, args []js.Value) any {
+		return kernels.Upper(args[0].String())
+	}))
+	exports.Set("Handle", js.FuncOf(func(this js.Value, args []js.Value) any {
+		return kernels.Handle(args[0].String())
 	}))
 	exports.Set("Add", js.FuncOf(func(this js.Value, args []js.Value) any {
 		return kernels.Add(args[0].Int(), args[1].Int())

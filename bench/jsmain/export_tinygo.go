@@ -2,12 +2,25 @@
 
 package main
 
-import "example.com/bench/kernels"
+import (
+	"unsafe"
 
-// add is Add as a plain WebAssembly export, which TinyGo programs usually
-// use for numbers instead of a syscall/js callback.
-//
+	"example.com/bench/kernels"
+)
+
+// See export_wasm.go.
+
 //export add
-func add(a, b int32) int32 {
-	return int32(kernels.Add(int(a), int(b)))
-}
+func add(a, b int32) int32 { return addInt32(a, b) }
+
+//export in
+func in(n int32) unsafe.Pointer { return inPtr(n) }
+
+//export out
+func out() unsafe.Pointer { return outPtr() }
+
+//export upper
+func upper(n int32) int32 { return call(kernels.Upper, n) }
+
+//export handle
+func handle(n int32) int32 { return call(kernels.Handle, n) }

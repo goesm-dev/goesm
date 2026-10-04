@@ -93,8 +93,13 @@ export function stringToRunes(s: string): Slice<number> {
   return new Slice(a, 0, a.length, a.length);
 }
 
+// nonASCII matches a code unit outside ASCII, where Go and JS strings
+// differ.
+const nonASCII = /[\u0080-\uffff]/;
+
 // toJSString decodes a Go (byte) string as UTF-8 into a JS string.
 export function toJSString(s: string): string {
+  if (!nonASCII.test(s)) return s;
   let out = "";
   for (let i = 0; i < s.length; ) {
     const [r, w] = decodeRune(s, i);
@@ -106,6 +111,7 @@ export function toJSString(s: string): string {
 
 // fromJSString encodes a JS string as UTF-8 into a Go (byte) string.
 export function fromJSString(s: string): string {
+  if (!nonASCII.test(s)) return s;
   let out = "";
   for (const ch of s) out += encodeRune(ch.codePointAt(0)!);
   return out;
