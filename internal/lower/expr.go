@@ -1206,7 +1206,7 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 				prefix = fe.pe.methodFuncName(slow) + "("
 			}
 			if iface {
-				callee = icallExpr(recv, jsString(methodKey(fn)), args, sig.Params().Len())
+				callee = fe.icall(recv, jsString(methodKey(fn)), args)
 			} else {
 				if args != "" {
 					callee = prefix + recv + ", " + args + ")"
@@ -1318,6 +1318,38 @@ func icallExpr(recv, key, args string, n int) string {
 		return fmt.Sprintf("$rt.icall%d(%s, %s, %s)", n, recv, key, args)
 	}
 	return fmt.Sprintf("$rt.icall(%s, %s, %s)", recv, key, args)
+}
+
+// icall calls method key of interface value recv with the arguments args
+// straight through its dynamic type's method table (Type.mt). The property
+// access then has an inline cache at this call site, which sees the few
+// dynamic types flowing here, where the shared $rt.icall sees every
+// interface method call of the program. A recv that is not a plain reference
+// is held in a variable of the function (declared by funcBody, outside one
+// in the module's $ir): JS evaluates the callee and recv.v before the
+// arguments, so an interface call among them (or in recv itself) may reuse
+// it. A nil interface is a TypeError reading recv.t, reported as Go's nil
+// dereference (see nilChecked).
+func (fe *funcEmitter) icall(recv, key, args string) string {
+	r, set := stripMarks(recv), ""
+	if simpleRef.MatchString(r) {
+		r = "(" + r + " as any)"
+	} else {
+		ir := "$ir"
+		if fe.inBody {
+			if fe.ir == "" {
+				fe.ir = fe.declareName("$ir")
+			}
+			ir = fe.ir
+		} else {
+			fe.pe.usesIR = true
+		}
+		r, set = ir, ir+" = "+recv+", "
+	}
+	if args != "" {
+		args = ", " + args
+	}
+	return fmt.Sprintf("(%s%s.t.mt[%s](%s.v%s))", set, r, key, r, args)
 }
 
 // isStaticFunc reports whether fun names a declared function (never nil).
