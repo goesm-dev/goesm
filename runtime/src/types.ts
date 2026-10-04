@@ -130,7 +130,11 @@ export function arrayOf(elem: Type, len: number): Type {
     t.str = `[${len}]${elem.str}`;
     t.zero = () => {
       const a = new Array(len);
-      for (let i = 0; i < len; i++) a[i] = elem.zero();
+      if (len === 0) return a;
+      const z = elem.zero();
+      if (typeof z !== "object" || z === null) return a.fill(z);
+      a[0] = z;
+      for (let i = 1; i < len; i++) a[i] = elem.zero();
       return a;
     };
     return t;

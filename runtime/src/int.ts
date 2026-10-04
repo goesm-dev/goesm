@@ -13,7 +13,7 @@ import { Kind, Type } from "./types.ts";
 
 export function div(a: number, b: number): number {
   if (b === 0) runtimePanic("integer divide by zero");
-  return Math.trunc(a / b);
+  return Math.trunc(a / b) + 0; // + 0: -1 / 2 is 0, not -0
 }
 
 export function mod(a: number, b: number): number {
@@ -34,16 +34,20 @@ export function modBig(a: bigint, b: bigint): bigint {
   return a % b;
 }
 
+// bigShifts[n] is BigInt(n) for the shift counts 0 to 64.
+const bigShifts: bigint[] = [];
+for (let i = 0; i <= 64; i++) bigShifts.push(BigInt(i));
+
 export function shlBig(x: bigint, n: number, signed: boolean): bigint {
   checkShift(n);
   if (n >= 64) return 0n;
-  const r = x << BigInt(n);
+  const r = x << bigShifts[n];
   return signed ? BigInt.asIntN(64, r) : BigInt.asUintN(64, r);
 }
 
 export function shrBig(x: bigint, n: number): bigint {
   checkShift(n);
-  return x >> BigInt(n >= 64 ? 64 : n);
+  return x >> bigShifts[n >= 64 ? 64 : n];
 }
 
 const two63 = 9223372036854775808;
@@ -71,6 +75,7 @@ export function intNumber(x: number | bigint): number {
 
 export const imul = Math.imul;
 export const trunc = Math.trunc;
+export const floor = Math.floor;
 export const fround = Math.fround;
 
 function checkShift(n: number): void {
@@ -89,25 +94,67 @@ export function shr32(x: number, n: number, signed: boolean): number {
   return n >= 32 ? 0 : x >>> n;
 }
 
-// 64-bit operations go through BigInt so in-range results are exact.
+// 64-bit operations on int, uint and uintptr (numbers). Shifts scale by
+// powers of two, exact for integers; bitwise operations work on the two
+// 32-bit halves. A result beyond 2^53 rounds like Number(BigInt(...)).
+const pow2: number[] = [];
+for (let i = 0; i < 64; i++) pow2.push(2 ** i);
+const two32 = 4294967296;
+const maxSafe = 9007199254740992; // 2^53
+
 export function shl64(x: number, n: number, signed: boolean): number {
   checkShift(n);
   if (n >= 64) return 0;
-  const r = BigInt(x) << BigInt(n);
-  return Number(signed ? BigInt.asIntN(64, r) : BigInt.asUintN(64, r));
+  const r = x * pow2[n];
+  if (r < maxSafe && r > -maxSafe) return r; // no wrapping
+  const b = BigInt(x) << BigInt(n);
+  return Number(signed ? BigInt.asIntN(64, b) : BigInt.asUintN(64, b));
 }
 
 export function shr64(x: number, n: number, signed: boolean): number {
   checkShift(n);
   if (n >= 64) return signed && x < 0 ? -1 : 0;
-  return Number(BigInt(x) >> BigInt(n));
+  return Math.floor(x / pow2[n]);
 }
 
-export function and64(a: number, b: number): number { return Number(BigInt(a) & BigInt(b)); }
-export function or64(a: number, b: number): number { return Number(BigInt(a) | BigInt(b)); }
-export function xor64(a: number, b: number): number { return Number(BigInt(a) ^ BigInt(b)); }
-export function andNot64(a: number, b: number): number { return Number(BigInt(a) & ~BigInt(b)); }
+// bits64 applies the 32-bit operation f to the halves of a and b. The
+// result is negative when an operand is (only signed values are).
+function bits64(a: number, b: number, f: (x: number, y: number) => number): number {
+  const ah = Math.floor(a / two32), bh = Math.floor(b / two32);
+  const lo = f(a - ah * two32, b - bh * two32) >>> 0;
+  const h = f(ah, bh);
+  return (a < 0 || b < 0 ? h | 0 : h >>> 0) * two32 + lo;
+}
+
+const andF = (x: number, y: number) => x & y;
+const orF = (x: number, y: number) => x | y;
+const xorF = (x: number, y: number) => x ^ y;
+const andNotF = (x: number, y: number) => x & ~y;
+
+// In each fast path both operands fit in 32 bits of one signedness, where
+// the 32-bit operation is the 64-bit one.
+export function and64(a: number, b: number): number {
+  if ((a | 0) === a && (b | 0) === b) return a & b;
+  if (a >>> 0 === a && b >>> 0 === b) return (a & b) >>> 0;
+  return bits64(a, b, andF);
+}
+export function or64(a: number, b: number): number {
+  if ((a | 0) === a && (b | 0) === b) return a | b;
+  if (a >>> 0 === a && b >>> 0 === b) return (a | b) >>> 0;
+  return bits64(a, b, orF);
+}
+export function xor64(a: number, b: number): number {
+  if ((a | 0) === a && (b | 0) === b) return a ^ b;
+  if (a >>> 0 === a && b >>> 0 === b) return (a ^ b) >>> 0;
+  return bits64(a, b, xorF);
+}
+export function andNot64(a: number, b: number): number {
+  if ((a | 0) === a && (b | 0) === b) return a & ~b;
+  if (a >>> 0 === a && b >>> 0 === b) return (a & ~b) >>> 0;
+  return bits64(a, b, andNotF);
+}
 export function not64(a: number, signed: boolean): number {
+  if (signed && a < maxSafe && a > -maxSafe) return -a - 1;
   const r = ~BigInt(a);
   return Number(signed ? r : BigInt.asUintN(64, r));
 }
