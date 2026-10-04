@@ -196,6 +196,64 @@ export function native$slices$sortBuiltin(i: Iface): boolean {
   return true;
 }
 
+// fmt.Sprintf's fast path (see the fmt patch).
+export function native$fmt$indexPercent(s: string, from: number): number {
+  return s.indexOf("%", from);
+}
+// fmtInt and fmtUint format an int or a uint (JS numbers) for the verb
+// %d or %v (base 10), %x or %X (base 16), or return "" for other verbs and
+// with a precision.
+export function native$fmt$fmtInt(v: number, verb: number, prec: number): string {
+  const base = prec >= 0 ? 0 : verb === 100 || verb === 118 ? 10 : verb === 120 || verb === 88 ? 16 : 0; // d v x X
+  if (base === 0) return "";
+  const s = Number.isSafeInteger(v) ? v.toString(base) : BigInt.asIntN(64, BigInt(v)).toString(base);
+  return verb === 88 ? s.toUpperCase() : s;
+}
+export function native$fmt$fmtUint(v: number, verb: number, prec: number): string {
+  const base = prec >= 0 ? 0 : verb === 100 || verb === 118 ? 10 : verb === 120 || verb === 88 ? 16 : 0;
+  if (base === 0) return "";
+  const s = Number.isSafeInteger(v) ? v.toString(base) : BigInt.asUintN(64, BigInt(v)).toString(base);
+  return verb === 88 ? s.toUpperCase() : s;
+}
+// fmtFixed is strconv.FormatFloat(v, 'f', prec, 64) for the values
+// ftoaDigits formats with toFixed, and "" for the others.
+export function native$fmt$fmtFixed(v: number, prec: number): string {
+  const x = Math.abs(v);
+  if (v === 0 || !(x < 1e21) || prec > 100) return "";
+  let t = x.toFixed(prec);
+  if (tieScale(x) === prec) t = roundToEven(t);
+  return v < 0 ? "-" + t : t;
+}
+// fmtShortest is strconv.FormatFloat(v, 'g', -1, 64), fmt's %v of a
+// float64: the shortest digits that read back as v (toExponential's), in
+// %e form if the exponent is below -4 or at least max(digits, 6)... as
+// strconv's fmtEFG decides.
+export function native$fmt$fmtShortest(v: number): string {
+  if (v === 0) return Object.is(v, -0) ? "-0" : "0";
+  if (v !== v) return "NaN";
+  if (v === Infinity) return "+Inf";
+  if (v === -Infinity) return "-Inf";
+  const t = Math.abs(v).toExponential();
+  const e = t.indexOf("e");
+  const exp = +t.slice(e + 1);
+  const d = t.charAt(0) + t.slice(2, e); // the digits
+  const nd = d.length, dp = exp + 1;
+  let eprec = 6;
+  if (eprec > nd && nd >= dp) eprec = nd;
+  let r: string;
+  if (exp < -4 || exp >= eprec) {
+    const ae = Math.abs(exp);
+    r = d.charAt(0) + (nd > 1 ? "." + d.slice(1) : "") + (exp < 0 ? "e-" : "e+") + (ae < 10 ? "0" + ae : ae);
+  } else if (dp <= 0) {
+    r = "0." + "0".repeat(-dp) + d;
+  } else if (dp >= nd) {
+    r = d + "0".repeat(dp - nd);
+  } else {
+    r = d.slice(0, dp) + "." + d.slice(dp);
+  }
+  return v < 0 ? "-" + r : r;
+}
+
 // strings.Split with a separator and strings.Join (see the strings patch).
 export function native$strings$splitAll(s: string, sep: string): S<string> {
   return sliceLit(s.split(sep));
