@@ -34,6 +34,28 @@ jobs:
       - run: go test ./...
         env:
           GOESM_REQUIRE_TOOLS: "1"
+  otelc:
+    # OpenTelemetry's compile-time instrumentation through goesm -toolexec,
+    # against a native build (docs/otelc.md).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          version: 2026.10.0
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: otelc-${{ runner.os }}-${{ hashFiles('mise.toml', 'go.sum') }}-${{ github.sha }}
+          restore-keys: otelc-${{ runner.os }}-${{ hashFiles('mise.toml', 'go.sum') }}-
+      - run: go install go.opentelemetry.io/otelc/tool/cmd/otelc@v1.1.0
+        env:
+          GOBIN: ${{ runner.temp }}/otelc
+      - run: go test ./test -run TestOtelc -v -timeout 20m
+        env:
+          GOESM_TEST_OTELC: ${{ runner.temp }}/otelc/otelc
   conformance:
     # Go's own test/ directory (`// run` tests) through goesm, against the
     # baseline in test/conformance/passing.txt.
