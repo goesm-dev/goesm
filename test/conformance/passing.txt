@@ -10,8 +10,10 @@ bigalg.go
 bigmap.go
 chan/doubleselect.go
 chan/fifo.go
+chan/nonblock.go
 chan/select.go
 chan/select2.go
+chan/select3.go
 chan/select4.go
 chan/select6.go
 chan/select7.go
@@ -40,6 +42,7 @@ copy.go
 ddd.go
 decl.go
 defer.go
+deferfin.go
 defernil.go
 deferprint.go
 divide.go
@@ -101,6 +104,7 @@ fixedbugs/bug128.go
 fixedbugs/bug130.go
 fixedbugs/bug141.go
 fixedbugs/bug142.go
+fixedbugs/bug147.go
 fixedbugs/bug148.go
 fixedbugs/bug1515.go
 fixedbugs/bug152.go
@@ -233,6 +237,7 @@ fixedbugs/issue10332.go
 fixedbugs/issue10353.go
 fixedbugs/issue10486.go
 fixedbugs/issue10925.go
+fixedbugs/issue11256.go
 fixedbugs/issue11286.go
 fixedbugs/issue11326b.go
 fixedbugs/issue11369.go
@@ -263,6 +268,7 @@ fixedbugs/issue15439.go
 fixedbugs/issue15550.go
 fixedbugs/issue15902.go
 fixedbugs/issue15975.go
+fixedbugs/issue16016.go
 fixedbugs/issue16095.go
 fixedbugs/issue16130.go
 fixedbugs/issue16249.go
@@ -379,6 +385,7 @@ fixedbugs/issue35576.go
 fixedbugs/issue37716.go
 fixedbugs/issue37753.go
 fixedbugs/issue37975.go
+fixedbugs/issue38093.go
 fixedbugs/issue38496.go
 fixedbugs/issue39505b.go
 fixedbugs/issue39541.go
@@ -453,6 +460,7 @@ fixedbugs/issue5373.go
 fixedbugs/issue54220.go
 fixedbugs/issue54348.go
 fixedbugs/issue54632.go
+fixedbugs/issue5493.go
 fixedbugs/issue54959.go
 fixedbugs/issue55122.go
 fixedbugs/issue55122b.go
@@ -471,6 +479,7 @@ fixedbugs/issue59367.go
 fixedbugs/issue59404part2.go
 fixedbugs/issue59572.go
 fixedbugs/issue5963.go
+fixedbugs/issue59680.go
 fixedbugs/issue6055.go
 fixedbugs/issue60601.go
 fixedbugs/issue62203.go
@@ -560,6 +569,7 @@ fixedbugs/issue80976.go
 fixedbugs/issue8132.go
 fixedbugs/issue8139.go
 fixedbugs/issue8155.go
+fixedbugs/issue8158.go
 fixedbugs/issue8325.go
 fixedbugs/issue8336.go
 fixedbugs/issue8347.go
@@ -586,6 +596,7 @@ func7.go
 func8.go
 gc.go
 gc1.go
+gcstring.go
 genmeth.go
 goprint.go
 helloworld.go
@@ -646,6 +657,7 @@ ken/string.go
 ken/strvar.go
 literal.go
 literal2.go
+mallocfin.go
 map.go
 mapclear.go
 method.go
@@ -654,6 +666,7 @@ method5.go
 method7.go
 named.go
 newexpr.go
+nil.go
 nilptr2.go
 noinit.go
 peano.go
@@ -681,6 +694,7 @@ string_lit.go
 stringrange.go
 struct0.go
 switch.go
+tinyfin.go
 turing.go
 typeparam/absdiff.go
 typeparam/absdiff2.go
