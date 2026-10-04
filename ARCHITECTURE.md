@@ -219,17 +219,19 @@ How it works:
 * The loader sets `packages.Config.ParseFile`: when go/packages parses a file of a replaced package under `$GOROOT/src`, the first file becomes the replacement and the others become empty files. go/types therefore type-checks every importer against the replacement, and the package graph the go command resolved is unchanged. `packages.Config.Overlay` cannot do this: the go command refuses to overlay files under the module cache, where `go tool goesm`'s toolchain lives.
 * Only packages reachable through the type-checked imports (after replacement) are lowered, so the gc runtime's internals (`internal/runtime/*`, `internal/abi` users, ...) drop out.
 * A function without a Go body (assembly, `//go:linkname` declarations, or left bodyless by a replacement) is implemented in `runtime/src/natives.ts`, one export per function named after `types.Func.FullName`. goesm checks at compile time that the export exists. A short fixed list (`natives.Override`) also replaces functions whose Go body reinterprets memory: `math.Float64bits` and friends, the 64-bit `math/bits` functions (on BigInt halves), `internal/strconv.formatBits` (whose Go body narrows `uint64` digits through `uint`), `slices.overlaps`, `internal/abi.NoEscape`. The math functions whose results IEEE 754 fixes (`Floor`, `Ceil`, `Trunc`, `Round`, `RoundToEven`, `Sqrt`, `Abs`, `Signbit`, `Copysign`, `Inf`) are JS builtins too, several times faster than their Go bodies' bit manipulation.
-* Replacements, overrides and natives are a fixed set compiled into goesm. They apply only to files under `$GOROOT/src`, and nothing a dependency contains can add to them.
+* A **patch** (`internal/natives/patch/<import path>/<file>.go`) changes a few declarations of a package that is otherwise compiled from its own source: its declarations replace the package's declarations of the same names (renamed to `_` in place, so they stay type-checked but are never emitted) and are added, with its imports, to the file of that name. `time` is patched this way: `Sleep`, `Timer`, `Ticker` and the timer functions the gc runtime implements run on the host's `setTimeout` (`armTimer` in natives.ts), and a timer's function runs in a new goroutine when it fires.
+* Replacements, patches, overrides and natives are a fixed set compiled into goesm. They apply only to files under `$GOROOT/src`, and nothing a dependency contains can add to them.
 
 Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/semantics/stdlibuse`):
 
 * Compiled from Go source and matching native Go: `errors` (`Is`, `As`, `Join`, `Unwrap`), `strings` (search, split, fields, case mapping, `Builder`, `Replacer`, `EqualFold`), `strconv` (integer formatting, `Atoi`, quoting, `NumError`), `sort`, `slices`, `maps`, `sync`, `unicode`, `unicode/utf8`, `math/bits`, `strconv` 64-bit parsing and shortest float formatting (`testdata/semantics/int64s`).
 * `fmt` (verbs, flags, width and precision, `Stringer` / `error` / `Formatter` / `GoStringer`, `Errorf` with `%w`, `Sscanf`), `reflect` and `encoding/json` (struct tags, embedding, maps, `RawMessage`, `Marshaler` / `TextMarshaler`, `Decoder` streams, `UseNumber`, errors) match native Go in `testdata/programs/fmtverbs`, `reflection` and `jsoncodec`.
+* `time` (`Sleep`, `Timer` with `Stop` / `Reset`, `Ticker`, `AfterFunc`, `After` in `select`, clocks, `Duration`, formatting and parsing) matches native Go in `testdata/programs/timers`.
 
 ## 10. Tooling compatibility and security
 
 * `.go` files are plain Go: no goesm-specific syntax, directives or magic comments. The fixtures pass `go vet` / `go build` / `go run`, and the golden tests compare against exactly that native execution. The package graph is the one the go command resolved, so call graphs for govulncheck and similar tools are unchanged.
-* Importing a dependency never runs code inside goesm. There is no compiler plugin or third-party extension mechanism; the only esbuild plugin is goesm's own split-mode resolver in `goesm build -split`, and the emitted tree needs none. The standard library replacements and natives (§9) are a fixed set inside goesm that applies only to `$GOROOT/src`; a Go function without a body outside the standard library is an error, never a hook.
+* Importing a dependency never runs code inside goesm. There is no compiler plugin or third-party extension mechanism; the only esbuild plugin is goesm's own split-mode resolver in `goesm build -split`, and the emitted tree needs none. The standard library replacements, patches and natives (§9) are a fixed set inside goesm that applies only to `$GOROOT/src`; a Go function without a body outside the standard library is an error, never a hook.
 * Concerns: (1) go/packages runs `go list`, so goesm inherits the go command's trust boundary for its environment (`GOFLAGS` etc.), `go.work` and fetching modules from `GOPROXY` (goesm does not widen it). (2) Generated code relies on Go's type safety; a lowering bug shows up as wrong behaviour, not memory unsafety (JS itself is memory safe). (3) Generated ESM uses host APIs such as `globalThis.reportError`; DOM API bindings are not implemented. (4) `GoPanic` messages and the source map's `sourcesContent` include Go source, so a published bundle ships the source (an option to drop `SourcesContent` is not implemented).
 
 ## 11. Implemented / not implemented / differences from native Go
@@ -238,9 +240,9 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 
 **Not implemented** (produces a goesm diagnostic or does not work):
 * exact 64-bit `int` and `uint` (they are numbers, see §5)
-* `time` timers, `iter.Pull` (coroutines), and the parts of `unsafe` and `reflect` beyond §7
+* `iter.Pull` (coroutines), and the parts of `unsafe` and `reflect` beyond §7
 * backward `goto`; blocking operations, select, defer or goto inside a range-over-func body (reported as diagnostics); taking the address of type-parameter-typed variables; local types depending on type parameters; conversion from a slice to an array pointer (`(*[N]T)(s)`)
-* deadlock detection while the host still has pending work (timers, I/O), goroutine preemption, goroutine-local recover state
+* deadlock detection while the host still has pending work that Go does not know about (JavaScript timers, I/O), goroutine preemption, goroutine-local recover state
 * a JS calling ABI (automatic Go ⇔ JS value conversion)
 * shared loop variables in range loops for files with `go` < 1.22
 
@@ -254,9 +256,10 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 * `print` / `println` write to stderr in the Go runtime's format, but pointer, map, channel, func, slice and interface values print a fixed address instead of a real one.
 * `sync`: a `Lock` the analysis (§5) left synchronous panics if it would have to wait; the analysis is meant to rule that out, so it is a goesm bug. A second `Once.Do` while the first call's function is blocked panics instead of waiting; misuse such as unlocking an unlocked `Mutex` is a recoverable panic, not a fatal error. `runtime.Caller` / `Callers` / `Stack` report nothing and `SetFinalizer` is a no-op.
 * Under Bun, JavaScriptCore does not keep NaN payloads, so `math.Float64bits` of a NaN can differ from Go's.
+* `time`: timer channels have a buffer of one, as with `GODEBUG=asynctimerchan=1` (`len(t.C)` can be 1); `Stop` and `Reset` drain them, so no stale value is received afterwards, as in Go 1.23. `Timer` and `Ticker` carry one more unexported field, which `%+v` shows. Timers fire when the host's event loop gets to them, so a busy goroutine delays them.
 
 ## 12. Next three items
 
-1. **`time`**: timers and `Sleep` on the host's timers, wall and monotonic clocks (exact as `int64`), and deadlock detection while timers are pending.
-2. **Completing the goroutine runtime**: goroutine-local panic / recover state (recover across async boundaries), `iter.Pull`, and a JS calling ABI (converting arguments and results of exported functions).
+1. **Completing the goroutine runtime**: goroutine-local panic / recover state (recover across async boundaries), `iter.Pull`, and a JS calling ABI (converting arguments and results of exported functions).
+2. **Conformance gaps** found by the GOROOT/test suite: backward `goto`, defer and select in range-over-func bodies, huge array literals.
 3. **Bundle size**: package-level tables such as `unicode`'s are built eagerly and survive tree shaking (a `fmt` hello world is about 210 KB gzipped).

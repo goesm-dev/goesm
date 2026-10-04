@@ -85,6 +85,7 @@ func TestTSC(t *testing.T) {
 		{testdata("programs"), "./fmtverbs"},
 		{testdata("programs"), "./reflection"},
 		{testdata("programs"), "./jsoncodec"},
+		{testdata("programs"), "./timers"},
 		{testdata("programs"), "./mathfuncs"},
 		{examples, "./cart"},
 		{examples, "./textstats"},
