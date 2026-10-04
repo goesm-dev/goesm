@@ -55,7 +55,12 @@ function sh(cmd, argv, opt = {}) {
 // stderr as they come.
 function runJSONLines(cmd, argv, { input, env } = {}) {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, argv, { cwd: benchDir, env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "inherit"] });
+    // Runtime options from the environment (such as Bun's --smol, a smaller
+    // heap that collects more often) would change what is measured.
+    const base = { ...process.env };
+    delete base.NODE_OPTIONS;
+    delete base.BUN_OPTIONS;
+    const p = spawn(cmd, argv, { cwd: benchDir, env: { ...base, ...env }, stdio: ["pipe", "pipe", "inherit"] });
     let buf = "";
     const lines = [];
     p.stdout.on("data", (d) => {
