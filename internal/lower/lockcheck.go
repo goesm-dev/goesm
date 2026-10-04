@@ -189,14 +189,30 @@ func (p *Program) heldSections() []mutexCall {
 		}
 		info := pkg.TypesInfo
 		for _, f := range pkg.Syntax {
+			inList := map[*ast.CallExpr]bool{} // Lock statements of statement lists
+			callees := map[ast.Expr]bool{}
 			ast.Inspect(f, func(n ast.Node) bool {
 				var list []ast.Stmt
 				switch n := n.(type) {
 				case *ast.CallExpr:
-					// A TryLock that succeeds starts a section that is not
-					// delimited by statements: count it as held.
-					if mc, ok := mutexMethod(info, n); ok && (mc.method == "TryLock" || mc.method == "TryRLock") {
-						out = append(out, mc)
+					callees[unparen(n.Fun)] = true
+					// A section that statements do not delimit counts as
+					// held: one started by a TryLock that succeeds, or by a
+					// Lock outside a statement list (in an if, for or
+					// switch initializer, an argument, a deferred Lock).
+					if mc, ok := mutexMethod(info, n); ok {
+						if mc.method == "TryLock" || mc.method == "TryRLock" || (isLock(mc.method) && !inList[n]) {
+							out = append(out, mc)
+						}
+					}
+					return true
+				case *ast.SelectorExpr:
+					// A Lock method value or expression called later: an
+					// indirect section nothing delimits.
+					if sel, ok := info.Selections[n]; ok && !callees[n] && (sel.Kind() == types.MethodVal || sel.Kind() == types.MethodExpr) {
+						if fn := sel.Obj().(*types.Func); fn.Pkg() != nil && fn.Pkg().Path() == "sync" && (isLock(fn.Name()) || fn.Name() == "TryLock" || fn.Name() == "TryRLock") {
+							out = append(out, mutexCall{method: fn.Name(), expr: types.ExprString(n)})
+						}
 					}
 					return true
 				case *ast.BlockStmt:
@@ -213,6 +229,7 @@ func (p *Program) heldSections() []mutexCall {
 					if _, deferred := s.(*ast.DeferStmt); !ok || deferred || !isLock(mc.method) {
 						continue
 					}
+					inList[mc.call] = true
 					end, unlocked := len(list), false
 					for j := i + 1; j < len(list); j++ {
 						u, ok := lockStmt(info, list[j])

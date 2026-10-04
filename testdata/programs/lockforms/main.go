@@ -55,6 +55,44 @@ func tryHold(ch chan int) bool {
 	return false
 }
 
+var initLocked, valueLocked sync.Mutex
+
+// lockInInit locks initLocked in an if initializer and holds it across a
+// receive.
+func lockInInit(ch chan int) {
+	if initLocked.Lock(); len(ch) == 0 {
+		<-ch
+		initLocked.Unlock()
+	}
+}
+
+// lockByValue locks valueLocked through a method value.
+func lockByValue(ch chan int) {
+	lock := valueLocked.Lock
+	lock()
+	<-ch
+	valueLocked.Unlock()
+}
+
+// contend runs hold, which locks a mutex and waits on ch, then a goroutine
+// locking the same mutex while it is held.
+func contend(hold func(chan int), lock, unlock func(), name string, ch chan int) {
+	done := make(chan bool)
+	go func() {
+		hold(ch)
+		done <- true
+	}()
+	go func() {
+		lock()
+		unlock()
+		done <- true
+	}()
+	ch <- 1
+	<-done
+	<-done
+	os.Stdout.WriteString(name + " ok\n")
+}
+
 func main() {
 	(*sync.Mutex).Lock(&mu)
 	(*sync.Mutex).Unlock(&mu)
@@ -154,5 +192,7 @@ func main() {
 	ch <- 1
 	<-done
 	os.Stdout.WriteString("TryLock: " + strconv.FormatBool(<-held) + ", then RLock\n")
+	contend(lockInInit, func() { initLocked.Lock() }, func() { initLocked.Unlock() }, "lock in initializer", ch)
+	contend(lockByValue, func() { valueLocked.Lock() }, func() { valueLocked.Unlock() }, "lock by method value", ch)
 	os.Stdout.WriteString("done\n")
 }
