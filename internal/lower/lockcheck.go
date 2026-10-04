@@ -237,9 +237,9 @@ func (p *Program) heldSections() []mutexCall {
 }
 
 // bypasses reports whether a path through list leaves it (return, panic,
-// or a break, continue or goto out of it) before an Unlock of expr: the
-// function may then return with the mutex locked. inLoop and inBreakable
-// tell whether an unlabeled continue or break stays inside list.
+// runtime.Goexit, or a break, continue or goto out of it) before an Unlock
+// of expr: the function may then return with the mutex locked. inLoop and
+// inBreakable tell whether an unlabeled continue or break stays inside list.
 func bypasses(info *types.Info, list []ast.Stmt, expr string, inLoop, inBreakable bool) bool {
 	for _, s := range list {
 		if u, ok := lockStmt(info, s); ok && isUnlock(u.method) && u.expr == expr {
@@ -252,6 +252,11 @@ func bypasses(info *types.Info, list []ast.Stmt, expr string, inLoop, inBreakabl
 			if c, ok := unparen(s.X).(*ast.CallExpr); ok {
 				if b, ok := info.Uses[identOf(unparen(c.Fun))].(*types.Builtin); ok && b.Name() == "panic" {
 					return true
+				}
+				if sel, ok := unparen(c.Fun).(*ast.SelectorExpr); ok {
+					if fn, ok := info.Uses[sel.Sel].(*types.Func); ok && fn.Pkg() != nil && fn.Pkg().Path() == "runtime" && fn.Name() == "Goexit" {
+						return true
+					}
 				}
 			}
 		case *ast.BranchStmt:

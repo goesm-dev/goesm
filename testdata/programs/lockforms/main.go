@@ -6,6 +6,7 @@ package main
 
 import (
 	"os"
+	"runtime"
 	"sync"
 )
 
@@ -28,6 +29,17 @@ func acquire(keep bool) bool {
 	}
 	owned.Unlock()
 	return false
+}
+
+var exited sync.Mutex
+
+// lockAndExit ends its goroutine with exited locked when stop is set.
+func lockAndExit(stop bool) {
+	exited.Lock()
+	if stop {
+		runtime.Goexit()
+	}
+	exited.Unlock()
 }
 
 func main() {
@@ -93,5 +105,24 @@ func main() {
 	ch <- 1
 	<-done
 	<-done
+
+	go func() {
+		defer func() { done <- true }()
+		lockAndExit(true)
+	}()
+	<-done
+	go func() {
+		exited.Lock() // waits for the Unlock below
+		done <- true
+	}()
+	go func() {
+		<-ch
+		exited.Unlock()
+		done <- true
+	}()
+	ch <- 1
+	<-done
+	<-done
+	os.Stdout.WriteString("locked after Goexit\n")
 	os.Stdout.WriteString("done\n")
 }
