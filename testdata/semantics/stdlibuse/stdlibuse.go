@@ -215,3 +215,31 @@ func SlicesAndMaps() []any {
 	keys := slices.Sorted(maps.Keys(c))
 	return []any{s, slices.Contains(s, 9), slices.Index(s, 4), idx, found, m["a"], c["a"], keys, slices.Max(s)}
 }
+
+// SortKinds sorts slices of each ordered kind (integers and strings take the
+// engine's sort, floats Go's pdqsort), also a slice into the middle of an
+// array.
+func SortKinds() []any {
+	ints := []int{5, -3, 9007199254740991, 0, -9007199254740991, 5, 2}
+	slices.Sort(ints)
+	strs := []string{"b", "a\xff", "a", "", "é", "日本", "aa", "A", "a\x00"}
+	sort.Strings(strs)
+	bs := []byte("hello, world")
+	slices.Sort(bs)
+	i64 := []int64{1 << 62, -1 << 63, 0, -1, 1<<63 - 1}
+	slices.Sort(i64)
+	u64 := []uint64{1<<64 - 1, 0, 1 << 63, 42}
+	slices.Sort(u64)
+	i8 := []int8{127, -128, 0, -1}
+	slices.Sort(i8)
+	arr := [6]uint16{9, 8, 7, 6, 5, 4}
+	slices.Sort(arr[1:5])
+	type myInt int
+	mine := []myInt{3, 1, 2}
+	slices.Sort(mine)
+	fs := []float64{3, -1, 0.5, -2.5}
+	sort.Float64s(fs)
+	var empty []string
+	slices.Sort(empty)
+	return []any{ints, strs, string(bs), i64, u64, i8, arr, mine, fs, empty == nil, slices.IsSorted(strs)}
+}
