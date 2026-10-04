@@ -544,7 +544,20 @@ func (fe *funcEmitter) compositeLitOf(e *ast.CompositeLit) string {
 				}
 				continue
 			}
-			elems = append(elems, elemVal{i, fe.valueOf(el, u.Field(i).Type())})
+			v := fe.valueOf(el, u.Field(i).Type())
+			if u.Field(i).Name() == "_" { // evaluated, but a blank field stays zero
+				switch x := unparen(el).(type) {
+				case *ast.Ident, *ast.BasicLit, *ast.FuncLit:
+					v = fe.zero(u.Field(i).Type())
+				default:
+					if tv := fe.info.Types[x]; tv.Value != nil {
+						v = fe.zero(u.Field(i).Type())
+					} else {
+						v = "(" + v + ", " + fe.zero(u.Field(i).Type()) + ")"
+					}
+				}
+			}
+			elems = append(elems, elemVal{i, v})
 		}
 		pre := fe.spillOutOfOrder(elems)
 		var sets []string
@@ -1412,7 +1425,13 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			if len(e.Args) > 1 {
 				c = fe.intNumber(e.Args[1])
 			}
-			return fmt.Sprintf("%s$rt.makeChan(%s, %s)", m, c, fe.zeroFn(u.Elem()))
+			size := ""
+			if sizes := fe.pe.pkg.TypesSizes; sizes != nil && !isGenericType(u.Elem()) {
+				if n := sizes.Sizeof(u.Elem()); n > 1 {
+					size = fmt.Sprintf(", %d", n) // for the size limit
+				}
+			}
+			return fmt.Sprintf("%s$rt.makeChan(%s, %s%s)", m, c, fe.zeroFn(u.Elem()), size)
 		}
 	case "new":
 		t := fe.info.TypeOf(e).(*types.Pointer).Elem()
