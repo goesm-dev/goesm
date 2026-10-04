@@ -12,7 +12,7 @@
 // derived pointer objects. A pointer is not an integer here; unsafe.Pointer
 // arithmetic would need the planned ArrayBuffer-backed memory model.
 
-import { plainPanic, runtimePanic } from "./panic.ts";
+import { indexError, plainPanic, runtimePanic } from "./panic.ts";
 import { Slice } from "./slice.ts";
 import { Type, isAggregate } from "./types.ts";
 
@@ -70,15 +70,42 @@ export function fieldPtr(o: any, k: string): any {
   return cached(o, k, () => new FieldPtr(o, k));
 }
 
+// arrayViews maps the arrays that view part of another array (see
+// sliceToArrayPtr) to what they view.
+export const arrayViews = new WeakMap<object, { a: any[]; off: number }>();
+
 export function arrayElemPtr(a: any[], i: number): any {
-  if (i < 0 || i >= a.length) runtimePanic(`index out of range [${i}] with length ${a.length}`);
+  if (i < 0 || i >= a.length) indexError(i, a.length);
+  const v = arrayViews.get(a);
+  if (v !== undefined) {
+    a = v.a;
+    i += v.off;
+  }
   return cached(a, i, () => new IndexPtr(a, i));
 }
 
 export function sliceElemPtr(s: Slice<any> | null, i: number): any {
   const n = s === null ? 0 : s.$length;
-  if (i < 0 || i >= n) runtimePanic(`index out of range [${i}] with length ${n}`);
+  if (i < 0 || i >= n) indexError(i, n);
   return arrayElemPtr(s!.$array, s!.$offset + i);
+}
+
+// &o.k, &a[i] and &s[i] for an element of a type parameter's type t: a
+// pointer to an aggregate is the object itself.
+export function tpFieldAddr(t: Type, o: any, k: string): any {
+  if (!isAggregate(t)) return fieldPtr(o, k);
+  if (o === null) runtimePanic("invalid memory address or nil pointer dereference");
+  return o[k];
+}
+
+export function tpArrayElemAddr(t: Type, a: any[], i: number): any {
+  const p = arrayElemPtr(a, i);
+  return isAggregate(t) ? a[i] : p;
+}
+
+export function tpSliceElemAddr(t: Type, s: Slice<any> | null, i: number): any {
+  const p = sliceElemPtr(s, i);
+  return isAggregate(t) ? s!.$array[s!.$offset + i] : p;
 }
 
 // Generic helpers for code whose pointee type is a type parameter.

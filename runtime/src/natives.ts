@@ -337,6 +337,7 @@ export function native$internal$reflectlite$typeName(t: Type): string {
 }
 
 export function native$internal$reflectlite$typePkgPath(t: Type): string {
+  if (t.kind === Kind.UnsafePointer) return "unsafe";
   return t.named ? t.pkgPath : "";
 }
 
@@ -693,6 +694,13 @@ export function native$reflect$mapKeys(m: any): S<any> {
   const keys: any[] = [];
   for (const [k] of mapRange(m)) keys.push(k);
   return keys.length === 0 ? null : sliceLit(keys);
+}
+
+export function native$reflect$mapIter(m: any): any { return mapRange(m); }
+
+export function native$reflect$mapNext(it: Generator<[any, any]>): [any, any, boolean] {
+  const r = it.next();
+  return r.done ? [null, null, false] : [r.value[0], r.value[1], true];
 }
 
 export function native$reflect$makeChan(t: Type, n: number): any { return makeChan(n, t.elem!.zero); }

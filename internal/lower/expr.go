@@ -397,6 +397,9 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 			return fe.nameOf(v)
 		}
 		obj, prop := fe.fieldBase(x)
+		if isTypeParam(t) {
+			return fmt.Sprintf("%s$rt.tpFieldAddr(%s, %s, %s)", fe.mark(x), fe.desc(t), obj, jsString(prop))
+		}
 		if isAggregate(t) {
 			return obj + "." + prop
 		}
@@ -404,10 +407,20 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 	case *ast.IndexExpr:
 		xt := fe.info.TypeOf(x.X)
 		if _, ok := xt.Underlying().(*types.Slice); ok {
+			if isTypeParam(t) {
+				return fmt.Sprintf("%s$rt.tpSliceElemAddr(%s, %s, %s)", fe.mark(x), fe.desc(t), fe.expr(x.X), fe.intNumber(x.Index))
+			}
 			if isAggregate(t) {
 				return fmt.Sprintf("%s$rt.index(%s, %s)", fe.mark(x), fe.expr(x.X), fe.intNumber(x.Index))
 			}
 			return fmt.Sprintf("%s$rt.sliceElemPtr(%s, %s)", fe.mark(x), fe.expr(x.X), fe.intNumber(x.Index))
+		}
+		if isTypeParam(t) {
+			a := fe.expr(x.X)
+			if _, isPtr := under(xt).(*types.Pointer); isPtr {
+				a = "$rt.deref(" + a + ")"
+			}
+			return fmt.Sprintf("%s$rt.tpArrayElemAddr(%s, %s, %s)", fe.mark(x), fe.desc(t), a, fe.intNumber(x.Index))
 		}
 		if isAggregate(t) {
 			return fmt.Sprintf("%s[%s]", fe.expr(x.X), fe.arrayIndex(x))
@@ -507,20 +520,39 @@ func (fe *funcEmitter) compositeLitOf(e *ast.CompositeLit) string {
 			vals[i] = fe.zero(u.Field(i).Type())
 		}
 		var elems []elemVal
+		var promoted []string // property paths of promoted fields, slots NumFields+k
 		for i, el := range e.Elts {
 			if kv, ok := el.(*ast.KeyValueExpr); ok {
 				name := kv.Key.(*ast.Ident).Name
+				found := false
 				for j := 0; j < u.NumFields(); j++ {
 					if u.Field(j).Name() == name {
 						elems = append(elems, elemVal{j, fe.valueOf(kv.Value, u.Field(j).Type())})
+						found = true
 					}
+				}
+				if !found { // a promoted field (A{b: x} with b in an embedded B)
+					obj, path, _ := types.LookupFieldOrMethod(t, false, fe.pe.pkg.Types, name)
+					st, props := u, ""
+					for _, k := range path {
+						props += "." + fieldProp(st, k)
+						ft, _ := derefType(st.Field(k).Type())
+						st, _ = under(ft).(*types.Struct)
+					}
+					elems = append(elems, elemVal{u.NumFields() + len(promoted), fe.valueOf(kv.Value, obj.Type())})
+					promoted = append(promoted, props)
 				}
 				continue
 			}
 			elems = append(elems, elemVal{i, fe.valueOf(el, u.Field(i).Type())})
 		}
 		pre := fe.spillOutOfOrder(elems)
+		var sets []string
 		for _, ev := range elems {
+			if ev.slot >= len(vals) {
+				sets = append(sets, "$o"+promoted[ev.slot-len(vals)]+" = "+ev.val)
+				continue
+			}
 			vals[ev.slot] = ev.val
 		}
 		class := ""
@@ -529,7 +561,11 @@ func (fe *funcEmitter) compositeLitOf(e *ast.CompositeLit) string {
 		} else {
 			class = fe.pe.structClass(t)
 		}
-		return wrapPre(pre, fmt.Sprintf("%snew %s(%s)", m, class, strings.Join(vals, ", ")))
+		lit := fmt.Sprintf("%snew %s(%s)", m, class, strings.Join(vals, ", "))
+		if len(sets) > 0 {
+			lit = fmt.Sprintf("(($o: any) => (%s, $o))(%s)", strings.Join(sets, ", "), lit)
+		}
+		return wrapPre(pre, lit)
 	case *types.Array:
 		pre, vals := fe.indexedElems(e, u.Elem(), int(u.Len()))
 		return wrapPre(pre, m+"["+strings.Join(vals, ", ")+"]")
@@ -1272,7 +1308,7 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 			}
 		}
 	}
-	if st, ok := tu.(*types.Struct); ok && !types.Identical(to, from) && !isGenericType(to) && !isGenericType(from) {
+	if st, ok := tu.(*types.Struct); ok && !types.Identical(to, from) {
 		// Another struct type: build an instance of its class so the value
 		// carries the destination type's representation.
 		x := fe.tmp()
@@ -1286,9 +1322,9 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 }
 
 func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
-	if len(e.Args) == 1 && (name == "complex" || name == "append" || name == "copy") {
+	if len(e.Args) == 1 && (name == "complex" || name == "append" || name == "copy" || name == "delete") {
 		if tt, ok := fe.info.TypeOf(e.Args[0]).(*types.Tuple); ok {
-			// complex(f()), append(f()), copy(f()): the results of f are
+			// complex(f()), append(f()), copy(f()), delete(f()): the results of f are
 			// the arguments.
 			t := fe.tmp()
 			call := *e
@@ -1415,6 +1451,11 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		}
 		var vals []string
 		for i, a := range e.Args {
+			if tv := fe.info.Types[a]; tv.Value != nil && tv.Value.Kind() == constant.Int && isIntegerType(tv.Type) {
+				// Exact even where int is a JS number (beyond 2^53).
+				vals = append(vals, jsString(tv.Value.ExactString()))
+				continue
+			}
 			vals = append(vals, fe.printArg(fe.info.TypeOf(a), arg(i)))
 		}
 		return m + "$rt." + name + "(" + strings.Join(vals, ", ") + ")"
@@ -1590,4 +1631,9 @@ func (fe *funcEmitter) printArg(t types.Type, v string) string {
 		return "$rt.printPointer(" + v + ")"
 	}
 	return v
+}
+
+func isIntegerType(t types.Type) bool {
+	b, ok := under(t).(*types.Basic)
+	return ok && b.Info()&types.IsInteger != 0
 }

@@ -4,19 +4,19 @@
 // and from ordinary (UTF-16) JS strings happens only at the JS boundary via
 // toJSString / fromJSString.
 
-import { runtimePanic } from "./panic.ts";
+import { indexError, runtimePanic, sliceError } from "./panic.ts";
 import { Slice } from "./slice.ts";
 import type { S } from "./slice.ts";
 
 export function strIndex(s: string, i: number): number {
-  if (i < 0 || i >= s.length) runtimePanic(`index out of range [${i}] with length ${s.length}`);
+  if (i < 0 || i >= s.length) indexError(i, s.length);
   return s.charCodeAt(i);
 }
 
 export function substr(s: string, lo?: number, hi?: number): string {
   const l = lo ?? 0;
   const h = hi ?? s.length;
-  if (l < 0 || h < l || h > s.length) runtimePanic(`slice bounds out of range [${l}:${h}] with length ${s.length}`);
+  if (l < 0 || h < l || h > s.length) sliceError(l, h, undefined, s.length, "length");
   return s.substring(l, h);
 }
 

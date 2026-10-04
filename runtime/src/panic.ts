@@ -90,6 +90,26 @@ export function runtimePanic(msg: string): never {
   throw new GoPanic(new Iface(runtimeErrorType, msg));
 }
 
+// indexError and sliceError panic with gc's bounds error messages
+// (runtime/error.go): a negative index is reported without the length.
+export function indexError(i: number, n: number): never {
+  runtimePanic(i < 0 ? `index out of range [${i}]` : `index out of range [${i}] with length ${n}`);
+}
+
+// sliceError reports the first failing check of x[lo:hi] (max undefined) or
+// x[lo:hi:max]; c is the capacity (what = "capacity") or, for strings and
+// arrays sliced with two indices, the length.
+export function sliceError(lo: number, hi: number, max: number | undefined, c: number, what = "capacity"): never {
+  const p = "slice bounds out of range ";
+  if (max === undefined) {
+    if (hi < 0 || hi > c) runtimePanic(hi < 0 ? `${p}[:${hi}]` : `${p}[:${hi}] with ${what} ${c}`);
+    runtimePanic(lo < 0 ? `${p}[${lo}:]` : `${p}[${lo}:${hi}]`);
+  }
+  if (max < 0 || max > c) runtimePanic(max < 0 ? `${p}[::${max}]` : `${p}[::${max}] with ${what} ${c}`);
+  if (hi < 0 || hi > max) runtimePanic(hi < 0 ? `${p}[:${hi}:]` : `${p}[:${hi}:${max}]`);
+  runtimePanic(lo < 0 ? `${p}[${lo}::]` : `${p}[${lo}:${hi}:]`);
+}
+
 // toPanic converts anything thrown into a GoPanic. JS TypeErrors arise from
 // touching null (nil pointers, nil maps on read paths that skipped a check);
 // they are reported as Go's nil dereference runtime error.

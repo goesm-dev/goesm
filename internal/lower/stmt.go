@@ -549,6 +549,11 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 			return fe.simpleLvalue(fe.varRef(v), t)
 		}
 		obj, prop := fe.fieldBase(x)
+		if inner, ok := strings.CutPrefix(obj, "$rt.deref("); ok && prepare && strings.HasSuffix(inner, ")") && balanced(inner[:len(inner)-1]) {
+			// p.f = v, ...: p is evaluated first, the nil check happens
+			// when this assignment is carried out.
+			return fe.simpleLvalue("$rt.deref("+stab(inner[:len(inner)-1])+")."+prop, t)
+		}
 		return fe.simpleLvalue(stab(obj)+"."+prop, t)
 	case *ast.IndexExpr:
 		xt := fe.info.TypeOf(x.X)
@@ -568,6 +573,13 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 				return fe.simpleLvalue(get, t)
 			}
 			return lvalue{get: get, set: func(rhs string) string { return fmt.Sprintf("%s$rt.setIndex(%s, %s, %s)", fe.mark(x), s, i, rhs) }}
+		case *types.Interface: // type parameter without a core type ([]E | [n]E)
+			s := stab(fe.expr(x.X))
+			i := stab(fe.intNumber(x.Index))
+			return lvalue{
+				get: fmt.Sprintf("%s$rt.indexAny(%s, %s)", fe.mark(x), s, i),
+				set: func(rhs string) string { return fmt.Sprintf("%s$rt.setIndexAny(%s, %s, %s)", fe.mark(x), s, i, rhs) },
+			}
 		default:
 			a := fe.expr(x.X)
 			if _, isPtr := under(xt).(*types.Pointer); isPtr {
@@ -1280,7 +1292,9 @@ func (fe *funcEmitter) typeSwitchStmt(s *ast.TypeSwitchStmt, label string) {
 		val := xv
 		if len(cc.List) == 1 {
 			t := fe.info.TypeOf(cc.List[0])
-			if !isIface(t) {
+			if isTypeParam(t) {
+				val = fmt.Sprintf("$rt.unboxAs(%s, %s)", fe.desc(t), xv)
+			} else if !isIface(t) {
 				if b, ok := t.(*types.Basic); !ok || b.Kind() != types.UntypedNil {
 					val = fe.pe.copyExpr(xv+"!.v", t, fe.tp)
 				}
@@ -1805,4 +1819,33 @@ func (fe *funcEmitter) branchesFromMachine(s ast.Stmt, loop bool) bool {
 	}
 	visit(s, true, loop, false)
 	return found
+}
+
+// balanced reports whether the parentheses in JS expression s balance (so
+// that "$rt.deref(" + s + ")" is one call), ignoring those in string
+// literals.
+func balanced(s string) bool {
+	depth := 0
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == '\\' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'' || c == '`':
+			quote = c
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+			if depth < 0 {
+				return false
+			}
+		}
+	}
+	return depth == 0 && quote == 0
 }
