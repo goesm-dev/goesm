@@ -6,7 +6,9 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -468,7 +470,7 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 	m := fe.mark(e)
 	switch u := under(xt).(type) {
 	case *types.Basic:
-		return fmt.Sprintf("%s$rt.strIndex(%s, %s)", m, fe.expr(e.X), fe.intNumber(e.Index))
+		return m + strIndex(fe.expr(e.X), fe.intNumber(e.Index))
 	case *types.Slice:
 		return m + sliceIndex(fe.expr(e.X), fe.intNumber(e.Index))
 	case *types.Map:
@@ -875,8 +877,24 @@ func (fe *funcEmitter) arith(op token.Token, a, b string, t types.Type) string {
 			}
 			return wrap(a+" * "+b, ii)
 		case token.QUO:
+			if constDivisor(b) {
+				// The quotient of integers below 2^53 rounds toward zero
+				// exactly; + 0 turns -0 into 0 where wrap does not.
+				q := "$rt.trunc(" + a + " / " + b + ")"
+				if ii.bits == 64 && ii.signed {
+					return "(" + q + " + 0)"
+				}
+				return wrap(q, ii)
+			}
 			return wrap("$rt.div("+a+", "+b+")", ii)
 		case token.REM:
+			if constDivisor(b) {
+				r := "((" + a + ") % " + b + ")"
+				if ii.bits == 64 && ii.signed {
+					return "(" + r + " + 0)"
+				}
+				return wrap(r, ii)
+			}
 			return wrap("$rt.mod("+a+", "+b+")", ii)
 		case token.AND, token.OR, token.XOR, token.AND_NOT:
 			if ii.bits == 64 {
@@ -937,6 +955,11 @@ func (fe *funcEmitter) shift(op token.Token, a, n string, t types.Type) string {
 		return fmt.Sprintf("$rt.shiftT(%s, %v, %s, %s)", fe.desc(t), op == token.SHL, a, n)
 	}
 	ii, _ := intKind(t)
+	if c, err := strconv.Atoi(n); err == nil && c >= 0 {
+		if s, ok := constShift(op, a, c, ii); ok {
+			return s
+		}
+	}
 	if ii.big {
 		if op == token.SHL {
 			return fmt.Sprintf("$rt.shlBig(%s, %s, %v)", a, n, ii.signed)
@@ -953,6 +976,41 @@ func (fe *funcEmitter) shift(op token.Token, a, n string, t types.Type) string {
 		return wrap(fmt.Sprintf("$rt.shl32(%s, %s)", a, n), ii)
 	}
 	return wrap(fmt.Sprintf("$rt.shr32(%s, %s, %v)", a, n, ii.signed), ii)
+}
+
+// constShift lowers a shift of a by the constant count n without the
+// runtime's checks, where JS has the operator: n below the width (the
+// 32-bit operators use n mod 32), and for int, uint and uintptr (numbers)
+// right shifts only.
+func constShift(op token.Token, a string, n int, ii intInfo) (string, bool) {
+	switch {
+	case ii.big && n < 64:
+		if op == token.SHL {
+			return bigWrap(fmt.Sprintf("(%s) << %dn", a, n), ii), true
+		}
+		return fmt.Sprintf("((%s) >> %dn)", a, n), true
+	case ii.bits == 64:
+		if op == token.SHL || n >= 64 {
+			return "", false
+		}
+		return fmt.Sprintf("$rt.floor((%s) / %s)", a, strconv.FormatFloat(math.Ldexp(1, n), 'f', -1, 64)), true
+	case n < 32:
+		if op == token.SHL {
+			return wrap(fmt.Sprintf("(%s) << %d", a, n), ii), true
+		}
+		if ii.signed {
+			return fmt.Sprintf("((%s) >> %d)", a, n), true
+		}
+		return fmt.Sprintf("((%s) >>> %d)", a, n), true
+	}
+	return "", false
+}
+
+// constDivisor reports whether the lowered divisor b is a non-zero integer
+// literal.
+func constDivisor(b string) bool {
+	v, err := strconv.ParseFloat(strings.Trim(b, "()"), 64)
+	return err == nil && v != 0 && v == math.Trunc(v)
 }
 
 // eqExpr compares two lowered operands of (identical or assignable) types.
@@ -1197,6 +1255,19 @@ func sliceIndex(s, i string) string {
 		return fmt.Sprintf("$rt.index(%s, %s)", s, i)
 	}
 	return fmt.Sprintf("(%s ? (%[2]s as any).$array[(%[2]s as any).$offset + %[3]s] : $rt.index(%[2]s, %[3]s))", inBounds(ss, is), ss, is)
+}
+
+// strIndex is the byte s[i] of a string s, inline like sliceIndex.
+func strIndex(s, i string) string {
+	ss, is := stripMarks(s), stripMarks(i)
+	if !reusable(ss) || !reusable(is) {
+		return fmt.Sprintf("$rt.strIndex(%s, %s)", s, i)
+	}
+	cond := fmt.Sprintf("%[2]s >= 0 && %[2]s < %[1]s.length", ss, is)
+	if jsLiteral.MatchString(is) {
+		cond = fmt.Sprintf("%[2]s < %[1]s.length", ss, is)
+	}
+	return fmt.Sprintf("(%s ? %[2]s.charCodeAt(%[3]s) : $rt.strIndex(%[2]s, %[3]s))", cond, ss, is)
 }
 
 // setSliceIndex is s[i] = v, inline like sliceIndex. JS evaluates the target
