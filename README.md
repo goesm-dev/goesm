@@ -131,6 +131,8 @@ import { Result } from "./dist/main.js";
 Result(); // 3
 ```
 
+The output is ES modules with a `.js` extension. Under Node.js, load them from a package whose `package.json` says `"type": "module"`: otherwise Node.js parses each module a second time to detect its format, which for a large bundle adds tens of milliseconds to startup.
+
 ### Calling Go from JavaScript
 
 - Exported functions and types are exports of the package's module, with their Go types in TypeScript (`Total(items: $rt.S<Item>): number`).

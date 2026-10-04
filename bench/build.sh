@@ -20,6 +20,9 @@ out=$(pwd)/out
 echo "goesm: $(cd .. && git describe --always --dirty)"
 (cd .. && go build -o "$out/bin/goesm" ./cmd/goesm)
 out/bin/goesm build -minify -o out/goesm ./kernels
+# An ES module package, as one would ship it: without "type": "module",
+# Node.js parses kernels.js twice to detect its module format.
+echo '{"type": "module"}' > out/goesm/package.json
 
 echo "GopherJS $GOPHERJS_VERSION"
 if [ ! -x out/bin/gopherjs ] || ! out/bin/gopherjs version 2>/dev/null | grep -q "${GOPHERJS_VERSION#v}"; then
