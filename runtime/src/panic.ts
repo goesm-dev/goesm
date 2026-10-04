@@ -14,6 +14,7 @@
 import { Iface } from "./iface.ts";
 import { Kind, Type, addMethods, funcOf, named, setUnderlying, types } from "./types.ts";
 import { toJSString } from "./string.ts";
+import { ProgramExit } from "./host.ts";
 
 // runtime.Error values. Their dynamic type implements error and runtime.Error
 // so user code can recover() them and call Error().
@@ -121,13 +122,20 @@ export class Defers {
   private list: Array<() => any> = [];
   panicking: GoPanic | null = null;
   exiting: Goexit | null = null;
+  // halt is os.Exit's unwinding where the host cannot stop the program: no
+  // deferred call runs and nothing recovers it.
+  halt: ProgramExit | null = null;
 
   defer(fn: () => any): void {
     this.list.push(fn);
   }
 
   fail(e: unknown): void {
-    if (e instanceof Goexit) this.exiting = e;
+    if (e instanceof ProgramExit) {
+      this.halt = e;
+      this.list.length = 0;
+    } else if (this.halt) return;
+    else if (e instanceof Goexit) this.exiting = e;
     else this.panicking = toPanic(e);
   }
 
@@ -144,6 +152,7 @@ export class Defers {
         current = prev;
       }
     }
+    if (this.halt) throw this.halt;
     if (this.panicking) throw this.panicking;
     if (this.exiting) throw this.exiting;
   }
@@ -169,6 +178,7 @@ export class Defers {
         }
       }
     }
+    if (this.halt) throw this.halt;
     if (this.panicking) throw this.panicking;
     if (this.exiting) throw this.exiting;
   }

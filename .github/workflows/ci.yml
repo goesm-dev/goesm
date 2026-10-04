@@ -1,17 +1,33 @@
 name: ci
 on:
+  # Branches run through their pull requests; main runs on push, which also
+  # refreshes the caches pull requests restore.
   push:
+    branches: [main]
   pull_request:
   workflow_call:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Go, Node and Bun at the versions pinned in mise.toml.
       - uses: jdx/mise-action@v5
         with:
           version: 2026.10.0
+      # Go's module and build caches and npm's: the key changes with every
+      # commit, and restore-keys picks up the latest earlier one.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.npm
+          key: test-${{ runner.os }}-${{ hashFiles('mise.toml', 'go.sum', 'test/package-lock.json') }}-${{ github.sha }}
+          restore-keys: test-${{ runner.os }}-${{ hashFiles('mise.toml', 'go.sum', 'test/package-lock.json') }}-
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: npm ci --prefix test
@@ -23,11 +39,18 @@ jobs:
     # baseline in test/conformance/passing.txt.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # mise installs the full Go distribution, which includes GOROOT/test.
       - uses: jdx/mise-action@v5
         with:
           version: 2026.10.0
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: conformance-${{ runner.os }}-${{ hashFiles('mise.toml', 'go.sum') }}-${{ github.sha }}
+          restore-keys: conformance-${{ runner.os }}-${{ hashFiles('mise.toml', 'go.sum') }}-
       - run: go test ./test -run TestGoConformance -v -timeout 30m
         env:
           GOESM_CONFORMANCE: "1"

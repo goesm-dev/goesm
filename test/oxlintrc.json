@@ -4,6 +4,7 @@
   "rules": {
     "no-unused-vars": "off",
     "no-constant-condition": "off",
+    "oxc/const-comparisons": "off",
     "no-unused-expressions": "off",
     "unicorn/no-new-array": "off"
   }

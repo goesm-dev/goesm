@@ -13,7 +13,9 @@
 // close and (later) deadlock detection are built on; it is not delegated to
 // the JS event loop's own semantics.
 
+import { ProgramExit, exitProcess, exiting, writeStd } from "./host.ts";
 import { Goexit, plainPanic, runtimePanic, toPanic } from "./panic.ts";
+import { fromJSString } from "./string.ts";
 
 interface Waiter {
   sel: { done: boolean } | null;
@@ -103,6 +105,19 @@ export function recv<T = any>(ch: Chan<T> | null): [T, boolean] | Promise<[T, bo
   return new Promise<[T, boolean]>((resolve, reject) => {
     ch.recvq.push({ sel: null, caseIndex: 0, wake: (v, ok) => resolve([v, ok]), fail: reject });
   });
+}
+
+// sendNow and recvNow are channel operations in functions goesm lowers as
+// synchronous (internal/natives: syncFuncs), where they always complete at
+// once. Blocking there would be a goesm bug, reported as a panic.
+export function sendNow<T = any>(ch: Chan<T> | null, v: T): void {
+  if (ch === null || !trySend(ch, v)) plainPanic("goesm: channel send would block in a synchronous function");
+}
+
+export function recvNow<T = any>(ch: Chan<T> | null): [T, boolean] {
+  const r = ch === null ? null : tryRecv(ch);
+  if (r === null) plainPanic("goesm: channel receive would block in a synchronous function");
+  return r;
 }
 
 export function close(ch: Chan<any> | null): void {
@@ -200,9 +215,85 @@ function exit(e: unknown): void {
   if (e !== undefined && !(e instanceof Goexit)) crash(e);
 }
 
+// crash ends the program on a panic nothing recovered, like Go: the panic
+// goes to standard error and the process exits with status 2. Where there
+// is no process to exit (browsers), the panic is reported as an uncaught
+// error instead.
 function crash(e: unknown): void {
+  if (e instanceof ProgramExit) return;
   const p = toPanic(e);
   const g = globalThis as any;
+  if (typeof g.process?.exit === "function") {
+    const stack = (p.stack ?? "").split("\n").slice(1).join("\n");
+    writeStd(2, fromJSString(p.message + "\n\ngoroutine 1 [running]:\n" + stack + "\n"));
+    exitProcess(2);
+  }
   if (typeof g.reportError === "function") g.reportError(p);
   else setTimeout(() => { throw p; });
+}
+
+// runMain runs the main function of the program's main package. As in Go,
+// the program exits when main returns, even if other goroutines are still
+// running. If the host's event loop runs dry while main is still blocked,
+// nothing can wake it any more: that is Go's deadlock, reported the same way.
+// Hosts without a process (browsers) keep running whatever is left.
+// mainGoexit records that main called runtime.Goexit.
+let mainGoexit = false;
+let watching = false;
+
+// deadlock runs when the event loop has run dry while the program is still
+// initializing its packages or running main. beforeExit fires only then:
+// not for an exit the program or a JavaScript callback asked for, nor for
+// an uncaught JavaScript exception.
+function deadlock(): void {
+  if (exiting) return;
+  writeStd(2, mainGoexit && goroutines === 0
+    ? "fatal error: no goroutines (main called runtime.Goexit) - deadlock!\n"
+    : "fatal error: all goroutines are asleep - deadlock!\n\ngoroutine 1 [running]:\nmain.main()\n");
+  exitProcess(2);
+}
+
+// watchDeadlock reports a deadlock if the event loop runs dry before main
+// returns. program.ts calls it before any package is initialized, so that a
+// blocked init function is reported too.
+export function watchDeadlock(): void {
+  const proc = (globalThis as any).process;
+  if (watching || typeof proc?.once !== "function") return;
+  watching = true;
+  proc.once("beforeExit", deadlock);
+}
+
+export function runMain(main: () => void | Promise<void>): void {
+  const proc = (globalThis as any).process;
+  watchDeadlock();
+  const done = () => {
+    proc?.off?.("beforeExit", deadlock);
+    if (typeof proc?.exit === "function") exitProcess(0);
+  };
+  // runtime.Goexit in main ends the main goroutine; the others go on.
+  const fail = (e: unknown) => {
+    if (e instanceof Goexit) {
+      mainGoexit = true;
+      goroutines--;
+      return;
+    }
+    proc?.off?.("beforeExit", deadlock);
+    crash(e);
+  };
+  let r: void | Promise<void>;
+  try {
+    r = main();
+  } catch (e) {
+    fail(e);
+    return;
+  }
+  if (r instanceof Promise) r.then(done, fail);
+  else done();
+}
+
+// crashOnUncaught makes an exception nothing caught end the program like an
+// unrecovered panic (program.ts).
+export function crashOnUncaught(): void {
+  const proc = (globalThis as any).process;
+  if (typeof proc?.on === "function") proc.on("uncaughtException", crash);
 }
