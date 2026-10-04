@@ -29,6 +29,12 @@ import (
 // standard library and gives go/types the 64-bit wasm sizes.
 var TargetEnv = []string{"GOOS=js", "GOARCH=wasm", "CGO_ENABLED=0"}
 
+// BuildTags select the standard library's portable Go implementations where
+// it has assembly ones: purego (crypto and others) and math_big_pure_go.
+// goesm cannot use assembly, and these build tags are also how gc builds
+// these packages without it.
+var BuildTags = []string{"purego", "math_big_pure_go"}
+
 // Program is a loaded, type-checked package graph.
 type Program struct {
 	Fset *token.FileSet
@@ -88,11 +94,12 @@ func LoadOverlay(dir string, overlay map[string][]byte, patterns ...string) (*Pr
 			packages.NeedImports | packages.NeedDeps | packages.NeedTypes |
 			packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedTypesSizes |
 			packages.NeedModule,
-		Dir:       dir,
-		Env:       append(os.Environ(), TargetEnv...),
-		Fset:      fset,
-		ParseFile: replacingParser(root),
-		Overlay:   overlay,
+		Dir:        dir,
+		Env:        append(os.Environ(), TargetEnv...),
+		BuildFlags: []string{"-tags=" + strings.Join(BuildTags, ",")},
+		Fset:       fset,
+		ParseFile:  replacingParser(root),
+		Overlay:    overlay,
 	}
 	roots, err := packages.Load(cfg, patterns...)
 	if err != nil {
@@ -191,11 +198,35 @@ func replacingParser(goroot string) func(*token.FileSet, string, []byte) (*ast.F
 // can refer to them, and goesm does not emit blank functions; a replaced
 // variable's original initializer still runs. The patch of this file, if
 // any, is added to it.
+//
+// A package may have several init functions, so a patch's init replaces only
+// those of the file it patches.
 func patch(fset *token.FileSet, f *ast.File, names map[string]bool, importPath, base string) (*ast.File, error) {
+	var pf *ast.File
+	if p, ok := natives.Patch(importPath, base); ok {
+		var err error
+		pf, err = parser.ParseFile(fset, p.Name, p.Src, parser.AllErrors|parser.ParseComments|parser.SkipObjectResolution)
+		if err != nil {
+			return nil, err
+		}
+	}
+	patchesInit := false
+	if pf != nil {
+		for _, d := range pf.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Name.Name == "init" {
+				patchesInit = true
+			}
+		}
+	}
 	for _, d := range f.Decls {
 		switch d := d.(type) {
 		case *ast.FuncDecl:
-			if ns := natives.DeclNames(d); len(ns) == 1 && names[ns[0]] {
+			ns := natives.DeclNames(d)
+			if d.Recv == nil && d.Name.Name == "init" {
+				if patchesInit {
+					d.Name = ast.NewIdent("_")
+				}
+			} else if len(ns) == 1 && names[ns[0]] {
 				d.Name = ast.NewIdent("_")
 			}
 		case *ast.GenDecl:
@@ -215,13 +246,8 @@ func patch(fset *token.FileSet, f *ast.File, names map[string]bool, importPath, 
 			}
 		}
 	}
-	p, ok := natives.Patch(importPath, base)
-	if !ok {
+	if pf == nil {
 		return f, nil
-	}
-	pf, err := parser.ParseFile(fset, p.Name, p.Src, parser.AllErrors|parser.ParseComments|parser.SkipObjectResolution)
-	if err != nil {
-		return nil, err
 	}
 	have := map[string]bool{}
 	for _, is := range f.Imports {

@@ -177,3 +177,68 @@ func ReadMemStats(m *MemStats) { *m = MemStats{} }
 func SetMutexProfileFraction(rate int) int { return 0 }
 func SetBlockProfileRate(rate int)         {}
 func SetCPUProfileRate(hz int)             {}
+
+// A StackRecord describes a single execution stack.
+type StackRecord struct {
+	Stack0 [32]uintptr
+}
+
+// Stack returns the stack trace associated with the record.
+func (r *StackRecord) Stack() []uintptr {
+	for i, v := range r.Stack0 {
+		if v == 0 {
+			return r.Stack0[0:i]
+		}
+	}
+	return r.Stack0[0:]
+}
+
+// A MemProfileRecord describes the live objects allocated by a particular
+// call sequence (stack trace).
+type MemProfileRecord struct {
+	AllocBytes, FreeBytes     int64
+	AllocObjects, FreeObjects int64
+	Stack0                    [32]uintptr
+}
+
+func (r *MemProfileRecord) InUseBytes() int64   { return r.AllocBytes - r.FreeBytes }
+func (r *MemProfileRecord) InUseObjects() int64 { return r.AllocObjects - r.FreeObjects }
+
+// Stack returns the stack trace associated with the record.
+func (r *MemProfileRecord) Stack() []uintptr {
+	for i, v := range r.Stack0 {
+		if v == 0 {
+			return r.Stack0[0:i]
+		}
+	}
+	return r.Stack0[0:]
+}
+
+// BlockProfileRecord describes blocking events originated at a particular
+// call sequence (stack trace).
+type BlockProfileRecord struct {
+	Count  int64
+	Cycles int64
+	StackRecord
+}
+
+// goesm records no profiles: the profile functions report empty profiles.
+func MemProfile(p []MemProfileRecord, inuseZero bool) (n int, ok bool) { return 0, true }
+func BlockProfile(p []BlockProfileRecord) (n int, ok bool)             { return 0, true }
+func MutexProfile(p []BlockProfileRecord) (n int, ok bool)             { return 0, true }
+func ThreadCreateProfile(p []StackRecord) (n int, ok bool)             { return 0, true }
+func GoroutineProfile(p []StackRecord) (n int, ok bool)                { return 0, true }
+func CPUProfile() []byte                                               { return nil }
+
+// StartTrace reports that execution tracing is unsupported under goesm.
+func StartTrace() error { return traceUnsupported{} }
+
+type traceUnsupported struct{}
+
+func (traceUnsupported) Error() string { return "runtime: execution tracing is not supported by goesm" }
+
+// StopTrace has no effect: tracing never starts.
+func StopTrace() {}
+
+// ReadTrace returns nil: there is no trace data.
+func ReadTrace() (buf []byte) { return nil }

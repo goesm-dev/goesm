@@ -1600,14 +1600,15 @@ func (v Value) SetMapIndex(key, elem Value) {
 
 // A MapIter is an iterator for ranging over a map.
 type MapIter struct {
-	m    Value
-	keys []unsafe.Pointer
-	i    int
-	key  unsafe.Pointer
-	val  unsafe.Pointer
+	m     Value
+	it    unsafe.Pointer // the host iterator over the map's entries, once started
+	state int            // 0: before the first Next, 1: at an entry, 2: exhausted
+	key   unsafe.Pointer
+	val   unsafe.Pointer
 }
 
 // MapRange returns a range iterator for a map.
+// It panics if v's Kind is not [Map].
 func (v Value) MapRange() *MapIter {
 	if v.Kind() != Map {
 		panic(&ValueError{"reflect.Value.MapRange", v.Kind()})
@@ -1616,31 +1617,31 @@ func (v Value) MapRange() *MapIter {
 }
 
 // Next advances the map iterator and reports whether there is another
-// entry. Entries deleted during iteration are skipped.
+// entry. It returns false when iter is exhausted; subsequent
+// calls to [MapIter.Key], [MapIter.Value], or [MapIter.Next] will panic.
+// Like a range loop, it skips entries deleted during the iteration.
 func (iter *MapIter) Next() bool {
 	if !iter.m.IsValid() {
 		panic("MapIter.Next called on an iterator that does not have an associated map Value")
 	}
-	if iter.keys == nil {
-		iter.keys = mapKeys(iter.m.get())
-		if iter.keys == nil {
-			iter.keys = []unsafe.Pointer{}
-		}
+	if iter.state == 2 {
+		panic("MapIter.Next called on exhausted iterator")
 	}
-	for iter.i < len(iter.keys) {
-		k := iter.keys[iter.i]
-		iter.i++
-		if e, ok := mapIndex(iter.m.get(), k); ok {
-			iter.key, iter.val = k, e
-			return true
-		}
+	if iter.it == nil {
+		iter.it = mapIter(iter.m.get())
 	}
-	iter.key, iter.val = nil, nil
-	iter.i = len(iter.keys) + 1
-	return false
+	k, e, ok := mapNext(iter.it)
+	if !ok {
+		iter.key, iter.val = nil, nil
+		iter.state = 2
+		return false
+	}
+	iter.key, iter.val = k, e
+	iter.state = 1
+	return true
 }
 
-func (iter *MapIter) valid() bool { return iter.i > 0 && iter.i <= len(iter.keys) }
+func (iter *MapIter) valid() bool { return iter.state == 1 }
 
 // Key returns the key of iter's current map entry.
 func (iter *MapIter) Key() Value {
@@ -2433,6 +2434,12 @@ func mapIndex(m, k unsafe.Pointer) (unsafe.Pointer, bool)
 func mapSet(m, k, x unsafe.Pointer)
 func mapDelete(m, k unsafe.Pointer)
 func mapKeys(m unsafe.Pointer) []unsafe.Pointer
+
+// mapIter starts an iteration over the entries of map m (nil for a nil map);
+// mapNext returns the next live entry, as a range loop would.
+func mapIter(m unsafe.Pointer) unsafe.Pointer
+
+func mapNext(it unsafe.Pointer) (k, e unsafe.Pointer, ok bool)
 
 func makeChan(t *rtype, n int) unsafe.Pointer
 func trySend(ch, x unsafe.Pointer) bool
