@@ -48,11 +48,11 @@ Go 1.27.0 `test/` directory, Node.js 22, goesm at main of 2026-10-04 (after the 
 |---|---|---|
 | `test/` | 86.8% (118/136) | 9 |
 | `chan/` | 100.0% (17/17) | 0 |
-| `fixedbugs/` | 91.4% (563/616) | 30 |
+| `fixedbugs/` | 92.4% (569/616) | 30 |
 | `interface/` | 100.0% (11/11) | 0 |
 | `ken/` | 100.0% (40/40) | 0 |
 | `typeparam/` | 98.6% (139/141) | 0 |
-| **total** | **92.4% (888/961)** | 39 |
+| **total** | **93.0% (894/961)** | 39 |
 | tests without imports | 98.8% (506/512) | |
 
 With `GOESM_CONFORMANCE_NATIVE=1`, native `go run` reproduces the `.out` file for every selected test except 11 that shell out to the go command (`os/exec`), which goesm cannot build anyway.
@@ -61,22 +61,22 @@ Tests that import a standard library package, by package (a test counts once for
 
 | package | pass rate |
 |---|---|
-| `fmt` | 89.5% (187/209) |
-| `runtime` | 67.3% (74/110) |
-| `reflect` | 76.5% (52/68) |
-| `os` | 86.2% (50/58) |
-| `unsafe` | 56.4% (31/55) |
+| `fmt` | 90.4% (189/209) |
+| `runtime` | 69.1% (76/110) |
+| `reflect` | 79.4% (54/68) |
+| `os` | 87.9% (51/58) |
+| `unsafe` | 67.3% (37/55) |
 | `strings` | 66.7% (28/42) |
 | `math` | 96.6% (28/29) |
 | `time` | 100.0% (19/19) |
 | `strconv` | 87.5% (14/16) |
 | `sync` | 100.0% (15/15) |
 
-The suite prints this table for every run. The 73 failures fall into these groups:
+The suite prints this table for every run. The 67 failures fall into these groups:
 
 | group | tests |
 |---|---|
-| no address space: `unsafe` pointer arithmetic, `uintptr` to pointer conversions, reinterpreting memory through `unsafe.Pointer` | 23 tests such as `cmp`, `strcopy`, `unsafebuiltins`, `fixedbugs/issue15329` (reported by goesm at build time) |
+| no address space: `unsafe` pointer arithmetic other than on field offsets, `uintptr` to pointer conversions, reinterpreting memory through `unsafe.Pointer` | 19 tests such as `cmp`, `strcopy`, `unsafebuiltins` (reported by goesm at build time or at run time) |
 | `runtime.Caller`, stack traces and PC tables | `inline_literal`, `devirtualization_nil_panics`, `fixedbugs/bug347`, `issue4562`, `issue5856`, `issue7690`, `issue14646`, `issue18149`, `issue21879`, `issue22083`, `issue22662`, `issue27201`, `issue29504`, `issue33724`, `issue56990`, `issue58300`, `issue58300b`, `issue79762` |
 | garbage collector observations (finalizers, `MemStats`, liveness) | `init1`, `stackobj`, `stackobj3`, `fixedbugs/issue15281`, `issue27518b`, `issue32477`, `issue46725`, `issue54343` |
 | not supported yet | `range4` and `fixedbugs/issue71675` (`defer` in a range-over-func body), `fixedbugs/issue72063` and `typeparam/nested` (local types depending on type parameters), `fixedbugs/issue30606`, `issue30606b`, `issue49110` (`reflect.StructOf`), `fixedbugs/issue73748a`, `issue73748b` (`runtime/trace`) |

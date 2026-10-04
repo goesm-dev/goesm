@@ -285,6 +285,11 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 		// fn is "F(" plus dictionaries; the call spreads the arguments, so F
 		// is called untyped.
 		fn = "(" + strings.Replace(fn, "(", " as any)(", 1)
+		if dialerMethods[sel.Obj().(*types.Func).FullName()] {
+			// net/http's patched RoundTrip recognizes a net.Dialer's dialers
+			// (dialerOf in natives.ts).
+			return fmt.Sprintf("((%s: any) => Object.assign((...a: any[]) => %s%s, ...a), { $dialer: %s }))(%s)", r, fn, r, r, recv)
+		}
 		return fmt.Sprintf("((%s: any) => (...a: any[]) => %s%s, ...a))(%s)", r, fn, r, recv)
 	case types.MethodExpr:
 		if slow, locker := fe.pe.prog.WaitLockVal(e); locker {
@@ -312,6 +317,13 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 		return "(" + fe.pe.methodWrapper(recvT, sel, fe.tp, targs) + ")"
 	}
 	return "undefined"
+}
+
+// dialerMethods are the methods whose method values record their receiver
+// as $dialer.
+var dialerMethods = map[string]bool{
+	"(*net.Dialer).Dial":        true,
+	"(*net.Dialer).DialContext": true,
 }
 
 func isPtrRecv(fn *types.Func) bool {
@@ -924,6 +936,10 @@ func (fe *funcEmitter) eqExpr(a string, at types.Type, b string, bt types.Type) 
 		// so two non-nil pointers to them are equal.
 		return "$rt.zeroSizePtrEq(" + a + ", " + b + ")"
 	}
+	if isUnsafePointer(at) && isUnsafePointer(bt) {
+		// Pointer arithmetic makes other objects for the same address.
+		return "$rt.unsafePtrEq(" + a + ", " + b + ")"
+	}
 	return "(" + a + " === " + b + ")"
 }
 
@@ -1149,7 +1165,7 @@ func funcIdent(fun ast.Expr) ast.Expr {
 
 func (fe *funcEmitter) awaitIf(call *ast.CallExpr, s string) string {
 	if fe.pe.prog.CallBlocks(fe.info, call) {
-		return "(await " + s + ")"
+		return "(" + fe.await(s) + ")"
 	}
 	return s
 }
@@ -1210,6 +1226,11 @@ func (fe *funcEmitter) args(e *ast.CallExpr, sig *types.Signature) string {
 func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 	arg := e.Args[0]
 	from := fe.info.TypeOf(arg)
+	if isUnsafePointer(under(to)) {
+		if p, d, ok := fe.pointerArith(arg); ok {
+			return fe.mark(e) + "$rt.ptrAdd(" + p + ", " + d + ")"
+		}
+	}
 	s := fe.expr(arg)
 	if isNil(from) {
 		return "null"
@@ -1527,11 +1548,13 @@ func (fe *funcEmitter) elemTypeArg(elem types.Type) string {
 //
 // An unsafe.Pointer holds the pointer object itself (see runtime/src/ptr.ts):
 // converting a pointer to unsafe.Pointer and back to the same pointer type is
-// the identity. There is no address space, so reinterpreting memory as
-// another type, pointer arithmetic and conversions from uintptr are
-// diagnosed; uintptr(p) is a stand-in address ($rt.addressOf). unsafe.String
-// and unsafe.Slice are supported where their pointer operand is an element of
-// a slice or array (&x[i], unsafe.SliceData(x)).
+// the identity. There is no address space, so pointer arithmetic and
+// conversions from uintptr are diagnosed; uintptr(p) is a stand-in address
+// ($rt.addressOf). Pointers keep their provenance instead (runtime/src/
+// unsafe.ts): unsafe.String and unsafe.Slice work on pointers into a slice,
+// array or string (&x[i], unsafe.SliceData, unsafe.StringData), and
+// reinterpreting memory works between layouts goesm can view as each other
+// (see reinterpretable).
 
 func isUnsafePointer(t types.Type) bool {
 	b, ok := t.(*types.Basic)
@@ -1546,6 +1569,9 @@ func (fe *funcEmitter) unsafeConversion(e *ast.CallExpr, to, from types.Type, s 
 	if isUnsafePointer(tu) {
 		if _, ok := fu.(*types.Pointer); ok {
 			return s
+		}
+		if b, ok := fu.(*types.Basic); ok && b.Kind() == types.Uintptr {
+			return "$rt.fromAddress(" + s + ")" // the pointer whose stand-in address it is
 		}
 		fe.errorf(e.Pos(), "conversion from %s to unsafe.Pointer is not supported (goesm has no address space)", from)
 		return s
@@ -1562,11 +1588,191 @@ func (fe *funcEmitter) unsafeConversion(e *ast.CallExpr, to, from types.Type, s 
 	if inner, ok := unparen(e.Args[0]).(*ast.CallExpr); ok && len(inner.Args) == 1 {
 		if tv, ok := fe.info.Types[inner.Fun]; ok && tv.IsType() && isUnsafePointer(under(tv.Type)) {
 			if up, ok := under(fe.info.TypeOf(inner.Args[0])).(*types.Pointer); ok && !types.Identical(under(up.Elem()), under(tp.Elem())) {
-				fe.errorf(e.Pos(), "reinterpreting %s as %s through unsafe.Pointer is not supported", up, to)
+				if pointerShaped(up.Elem()) && pointerShaped(tp.Elem()) {
+					return s // a pointer variable read as another pointer type: the same reference
+				}
+				if reinterpretable(up.Elem(), tp.Elem()) {
+					return fmt.Sprintf("$rt.reinterpret(%s, %s, %s)", s, fe.desc(up.Elem()), fe.desc(tp.Elem()))
+				}
+				if fe.pe.std || !startsWith(up.Elem(), tp.Elem()) {
+					fe.errorf(e.Pos(), "reinterpreting %s as %s through unsafe.Pointer is not supported", up, to)
+					return s
+				}
 			}
 		}
 	}
-	return s
+	if fe.pe.std {
+		return s // the standard library converts back what it converted to unsafe.Pointer
+	}
+	// The pointer may point into the middle of an aggregate (unsafe pointer
+	// arithmetic) or be a struct read as its first field.
+	return fmt.Sprintf("$rt.ptrAt(%s, %s)", s, fe.desc(tp.Elem()))
+}
+
+// startsWith reports whether a value of type t begins with a variable of type
+// first: a pointer to t is then also a pointer to it (ptrAt finds it).
+func startsWith(t, first types.Type) bool {
+	for {
+		switch u := under(t).(type) {
+		case *types.Struct:
+			if u.NumFields() == 0 {
+				return false
+			}
+			t = u.Field(0).Type()
+		case *types.Array:
+			if u.Len() == 0 {
+				return false
+			}
+			t = u.Elem()
+		default:
+			return false
+		}
+		if types.Identical(under(t), under(first)) {
+			return true
+		}
+	}
+}
+
+// pointerArith matches unsafe.Pointer(uintptr(p) + d) and uintptr(p) - d,
+// the pointer arithmetic unsafe.Pointer's rules allow, and returns p and the
+// signed offset.
+func (fe *funcEmitter) pointerArith(arg ast.Expr) (p, d string, ok bool) {
+	be, ok := unparen(arg).(*ast.BinaryExpr)
+	if !ok || (be.Op != token.ADD && be.Op != token.SUB) {
+		return "", "", false
+	}
+	c, ok := unparen(be.X).(*ast.CallExpr)
+	if !ok || len(c.Args) != 1 {
+		return "", "", false
+	}
+	tv, ok := fe.info.Types[c.Fun]
+	if !ok || !tv.IsType() {
+		return "", "", false
+	}
+	if b, ok := under(tv.Type).(*types.Basic); !ok || b.Kind() != types.Uintptr {
+		return "", "", false
+	}
+	switch under(fe.info.TypeOf(c.Args[0])).(type) {
+	case *types.Pointer:
+	case *types.Basic:
+		if !isUnsafePointer(under(fe.info.TypeOf(c.Args[0]))) {
+			return "", "", false
+		}
+	default:
+		return "", "", false
+	}
+	p, d = fe.expr(c.Args[0]), fe.expr(be.Y)
+	if be.Op == token.SUB {
+		d = "-(" + d + ")"
+	}
+	return p, d, true
+}
+
+// reinterpretable reports whether goesm can view memory of type from as type
+// to (see runtime/src/unsafe.ts): structs of the same layout, and the header
+// structs that mirror a string ({data, len}), a slice ({data, len, cap}) or
+// an interface ({type, data}), in both directions for strings and slices.
+func reinterpretable(from, to types.Type) bool {
+	fu, tu := under(from), under(to)
+	ptrLike := pointerShaped
+	isInt := func(t types.Type) bool {
+		b, ok := under(t).(*types.Basic)
+		return ok && b.Info()&types.IsInteger != 0 && b.Kind() != types.Uintptr
+	}
+	isString := func(t types.Type) bool {
+		b, ok := under(t).(*types.Basic)
+		return ok && b.Info()&types.IsString != 0
+	}
+	// header matches the layout of a struct's non-zero-size fields.
+	header := func(t types.Type, want ...func(types.Type) bool) bool {
+		st, ok := under(t).(*types.Struct)
+		if !ok {
+			return false
+		}
+		var ws []types.Type
+		for i := 0; i < st.NumFields(); i++ {
+			if f := st.Field(i).Type(); !zeroSized(f) {
+				ws = append(ws, f)
+			}
+		}
+		if len(ws) != len(want) {
+			return false
+		}
+		for i, w := range ws {
+			if !want[i](w) {
+				return false
+			}
+		}
+		return true
+	}
+	switch fu := fu.(type) {
+	case *types.Struct:
+		switch tu := tu.(type) {
+		case *types.Struct:
+			var fw, tw []types.Type
+			for i := 0; i < fu.NumFields(); i++ {
+				if f := fu.Field(i).Type(); !zeroSized(f) {
+					fw = append(fw, f)
+				}
+			}
+			for i := 0; i < tu.NumFields(); i++ {
+				if f := tu.Field(i).Type(); !zeroSized(f) {
+					tw = append(tw, f)
+				}
+			}
+			if len(fw) != len(tw) {
+				return false
+			}
+			for i := range fw {
+				if !types.Identical(under(fw[i]), under(tw[i])) && !(ptrLike(fw[i]) && ptrLike(tw[i])) {
+					return false
+				}
+			}
+			return true
+		case *types.Slice, *types.Basic:
+			if b, ok := tu.(*types.Basic); ok && b.Info()&types.IsString == 0 {
+				return false
+			}
+			return header(from, isString, isInt) || header(from, isString, isInt, isInt) ||
+				header(from, ptrLike, isInt) || header(from, ptrLike, isInt, isInt)
+		}
+	case *types.Interface:
+		if a, ok := tu.(*types.Array); ok {
+			return fu.Empty() && a.Len() == 2 && ptrLike(a.Elem())
+		}
+		return fu.Empty() && header(to, ptrLike, ptrLike)
+	case *types.Basic:
+		return fu.Info()&types.IsString != 0 && header(to, ptrLike, isInt)
+	case *types.Slice:
+		return header(to, ptrLike, isInt, isInt)
+	}
+	return false
+}
+
+// pointerShaped reports whether a value of type t is one machine pointer.
+func pointerShaped(t types.Type) bool {
+	switch u := under(t).(type) {
+	case *types.Pointer, *types.Map, *types.Chan, *types.Signature:
+		return true
+	case *types.Basic:
+		return u.Kind() == types.UnsafePointer
+	}
+	return false
+}
+
+func zeroSized(t types.Type) bool {
+	switch u := under(t).(type) {
+	case *types.Array:
+		return u.Len() == 0 || zeroSized(u.Elem())
+	case *types.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if !zeroSized(u.Field(i).Type()) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // unsafeElem matches a pointer operand that addresses an element of a slice
@@ -1598,6 +1804,8 @@ func (fe *funcEmitter) unsafeCall(e *ast.CallExpr, name string) string {
 		if base, idx, checked, ok := fe.unsafeElem(e.Args[0]); ok {
 			return fmt.Sprintf("%s$rt.bytesToString($rt.unsafeSlice(%s, %s, %s, %v))", m, base, idx, fe.intNumber(e.Args[1]), checked)
 		}
+		// Any other pointer: follow its provenance at run time.
+		return fmt.Sprintf("%s$rt.unsafeStringFrom(%s, %s)", m, fe.expr(e.Args[0]), fe.intNumber(e.Args[1]))
 	case "Slice":
 		if base, idx, checked, ok := fe.unsafeElem(e.Args[0]); ok {
 			return fmt.Sprintf("%s$rt.unsafeSlice(%s, %s, %s, %v)", m, base, idx, fe.intNumber(e.Args[1]), checked)
@@ -1611,10 +1819,15 @@ func (fe *funcEmitter) unsafeCall(e *ast.CallExpr, name string) string {
 				}
 			}
 		}
+		return fmt.Sprintf("%s$rt.unsafeSliceFrom(%s, %s)", m, fe.expr(e.Args[0]), fe.intNumber(e.Args[1]))
+	case "StringData":
+		return fmt.Sprintf("%s$rt.stringData(%s)", m, fe.expr(e.Args[0]))
 	case "Sizeof", "Alignof": // not constant: the operand's type involves a type parameter
 		return fmt.Sprintf("%s$rt.%sOf(%s)", m, strings.ToLower(name[:len(name)-2]), fe.desc(fe.info.TypeOf(e.Args[0])))
 	case "SliceData":
 		return fmt.Sprintf("%s$rt.sliceData(%s, %v)", m, fe.expr(e.Args[0]), isAggregate(under(fe.info.TypeOf(e.Args[0])).(*types.Slice).Elem()))
+	case "Add":
+		return fmt.Sprintf("%s$rt.ptrAdd(%s, %s)", m, fe.expr(e.Args[0]), fe.intNumber(e.Args[1]))
 	}
 	fe.errorf(e.Pos(), "unsafe.%s is not supported in this form (goesm has no address space)", name)
 	return "undefined"

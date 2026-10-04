@@ -37,9 +37,21 @@ go test ./...
 | `TestExamples` | `examples/*` が Node.js (インストールされていれば Bun でも) で動き、`output.txt` どおりに出力する |
 | `TestTSC` | 出力した TypeScript が strict な `tsc` で型検査を通る |
 | `TestOxlint` | build した ESM に oxlint の correctness の指摘がない |
+| `TestPrograms` | `testdata/programs` の command が native Go と goesm (Node.js と Bun) で同じ出力をし、同じ status で終了する |
+| `TestToolexec` | `-toolexec` program による module と標準 library の書き換えが、`go build` と同じように goesm の出力に反映される (`testdata/toolexec`) |
+| `TestFetch` | HTTP client が `fetch` を使い、素の `net.Dialer` を持つ Transport でも同様で、独自の dialer は引き続き呼ばれる (`testdata/fetch`、local の server に対して) |
 | `TestStdlibStatus -v` | 標準 library のどの package が lowering でき、何個の関数が stub かを報告する |
 
 `TestTSC` と `TestOxlint` は `npm ci --prefix test` をしていないと skip されます。CI では `GOESM_REQUIRE_TOOLS=1` を設定しているので skip できません。CI は `gofmt -l .` と `go vet ./...` も確認します。
+
+### otelc
+
+`TestOtelc` は `testdata/otelc` を host 向けと goesm 向けに otelc で計装し、telemetry を比べます ([docs/otelc.ja.md](docs/otelc.ja.md))。`GOESM_TEST_OTELC` に otelc の binary を指定したときだけ動き、`otelc setup` が追加する module のために network が必要です。
+
+```sh
+GOBIN=/tmp/otelc go install go.opentelemetry.io/otelc/tool/cmd/otelc@v1.1.0
+GOESM_TEST_OTELC=/tmp/otelc/otelc go test ./test -run TestOtelc -v
+```
 
 ### Go conformance suite
 

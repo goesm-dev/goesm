@@ -37,9 +37,21 @@ go test ./...
 | `TestExamples` | `examples/*` run under Node.js, and Bun when it is installed, and print their `output.txt` |
 | `TestTSC` | the emitted TypeScript type-checks with strict `tsc` |
 | `TestOxlint` | the built ESM has no oxlint correctness findings |
+| `TestPrograms` | the commands in `testdata/programs` print the same output and exit with the same status under native Go and goesm (Node.js and Bun) |
+| `TestToolexec` | a `-toolexec` program's rewrites of a module and of the standard library reach goesm's output as they reach `go build`'s (`testdata/toolexec`) |
+| `TestFetch` | HTTP clients use `fetch`, also through a Transport with a plain `net.Dialer`, and a custom dialer is still called (`testdata/fetch`, against a local server) |
 | `TestStdlibStatus -v` | reports which standard library packages lower and how many functions are stubs |
 
 `TestTSC` and `TestOxlint` skip when `npm ci --prefix test` has not been run; CI sets `GOESM_REQUIRE_TOOLS=1` so they cannot be skipped there. CI also checks `gofmt -l .` and `go vet ./...`.
+
+### otelc
+
+`TestOtelc` instruments `testdata/otelc` with otelc for the host and for goesm and compares the telemetry ([docs/otelc.md](docs/otelc.md)). It runs when `GOESM_TEST_OTELC` names an otelc binary, and needs network access for the modules `otelc setup` adds:
+
+```sh
+GOBIN=/tmp/otelc go install go.opentelemetry.io/otelc/tool/cmd/otelc@v1.1.0
+GOESM_TEST_OTELC=/tmp/otelc/otelc go test ./test -run TestOtelc -v
+```
 
 ### Go conformance suite
 

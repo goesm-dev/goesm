@@ -42,8 +42,8 @@ func TestUnsupportedReportedAsLoweringDiagnostics(t *testing.T) {
 	de := buildErr(t, "./unsupported")
 	out := de.Error()
 	for _, want := range []string{
-		"unsupported.go:13:3: defer in a range-over-func body is not supported yet [goesm lowering]",
-		"unsupported.go:19:7: local type pair depending on type parameters is not supported yet [goesm lowering]",
+		"unsupported.go:6:9: reinterpreting *int64 as *[2]int32 through unsafe.Pointer is not supported [goesm lowering]",
+		"unsupported.go:10:9: reinterpreting *float64 as *uint64 through unsafe.Pointer is not supported [goesm lowering]",
 	} {
 		if de.Layer != "goesm" || !strings.Contains(out, want) {
 			t.Errorf("diagnostics missing %q (layer %s):\n%s", want, de.Layer, out)
