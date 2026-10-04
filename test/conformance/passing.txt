@@ -86,6 +86,7 @@ fixedbugs/bug113.go
 fixedbugs/bug114.go
 fixedbugs/bug116.go
 fixedbugs/bug119.go
+fixedbugs/bug120.go
 fixedbugs/bug128.go
 fixedbugs/bug130.go
 fixedbugs/bug141.go
@@ -207,6 +208,7 @@ fixedbugs/issue11326b.go
 fixedbugs/issue11369.go
 fixedbugs/issue12108.go
 fixedbugs/issue12411.go
+fixedbugs/issue12577.go
 fixedbugs/issue12621.go
 fixedbugs/issue1304.go
 fixedbugs/issue13169.go
@@ -241,6 +243,7 @@ fixedbugs/issue21048.go
 fixedbugs/issue21687.go
 fixedbugs/issue22326.go
 fixedbugs/issue23188.go
+fixedbugs/issue23305.go
 fixedbugs/issue23489.go
 fixedbugs/issue23536.go
 fixedbugs/issue23545.go
@@ -258,6 +261,7 @@ fixedbugs/issue24937.go
 fixedbugs/issue25776.go
 fixedbugs/issue26097.go
 fixedbugs/issue26116.go
+fixedbugs/issue2615.go
 fixedbugs/issue26153.go
 fixedbugs/issue26248.go
 fixedbugs/issue26407.go
@@ -301,10 +305,12 @@ fixedbugs/issue4313.go
 fixedbugs/issue4316.go
 fixedbugs/issue43292.go
 fixedbugs/issue43444.go
+fixedbugs/issue43480.go
 fixedbugs/issue4353.go
 fixedbugs/issue43835.go
 fixedbugs/issue4396a.go
 fixedbugs/issue4396b.go
+fixedbugs/issue4448.go
 fixedbugs/issue4495.go
 fixedbugs/issue45175.go
 fixedbugs/issue4518.go
@@ -322,6 +328,7 @@ fixedbugs/issue50190.go
 fixedbugs/issue5056.go
 fixedbugs/issue50671.go
 fixedbugs/issue50672.go
+fixedbugs/issue50854.go
 fixedbugs/issue51101.go
 fixedbugs/issue51401.go
 fixedbugs/issue51913.go
@@ -330,8 +337,10 @@ fixedbugs/issue52438.go
 fixedbugs/issue5244.go
 fixedbugs/issue52953.go
 fixedbugs/issue53309.go
+fixedbugs/issue53600.go
 fixedbugs/issue53619.go
 fixedbugs/issue53635.go
+fixedbugs/issue53653.go
 fixedbugs/issue53702.go
 fixedbugs/issue54220.go
 fixedbugs/issue54348.go
@@ -374,6 +383,7 @@ fixedbugs/issue6902.go
 fixedbugs/issue69434.go
 fixedbugs/issue69507.go
 fixedbugs/issue70189.go
+fixedbugs/issue70481.go
 fixedbugs/issue71759.go
 fixedbugs/issue71857.go
 fixedbugs/issue71932.go
@@ -446,6 +456,7 @@ if.go
 indirect.go
 initcomma.go
 int_lit.go
+intcvt.go
 interface/bigdata.go
 interface/convert.go
 interface/convert1.go

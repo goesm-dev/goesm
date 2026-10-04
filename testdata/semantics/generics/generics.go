@@ -252,3 +252,25 @@ func TypeParamArith() []any {
 		Concat("go", "esm"),
 	}
 }
+
+type valuer interface{ val() int }
+
+type three struct{ n int }
+
+func (t three) val() int { return t.n }
+
+// anonWith copies and boxes an unnamed struct with a type-parameter field.
+func anonWith[T any](x T) int {
+	var s struct {
+		three
+		t T
+	}
+	s.three.n = 3
+	c := s
+	c.n++
+	var v valuer = s
+	var pv valuer = &c
+	return v.val()*10 + pv.val()
+}
+
+func AnonStructWithTypeParam() []int { return []int{anonWith(1), anonWith("s")} }

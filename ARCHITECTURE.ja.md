@@ -91,7 +91,8 @@ docs/                 GopherJS 比較、生成物の実例
 | bool, float64 | boolean, number | |
 | float32 | number (`Math.fround` で丸め) | |
 | int8/16/32, uint8/16/32 | number、演算ごとに wrap (`\|0`, `>>>0`, `<<24>>24`, `Math.imul`) | 正確 |
-| int, int64, uint, uint64, uintptr | number | **2^53 を超えると不正確、64-bit wrap なし** (既知の差分) |
+| int64, uint64 | bigint。演算のたびに `BigInt.asIntN` / `asUintN(64, ...)` で wrap | 正確 |
+| int, uint, uintptr | number | **2^53 を超えると不正確、64-bit wrap なし** (既知の差分) |
 | string | JS string、1 code unit = 1 byte | `len`、index、slice、比較、不正 UTF-8 が Go と一致。JS 境界で `toJSString` / `fromJSString` |
 | struct | 生成 class の instance (`$clone` / `$set`) | 値 copy は lowering が挿入。object identity がそのまま address |
 | array | JS array | struct と同じく copy は明示的 |
@@ -102,6 +103,23 @@ docs/                 GopherJS 比較、生成物の実例
 | func | JS function | |
 | chan | runtime `Chan` | |
 | 型 parameter | 型引数の表現そのもの (erasure) | 型 descriptor を dictionary 引数で受け取る |
+
+### 64-bit 整数
+
+`int64` と `uint64` は BigInt、`int`・`uint`・`uintptr` は JS の number のままです。64 bit 全体が必要な Go のコード (hash、乱数、`time` の nanosecond、JSON 中の ID、`math.Float64bits`) は明示的に 64-bit 型を使い、`int` は index や個数に使われます。後者は number の方が数倍速く、配列や文字列が持てる範囲では正確です。
+
+演算は inline で書きます (`BigInt.asIntN(64, a * b)`)。V8 はこれを機械語の演算に compile します。除算・剰余・shift は小さな runtime helper を呼びます (0 除算 panic、Go の shift の意味論)。2 つの世界の間の変換は明示的で (`BigInt(i)`、`Number(x)`)、2^53 を超える `int64` を `int` に変換すると丸められます。exported 関数はこれらの型を `bigint` で受け取り・返します。
+
+`bench/int64.mjs` で、goesm が lower し得る表現を、goesm が出力する形で書いた 4 つの workload で比較しました (5 回の最良値、Node 22 / Bun 1.3):
+
+| workload | number (不正確) | BigInt | `{hi, lo}` object | uint32 の local 2 つ | 2^53 を超えたら BigInt の number |
+|---|---|---|---|---|---|
+| counter と合計 (小さい値) | 13 / 6 ms | 136 / 1003 ms | 260 / 397 ms | 141 / 55 ms | 124 / 30 ms |
+| 4 MiB の FNV-1a 64 | 38 / 32 ms | 35 / 498 ms | 170 / 241 ms | 104 / 101 ms | 306 / 849 ms |
+| xorshift64* | n/a | 209 / 684 ms | 97 / 273 ms | 113 / 86 ms | n/a |
+| Unix nanosecond (加算・除算・剰余) | 13 / 45 ms | 41 / 296 ms | 758 / 978 ms | 306 / 845 ms | 147 / 359 ms |
+
+V8 (Chrome、Node、Deno) では BigInt が 4 つ中 3 つで最速の正確な表現で、hash では number とほぼ同じです。JavaScriptCore (Safari、Bun) では uint32 2 つより 3〜18 倍遅くなります。2 分割は lowering と JS API で、すべての `int64` の変数・field・引数・戻り値を 2 倍にします。BigInt は lowering と exported API を単純に保ち、どこでも正確なので、これを表現として採用しました。hot な local 演算に 2 分割の fast path を入れる余地は、値の表現を変えずに後から残せます。
 
 ### 型 metadata
 
@@ -199,13 +217,12 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 
 * loader は `packages.Config.ParseFile` を設定します。go/packages が `$GOROOT/src` 以下の置換対象 package の file を parse するとき、最初の file が置換 source になり、残りは空 file になります。したがって go/types はすべての importer を置換後の package に対して型検査し、go command が解決した package graph は変わりません。`packages.Config.Overlay` ではできません: `go tool goesm` の toolchain がある module cache 以下の file は go command が overlay を拒否します。
 * 型検査済みの import (置換後) で到達できる package だけを lowering するので、gc runtime の内部 (`internal/runtime/*` など) は外れます。
-* Go の body を持たない関数 (assembly、`//go:linkname` 宣言、置換で body を省いたもの) は `runtime/src/natives.ts` に、`types.Func.FullName` から決まる名前の export として実装します。export の有無は goesm が compile 時に確認します。メモリを再解釈する Go body を持つ関数も、短い固定 list (`natives.Override`) で natives に置き換えます: `math.Float64bits` など、64-bit の `math/bits` 関数 (BigInt により 2^53 未満で正確)、`slices.overlaps`、`internal/abi.NoEscape`。
+* Go の body を持たない関数 (assembly、`//go:linkname` 宣言、置換で body を省いたもの) は `runtime/src/natives.ts` に、`types.Func.FullName` から決まる名前の export として実装します。export の有無は goesm が compile 時に確認します。メモリを再解釈する Go body を持つ関数も、短い固定 list (`natives.Override`) で natives に置き換えます: `math.Float64bits` など、64-bit の `math/bits` 関数 (BigInt の半分ずつで計算)、`internal/strconv.formatBits` (Go の body が `uint64` の桁を `uint` 経由で狭めるため)、`slices.overlaps`、`internal/abi.NoEscape`。
 * 置換・override・natives は goesm に compile される固定の集合です。適用されるのは `$GOROOT/src` 以下の file だけで、依存 package の内容がこれを増やすことはできません。
 
 現状 (`go test ./test -run TestStdlibStatus -v`、golden テストは `testdata/semantics/stdlibuse`):
 
-* Go source のまま compile でき native Go と一致: `errors` (`Is`、`As`、`Join`、`Unwrap`)、`strings` (検索、split、fields、大文字小文字、`Builder`、`Replacer`、`EqualFold`)、`strconv` (整数の format、`Atoi`、quote、`NumError`)、`sort`、`slices`、`maps`、`sync`、`unicode`、`unicode/utf8`、`math/bits`。
-* `bitSize` 64 の `strconv` の parse と最短表現の float format は 64-bit 演算の正確さに依存し、誤った結果になります (`TestKnownGaps` で固定)。
+* Go source のまま compile でき native Go と一致: `errors` (`Is`、`As`、`Join`、`Unwrap`)、`strings` (検索、split、fields、大文字小文字、`Builder`、`Replacer`、`EqualFold`)、`strconv` (整数の format、`Atoi`、quote、`NumError`)、`sort`、`slices`、`maps`、`sync`、`unicode`、`unicode/utf8`、`math/bits`、`strconv` の 64-bit parse と最短表現の float format (`testdata/semantics/int64s`)。
 * `encoding/json` と `fmt` は `reflect` (と complex) が必要で、まだ置換していません。
 
 ## 10. Tooling compatibility と security
@@ -219,16 +236,15 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 **実装済み (native Go との golden テストで確認)**: package import、関数、多値返却、named result、closure、struct (値 copy、method、pointer method、embedding と promotion、比較)、array、slice (aliasing、append、copy、re-slice、nil)、map (struct / interface key、comma-ok、delete、nil map、range)、pointer (変数・field・要素・`new`、identity)、defer (評価順・named result の変更・LIFO)、panic / recover (runtime error、re-panic)、interface (dispatch、type assertion、type switch、比較、nil interface と nil pointer の区別)、generics (generic 関数、制約と制約の method、interface 経由も含む generic type、型引数に従う演算子と変換、Go 1.27 generic methods、型 identity)、method value / method expression、switch / fallthrough / label 付き break・continue、前方への `goto`、range over int、range-over-func (入れ子の文からの break / continue / return、label 付き branch、yield を誤用する iterator に対する Go と同じ panic)、Go 1.22 の per-iteration loop 変数、8/16/32-bit 整数の wrap、整数 0 除算 panic、UTF-8 string と rune、goroutine、unbuffered / buffered channel、close、channel の range、select (default 含む)、`runtime.Goexit` / `Gosched`、package 変数の init order と `init()`、§9 に挙げた stdlib package。
 
 **未実装** (goesm 診断になるか、動作しないもの):
-* 64-bit 整数の正確な表現 (BigInt または hi/lo)
+* 64-bit の `int` と `uint` の正確な表現 (number のまま、§5 参照)
 * `reflect`、`fmt`、`time`、`encoding/json`、`iter.Pull` (coroutine)、§7 を超える `unsafe`
 * 後方への `goto`、range-over-func の body 内での blocking 操作 / select / defer / goto (診断として報告)、型 parameter 型の変数の address、型 parameter に依存する local type、slice から配列 pointer への変換 (`(*[N]T)(s)`)
 * host に未完了の処理 (timer、I/O) が残っている間の deadlock 検出、goroutine の preemption、goroutine-local な recover 状態
 * JS からの呼び出し ABI (Go の値 ⇔ JS 値の自動変換)
 * `go 1.22` 未満の file における共有 loop 変数の range 意味論
 
-**native Go との既知の差分** (最初の 3 項目は `TestKnownGaps` の `Uint64Wrap`・`Int64Precision`・`AppendCap`・`StrconvParseInt64`・`FormatFloatShortest` で差分が存在することを固定。残りは決定的に比較できないため文書のみ):
-* `int`/`int64`/`uint64` が 2^53 を超えると不正確、64-bit overflow で wrap しない (`uint64(0)-1` が `-1`)。
-* stdlib のコードもこれを引き継ぐ: `strconv.ParseInt(s, 10, 64)` と最短表現の float format が誤った結果になる。
+**native Go との既知の差分** (最初の 2 項目は `TestKnownGaps` の `IntWrap`・`UintWrap`・`AppendCap` で差分が存在することを固定。残りは決定的に比較できないため文書のみ):
+* `int` と `uint` は 2^53 を超えると不正確、64-bit overflow で wrap しない (`uint(0)-1` が `-1`)。`int64` と `uint64` は正確。
 * `append` の capacity 拡張は近似 (size class の丸めなし)。`cap()` の値が gc と異なることがある。
 * map の range 順は挿入順 (Go はランダム)。どちらも仕様上未定義。
 * `recover()` は deferred 関数から間接的に呼んでも効く (Go では直接呼んだときだけ)。await を挟んだ後の recover は nil を返す。
@@ -239,6 +255,6 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 
 ## 12. 次に実装すべき 3 項目
 
-1. **64-bit 整数の正確な表現** (`int64`/`uint64` は BigInt か hi/lo、`int` の扱いを決める) と complex。stdlib が compile できるようになった今、誤った結果の主な原因はここです (`strconv` の 64-bit parse と float format、natives を経由しない `math/bits`)。
-2. **goroutine runtime の完成**: deadlock 検出、goroutine-local な panic / recover 状態 (async 境界を跨ぐ recover)、`time` timer、`iter.Pull`、JS 呼び出し ABI (exported 関数の引数・戻り値の変換)。
-3. **runtime descriptor の上に `reflect` を Go source 置換で実装** (`internal/reflectlite` の置換を拡張)。これで `fmt` と `encoding/json` が通るようになります。
+1. **runtime descriptor の上に `reflect` を Go source 置換で実装** (`internal/reflectlite` の置換を拡張)。これで `fmt` と `encoding/json` が通るようになります。
+2. **`time`**: host の timer の上の timer と `Sleep`、wall clock と monotonic clock (`int64` で正確になった)、timer が残っている間の deadlock 検出。
+3. **goroutine runtime の完成**: goroutine-local な panic / recover 状態 (async 境界を跨ぐ recover)、`iter.Pull`、JS 呼び出し ABI (exported 関数の引数・戻り値の変換)。

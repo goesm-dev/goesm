@@ -91,7 +91,8 @@ The weakness in 2 is covered by spilling to temporaries in the lowering where ev
 | bool, float64 | boolean, number | |
 | float32 | number (rounded with `Math.fround`) | |
 | int8/16/32, uint8/16/32 | number, wrapped after every operation (`\|0`, `>>>0`, `<<24>>24`, `Math.imul`) | exact |
-| int, int64, uint, uint64, uintptr | number | **inexact above 2^53, no 64-bit wrap-around** (known difference) |
+| int64, uint64 | bigint, wrapped with `BigInt.asIntN` / `asUintN(64, ...)` after every operation | exact |
+| int, uint, uintptr | number | **inexact above 2^53, no 64-bit wrap-around** (known difference) |
 | string | JS string with one code unit per byte | `len`, indexing, slicing, comparison and invalid UTF-8 match Go; converted at the JS boundary with `toJSString` / `fromJSString` |
 | struct | instance of a generated class (`$clone` / `$set`) | value copies are inserted by the lowering; the object identity is the address |
 | array | JS array | copied explicitly, like structs |
@@ -102,6 +103,23 @@ The weakness in 2 is covered by spilling to temporaries in the lowering where ev
 | func | JS function | |
 | chan | runtime `Chan` | |
 | type parameter | the representation of its type argument (erasure) | type descriptors arrive as dictionary parameters |
+
+### 64-bit integers
+
+`int64` and `uint64` are BigInts; `int`, `uint` and `uintptr` stay JS numbers. Explicit 64-bit types are where Go code needs all 64 bits (hashes, random numbers, `time` nanoseconds, IDs in JSON, `math.Float64bits`), while `int` indexes and counts, where a number is several times faster and exact for anything an array or string can hold.
+
+Arithmetic is inline (`BigInt.asIntN(64, a * b)`), which V8 compiles to machine arithmetic; division, remainder and shifts call small runtime helpers (divide-by-zero panic, Go's shift semantics). Conversions between the two worlds are explicit (`BigInt(i)`, `Number(x)`); converting an `int64` beyond 2^53 to `int` rounds. Exported functions take and return `bigint` for these types.
+
+`bench/int64.mjs` compared the representations goesm could lower to, on four workloads written as goesm would emit them (best of 5, Node 22 / Bun 1.3):
+
+| workload | number (inexact) | BigInt | `{hi, lo}` object | two uint32 locals | number, BigInt beyond 2^53 |
+|---|---|---|---|---|---|
+| counter and sum (small values) | 13 / 6 ms | 136 / 1003 ms | 260 / 397 ms | 141 / 55 ms | 124 / 30 ms |
+| FNV-1a 64 over 4 MiB | 38 / 32 ms | 35 / 498 ms | 170 / 241 ms | 104 / 101 ms | 306 / 849 ms |
+| xorshift64* | n/a | 209 / 684 ms | 97 / 273 ms | 113 / 86 ms | n/a |
+| Unix nanoseconds (add, div, mod) | 13 / 45 ms | 41 / 296 ms | 758 / 978 ms | 306 / 845 ms | 147 / 359 ms |
+
+On V8 (Chrome, Node, Deno) BigInt is the fastest exact representation in three of four workloads and close to plain numbers for hashing. On JavaScriptCore (Safari, Bun) it is 3 to 18 times slower than two uint32 halves. Halves would double every `int64` variable, field, parameter and result in the lowering and in the JS API. BigInt keeps the lowering and the exported API simple and is exact everywhere, so it is the representation; a halves fast path for hot local arithmetic stays possible later without changing the value representation.
 
 ### Type metadata
 
@@ -199,13 +217,12 @@ How it works:
 
 * The loader sets `packages.Config.ParseFile`: when go/packages parses a file of a replaced package under `$GOROOT/src`, the first file becomes the replacement and the others become empty files. go/types therefore type-checks every importer against the replacement, and the package graph the go command resolved is unchanged. `packages.Config.Overlay` cannot do this: the go command refuses to overlay files under the module cache, where `go tool goesm`'s toolchain lives.
 * Only packages reachable through the type-checked imports (after replacement) are lowered, so the gc runtime's internals (`internal/runtime/*`, `internal/abi` users, ...) drop out.
-* A function without a Go body (assembly, `//go:linkname` declarations, or left bodyless by a replacement) is implemented in `runtime/src/natives.ts`, one export per function named after `types.Func.FullName`. goesm checks at compile time that the export exists. A short fixed list (`natives.Override`) also replaces functions whose Go body reinterprets memory: `math.Float64bits` and friends, the 64-bit `math/bits` functions (exact through BigInt below 2^53), `slices.overlaps`, `internal/abi.NoEscape`.
+* A function without a Go body (assembly, `//go:linkname` declarations, or left bodyless by a replacement) is implemented in `runtime/src/natives.ts`, one export per function named after `types.Func.FullName`. goesm checks at compile time that the export exists. A short fixed list (`natives.Override`) also replaces functions whose Go body reinterprets memory: `math.Float64bits` and friends, the 64-bit `math/bits` functions (on BigInt halves), `internal/strconv.formatBits` (whose Go body narrows `uint64` digits through `uint`), `slices.overlaps`, `internal/abi.NoEscape`.
 * Replacements, overrides and natives are a fixed set compiled into goesm. They apply only to files under `$GOROOT/src`, and nothing a dependency contains can add to them.
 
 Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/semantics/stdlibuse`):
 
-* Compiled from Go source and matching native Go: `errors` (`Is`, `As`, `Join`, `Unwrap`), `strings` (search, split, fields, case mapping, `Builder`, `Replacer`, `EqualFold`), `strconv` (integer formatting, `Atoi`, quoting, `NumError`), `sort`, `slices`, `maps`, `sync`, `unicode`, `unicode/utf8`, `math/bits`.
-* `strconv` parsing with `bitSize` 64 and shortest float formatting depend on exact 64-bit arithmetic and give wrong results (pinned by `TestKnownGaps`).
+* Compiled from Go source and matching native Go: `errors` (`Is`, `As`, `Join`, `Unwrap`), `strings` (search, split, fields, case mapping, `Builder`, `Replacer`, `EqualFold`), `strconv` (integer formatting, `Atoi`, quoting, `NumError`), `sort`, `slices`, `maps`, `sync`, `unicode`, `unicode/utf8`, `math/bits`, `strconv` 64-bit parsing and shortest float formatting (`testdata/semantics/int64s`).
 * `encoding/json` and `fmt` need `reflect` (and complex numbers), which are not replaced yet.
 
 ## 10. Tooling compatibility and security
@@ -219,16 +236,15 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 **Implemented (verified by golden tests against native Go)**: package import, functions, multiple results, named results, closures, structs (value copies, methods, pointer methods, embedding and promotion, comparison), arrays, slices (aliasing, append, copy, re-slicing, nil), maps (struct / interface keys, comma-ok, delete, nil maps, range), pointers (variables, fields, elements, `new`, identity), defer (ordering, modifying named results, LIFO), panic / recover (runtime errors, re-panic), interfaces (dispatch, type assertions, type switches, comparison, nil interface vs nil pointer), generics (generic functions, constraints and constraint methods, generic types also through interfaces, operators and conversions following the type argument, Go 1.27 generic methods, type identity), method values / method expressions, switch / fallthrough / labeled break and continue, forward `goto`, range over int, range-over-func (break / continue / return from nested statements, labeled branches, Go's panics for iterators that misuse yield), Go 1.22 per-iteration loop variables, 8/16/32-bit integer wrap-around, integer divide-by-zero panics, UTF-8 strings and runes, goroutines, unbuffered / buffered channels, close, range over channels, select (including default), `runtime.Goexit` / `Gosched`, package variable init order and `init()`; the standard library packages listed in §9.
 
 **Not implemented** (produces a goesm diagnostic or does not work):
-* exact 64-bit integers (BigInt or hi/lo)
+* exact 64-bit `int` and `uint` (they are numbers, see §5)
 * `reflect`, `fmt`, `time`, `encoding/json`, `iter.Pull` (coroutines), and the parts of `unsafe` beyond §7
 * backward `goto`; blocking operations, select, defer or goto inside a range-over-func body (reported as diagnostics); taking the address of type-parameter-typed variables; local types depending on type parameters; conversion from a slice to an array pointer (`(*[N]T)(s)`)
 * deadlock detection while the host still has pending work (timers, I/O), goroutine preemption, goroutine-local recover state
 * a JS calling ABI (automatic Go ⇔ JS value conversion)
 * shared loop variables in range loops for files with `go` < 1.22
 
-**Known differences from native Go** (`TestKnownGaps` asserts that the first three still differ, via `Uint64Wrap`, `Int64Precision`, `AppendCap`, `StrconvParseInt64` and `FormatFloatShortest`; the rest are not deterministic enough to pin and are documented only):
-* `int`/`int64`/`uint64` are inexact above 2^53 and do not wrap on 64-bit overflow (`uint64(0)-1` is `-1`).
-* Standard library code inherits that: `strconv.ParseInt(s, 10, 64)` and shortest float formatting are wrong.
+**Known differences from native Go** (`TestKnownGaps` asserts that the first two still differ, via `IntWrap`, `UintWrap` and `AppendCap`; the rest are not deterministic enough to pin and are documented only):
+* `int` and `uint` are inexact above 2^53 and do not wrap on 64-bit overflow (`uint(0)-1` is `-1`); `int64` and `uint64` are exact.
 * `append` capacity growth is approximated (no size-class rounding), so `cap()` can differ from gc.
 * Map range order is insertion order (Go randomises it; both are unspecified).
 * `recover()` also works when called indirectly from a deferred function (Go requires a direct call); after an await it returns nil.
@@ -239,6 +255,6 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 
 ## 12. Next three items
 
-1. **Exact 64-bit integers** (`int64`/`uint64` as BigInt or hi/lo, and a decision for `int`) and complex numbers. With the standard library compiling, this is now the main source of wrong results (`strconv` 64-bit parsing and float formatting, `math/bits` without natives).
-2. **Completing the goroutine runtime**: deadlock detection, goroutine-local panic / recover state (recover across async boundaries), `time` timers, `iter.Pull`, and a JS calling ABI (converting arguments and results of exported functions).
-3. **`reflect` as a Go-source replacement on the runtime descriptors** (extending the `internal/reflectlite` replacement), which unlocks `fmt` and `encoding/json`.
+1. **`reflect` as a Go-source replacement on the runtime descriptors** (extending the `internal/reflectlite` replacement), which unlocks `fmt` and `encoding/json`.
+2. **`time`**: timers and `Sleep` on the host's timers, wall and monotonic clocks (now exact as `int64`), and deadlock detection while timers are pending.
+3. **Completing the goroutine runtime**: goroutine-local panic / recover state (recover across async boundaries), `iter.Pull`, and a JS calling ABI (converting arguments and results of exported functions).

@@ -281,6 +281,8 @@ func (pe *pkgEmitter) zeroOf(t types.Type, tp tpScope) string {
 			return `""`
 		case u.Info()&types.IsComplex != 0:
 			return "$rt.complexZero"
+		case isBigKind(u):
+			return "0n"
 		case u.Info()&types.IsNumeric != 0:
 			return "0"
 		}
@@ -332,7 +334,7 @@ func (pe *pkgEmitter) copyExpr(s string, t types.Type, tp tpScope) string {
 	}
 	switch t.Underlying().(type) {
 	case *types.Struct:
-		if named, ok := t.(*types.Named); ok && named.TypeArgs().Len() > 0 {
+		if isGenericType(t) {
 			return s + ".$clone(" + pe.typeDesc(t, tp) + ")"
 		}
 		return s + ".$clone()"
@@ -392,6 +394,8 @@ func (pe *pkgEmitter) tsTypeIn(t types.Type, tp tpScope, in map[string]bool) str
 			return "string"
 		case u.Info()&types.IsComplex != 0:
 			return "$rt.Complex"
+		case isBigKind(u):
+			return "bigint"
 		case u.Info()&types.IsNumeric != 0:
 			return "number"
 		}
@@ -445,6 +449,21 @@ func tsConstraint(pe *pkgEmitter, p *types.TypeParam, tp tpScope) string {
 		}
 	}
 	return ""
+}
+
+// isBig reports whether values of t are BigInts: int64 and uint64 (and
+// types defined from them). Type parameters are not: their operations
+// dispatch on the type argument at run time.
+func isBig(t types.Type) bool {
+	if isTypeParam(t) {
+		return false
+	}
+	b, ok := t.Underlying().(*types.Basic)
+	return ok && isBigKind(b)
+}
+
+func isBigKind(b *types.Basic) bool {
+	return b.Kind() == types.Int64 || b.Kind() == types.Uint64
 }
 
 // isIface reports whether t is an interface type proper. go/types reports
