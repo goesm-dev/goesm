@@ -12,8 +12,8 @@ import { ceq } from "./complex.ts";
 import { GoPanic, runtimePanic, typeAssertionErrorType } from "./panic.ts";
 
 export class Iface {
-  t: Type;
-  v: any;
+  declare t: Type;
+  declare v: any;
   constructor(t: Type, v: any) {
     this.t = t;
     this.v = v;
@@ -38,11 +38,33 @@ export function copy(t: Type, v: any): any {
   return v;
 }
 
-export function icall(x: Iface | null, key: string, ...args: any[]): any {
+function imethod(x: Iface | null, key: string): (recv: any, ...args: any[]) => any {
   if (x === null) runtimePanic("invalid memory address or nil pointer dereference");
   const m = x.t.methods.get(key);
   if (!m) runtimePanic(`method ${key} not found on ${x.t.str}`);
-  return m.fn(x.v, ...args);
+  return m.fn;
+}
+
+export function icall(x: Iface | null, key: string, ...args: any[]): any {
+  return imethod(x, key)(x!.v, ...args);
+}
+
+// icall0 to icall3 are icall for a method of 0 to 3 parameters, the common
+// case, without the rest parameter and spread V8 does not optimize away.
+export function icall0(x: Iface | null, key: string): any {
+  return imethod(x, key)(x!.v);
+}
+
+export function icall1(x: Iface | null, key: string, a: any): any {
+  return imethod(x, key)(x!.v, a);
+}
+
+export function icall2(x: Iface | null, key: string, a: any, b: any): any {
+  return imethod(x, key)(x!.v, a, b);
+}
+
+export function icall3(x: Iface | null, key: string, a: any, b: any, c: any): any {
+  return imethod(x, key)(x!.v, a, b, c);
 }
 
 export function typeIs(x: Iface | null, t: Type): boolean {

@@ -17,7 +17,7 @@ import { Slice } from "./slice.ts";
 import { Type, isAggregate } from "./types.ts";
 
 export class Cell<T> {
-  v: T;
+  declare v: T;
   constructor(v: T) {
     this.v = v;
   }
@@ -28,8 +28,8 @@ export function cell<T = any>(v: T): Cell<T> {
 }
 
 class FieldPtr {
-  private o: any;
-  private k: string;
+  private declare o: any;
+  private declare k: string;
   constructor(o: any, k: string) {
     this.o = o;
     this.k = k;
@@ -39,8 +39,8 @@ class FieldPtr {
 }
 
 class IndexPtr {
-  private a: any[];
-  private i: number;
+  private declare a: any[];
+  private declare i: number;
   constructor(a: any[], i: number) {
     this.a = a;
     this.i = i;
