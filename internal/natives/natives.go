@@ -15,14 +15,21 @@ package natives
 
 import (
 	"embed"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"path"
 	"sort"
 	"strings"
+	"sync"
 )
 
 //go:embed goroot
 var goroot embed.FS
+
+//go:embed patch
+var patches embed.FS
 
 // File is the replacement source of one standard library package.
 type File struct {
@@ -48,6 +55,89 @@ func Replacement(importPath string) (f File, ok bool) {
 		return File{Name: path.Join("goesm/natives", importPath, e.Name()), Src: src}, true
 	}
 	return File{}, false
+}
+
+// Patch returns the patch of the standard library file base (a file name)
+// of package importPath. A patch is Go source: its declarations replace the
+// package's declarations of the same names (see Patched) and are added to
+// that file, together with its imports. Patches change a few functions of a
+// package that is otherwise compiled from its original source.
+func Patch(importPath, base string) (f File, ok bool) {
+	name := path.Join("patch", importPath, base)
+	src, err := patches.ReadFile(name)
+	if err != nil {
+		return File{}, false
+	}
+	return File{Name: path.Join("goesm/natives", name), Src: src}, true
+}
+
+var patched = sync.OnceValue(func() map[string]map[string]bool {
+	m := map[string]map[string]bool{}
+	fs.WalkDir(patches, "patch", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") {
+			return err
+		}
+		src, _ := patches.ReadFile(p)
+		f, err := parser.ParseFile(token.NewFileSet(), p, src, parser.SkipObjectResolution)
+		if err != nil {
+			panic("goesm: bad patch " + p + ": " + err.Error())
+		}
+		pkg := strings.TrimPrefix(path.Dir(p), "patch/")
+		if m[pkg] == nil {
+			m[pkg] = map[string]bool{}
+		}
+		for _, d := range f.Decls {
+			for _, n := range DeclNames(d) {
+				m[pkg][n] = true
+			}
+		}
+		return nil
+	})
+	return m
+})
+
+// Patched returns the names (as DeclNames reports them) of the declarations
+// that the patches of package importPath replace, or nil.
+func Patched(importPath string) map[string]bool { return patched()[importPath] }
+
+// DeclNames returns the names a top-level declaration declares: "F" for a
+// function, "T.M" for a method of T or *T, and the names of types, variables
+// and constants. Imports declare none.
+func DeclNames(d ast.Decl) []string {
+	switch d := d.(type) {
+	case *ast.FuncDecl:
+		if d.Recv != nil && len(d.Recv.List) == 1 {
+			t := d.Recv.List[0].Type
+			if s, ok := t.(*ast.StarExpr); ok {
+				t = s.X
+			}
+			switch x := t.(type) {
+			case *ast.IndexExpr:
+				t = x.X
+			case *ast.IndexListExpr:
+				t = x.X
+			}
+			if id, ok := t.(*ast.Ident); ok {
+				return []string{id.Name + "." + d.Name.Name}
+			}
+			return nil
+		}
+		return []string{d.Name.Name}
+	case *ast.GenDecl:
+		var names []string
+		for _, s := range d.Specs {
+			switch s := s.(type) {
+			case *ast.TypeSpec:
+				names = append(names, s.Name.Name)
+			case *ast.ValueSpec:
+				for _, n := range s.Names {
+					names = append(names, n.Name)
+				}
+			}
+		}
+		return names
+	}
+	return nil
 }
 
 // Packages lists the import paths of the replaced packages.
