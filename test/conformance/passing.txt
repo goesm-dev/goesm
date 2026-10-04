@@ -278,7 +278,9 @@ fixedbugs/issue15042.go
 fixedbugs/issue15175.go
 fixedbugs/issue15252.go
 fixedbugs/issue15303.go
+fixedbugs/issue15329.go
 fixedbugs/issue15439.go
+fixedbugs/issue15528.go
 fixedbugs/issue15550.go
 fixedbugs/issue15902.go
 fixedbugs/issue15975.go
@@ -318,6 +320,7 @@ fixedbugs/issue20029.go
 fixedbugs/issue20530.go
 fixedbugs/issue20811.go
 fixedbugs/issue21048.go
+fixedbugs/issue21221.go
 fixedbugs/issue21687.go
 fixedbugs/issue21808.go
 fixedbugs/issue21887.go
@@ -343,6 +346,7 @@ fixedbugs/issue23837.go
 fixedbugs/issue24419.go
 fixedbugs/issue24449.go
 fixedbugs/issue24488.go
+fixedbugs/issue24491a.go
 fixedbugs/issue24491b.go
 fixedbugs/issue24503.go
 fixedbugs/issue24547.go
@@ -475,6 +479,7 @@ fixedbugs/issue51913.go
 fixedbugs/issue52072.go
 fixedbugs/issue52438.go
 fixedbugs/issue5244.go
+fixedbugs/issue52612.go
 fixedbugs/issue52788.go
 fixedbugs/issue52788a.go
 fixedbugs/issue52953.go
@@ -503,6 +508,7 @@ fixedbugs/issue5793.go
 fixedbugs/issue5809.go
 fixedbugs/issue5820.go
 fixedbugs/issue58671.go
+fixedbugs/issue59293.go
 fixedbugs/issue59338.go
 fixedbugs/issue59367.go
 fixedbugs/issue59404part2.go

@@ -205,10 +205,28 @@ export function structOf(fields: Field[], ctor: any): Type {
     t.kind = Kind.Struct;
     t.fields = fields;
     t.ctor = ctor;
+    registerCtor(ctor, t);
     t.str = `struct { ${fields.map((f) => (f.embedded ? f.type.str : `${f.name} ${f.type.str}`)).join("; ")} }`;
     t.zero = () => zeroStruct(t);
     return t;
   });
+}
+
+// The struct type of the objects a class makes, for unsafe pointer
+// arithmetic (runtime/src/unsafe.ts), which needs their layout. Types that
+// share a class (a named type and its underlying struct) have one layout; a
+// class whose types differ in layout (instances of a generic type) has none.
+export const ctorTypes = new WeakMap<object, Type | null>();
+
+function registerCtor(ctor: any, t: Type): void {
+  if (ctor === null || ctor === undefined) return;
+  const old = ctorTypes.get(ctor);
+  if (old === undefined) ctorTypes.set(ctor, t);
+  else if (old !== null && old !== t && !sameFields(old, t)) ctorTypes.set(ctor, null);
+}
+
+function sameFields(a: Type, b: Type): boolean {
+  return a.fields.length === b.fields.length && a.fields.every((f, i) => f.type === b.fields[i].type);
 }
 
 function zeroStruct(t: Type): any {
@@ -267,6 +285,7 @@ export function setUnderlying(t: Type, u: Type, ctor?: any): void {
   t.underlying = u.underlying;
   if (u.kind === Kind.Struct) {
     t.ctor = ctor ?? u.ctor;
+    registerCtor(t.ctor, t);
     t.zero = () => zeroStruct(t);
   } else {
     t.zero = u.zero;

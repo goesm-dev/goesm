@@ -942,8 +942,7 @@ func (v Value) OverflowUint(x uint64) bool {
 	panic(&ValueError{"reflect.Value.OverflowUint", v.Kind()})
 }
 
-// OverflowFloat reports whether the float64 x cannot be represented by v's
-// type.
+// OverflowFloat reports whether the float64 x cannot be represented by v's type.
 func (v Value) OverflowFloat(x float64) bool {
 	switch v.Kind() {
 	case Float32, Float64:
@@ -952,8 +951,7 @@ func (v Value) OverflowFloat(x float64) bool {
 	panic(&ValueError{"reflect.Value.OverflowFloat", v.Kind()})
 }
 
-// OverflowComplex reports whether the complex128 x cannot be represented by
-// v's type.
+// OverflowComplex reports whether the complex128 x cannot be represented by v's type.
 func (v Value) OverflowComplex(x complex128) bool {
 	switch v.Kind() {
 	case Complex64, Complex128:
@@ -1937,9 +1935,12 @@ func New(typ Type) Value {
 	return Value{typ: ptrTo(t), ptr: newPtr(t)}
 }
 
-// NewAt is not supported: goesm has no address space.
+// NewAt returns a Value representing a pointer to a value of the specified
+// type, using p as that pointer. goesm resolves p, which may point into the
+// middle of an aggregate (runtime/src/unsafe.ts), to a pointer to typ.
 func NewAt(typ Type, p unsafe.Pointer) Value {
-	panic("reflect.NewAt is not supported by goesm")
+	t := typ.common()
+	return Value{typ: ptrTo(t), ptr: pointerAt(p, t)}
 }
 
 // SliceAt is not supported: goesm has no address space.
@@ -2490,6 +2491,7 @@ func callFunc(t *rtype, fn unsafe.Pointer, args []unsafe.Pointer) []unsafe.Point
 func makeFunc(t *rtype, impl func([]unsafe.Pointer) []unsafe.Pointer) unsafe.Pointer
 func pointerID(t *rtype, x unsafe.Pointer) uintptr
 func unsafePointer(t *rtype, x unsafe.Pointer) unsafe.Pointer
+func pointerAt(p unsafe.Pointer, t *rtype) unsafe.Pointer
 
 func asBool(x unsafe.Pointer) bool
 func asFloat(x unsafe.Pointer) float64

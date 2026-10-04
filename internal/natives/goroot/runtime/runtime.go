@@ -242,3 +242,32 @@ func StopTrace() {}
 
 // ReadTrace returns nil: there is no trace data.
 func ReadTrace() (buf []byte) { return nil }
+
+// Goroutine-local storage for OpenTelemetry's compile-time instrumentation
+// (otelc). Its runtime rules add these functions to package runtime, with
+// two fields of the goroutine they keep, and copy the values to every new
+// goroutine (cloned when they implement OtelContextCloner). goesm keeps them
+// per goroutine in @goesm/runtime, and the go statement copies them.
+
+func GetTraceContextFromGLS() interface{}
+func GetBaggageContainerFromGLS() interface{}
+func SetTraceContextToGLS(traceContext interface{})
+func SetBaggageContainerToGLS(baggageContainer interface{})
+
+type OtelContextCloner interface {
+	Clone() interface{}
+}
+
+func propagateOtelContext(context interface{}) interface{} {
+	if context == nil {
+		return nil
+	}
+	if cloner, ok := context.(OtelContextCloner); ok {
+		return cloner.Clone()
+	}
+	return context
+}
+
+func setGLSPropagate(f func(interface{}) interface{})
+
+func init() { setGLSPropagate(propagateOtelContext) }

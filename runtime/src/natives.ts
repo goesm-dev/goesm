@@ -22,7 +22,8 @@ import {
   alignOf, arrayElemPtr, arrayOf, bytesToString, c64, chanCap, chanOf, close, encodeRune, equal, fieldPtr,
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
-  sliceElemPtr, sliceLit, sliceOf, stringToBytes, stringToRunes, topString, typeArgsName,
+  sliceElemPtr, sliceLit, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt, topString,
+  typeArgsName,
 } from "./index.ts";
 import type { S } from "./index.ts";
 
@@ -33,6 +34,12 @@ export function native$runtime$Goexit(): never {
 }
 
 export const native$runtime$NumGoroutine = numGoroutine;
+
+export function native$runtime$GetTraceContextFromGLS(): any { return getG().traceContext; }
+export function native$runtime$GetBaggageContainerFromGLS(): any { return getG().baggage; }
+export function native$runtime$SetTraceContextToGLS(v: any): void { getG().traceContext = v; }
+export function native$runtime$SetBaggageContainerToGLS(v: any): void { getG().baggage = v; }
+export const native$runtime$setGLSPropagate = setGLSPropagate;
 
 // ---- math and internal/strconv: float bits ----
 
@@ -848,6 +855,7 @@ export function native$reflect$unsafePointer(t: Type, x: any): any {
   return x;
 }
 
+export const native$reflect$pointerAt = ptrAt;
 export function native$reflect$ptrTo(t: Type): Type { return ptrTo(t); }
 export function native$reflect$sliceOf(t: Type): Type { return sliceOf(t); }
 export function native$reflect$mapOf(k: Type, e: Type): Type { return mapOf(k, e); }
@@ -1248,8 +1256,8 @@ export function native$syscall$Exit(code: number): never {
 }
 
 export function native$syscall$now(): [bigint, number] {
-  const ms = Date.now();
-  return [BigInt(Math.floor(ms / 1000)), (ms % 1000) * 1e6];
+  const [sec, nsec] = wallNow();
+  return [sec, nsec];
 }
 
 // os.Args: the program (the script) and its arguments, as with go run.
@@ -1258,8 +1266,44 @@ export function native$os$runtime_args(): Slice<string> {
   return goStrings(Array.isArray(argv) && argv.length > 1 ? argv.slice(1) : ["js"]);
 }
 
+export function native$os$hostExecutable(): string {
+  const script = gproc?.argv?.[1];
+  return typeof script === "string" && /^(\/|[A-Za-z]:[\\/])/.test(script) ? fromJSString(script) : "";
+}
+
+// net/http: the receiver of a (*net.Dialer).Dial or DialContext method
+// value, which goesm marks (dialerMethods in internal/lower), or nil.
+export function native$net$http$dialerOf(dial: any): any {
+  return dial?.$dialer ?? null;
+}
+export const native$net$http$dialerOfContext = native$net$http$dialerOf;
+
 export function native$os$runtime_beforeExit(_code: number): void {}
 export function native$os$sigpipe(): void {}
+
+// os/signal: the host signals of syscall.Signal (GOOS=js numbers them
+// SIGCHLD=1, SIGINT, SIGKILL, SIGTRAP, SIGQUIT, SIGTERM), heard through
+// process.on, which also keeps them from terminating the process.
+const signalNames = ["", "SIGCHLD", "SIGINT", "SIGKILL", "SIGTRAP", "SIGQUIT", "SIGTERM"];
+const signalListeners = new Map<number, () => void>();
+
+export function native$os$signal$hostSignal(sig: number, on: boolean, deliver: ((sig: number) => any) | null): void {
+  const name = signalNames[sig];
+  if (!name || typeof gproc?.on !== "function") return;
+  const old = signalListeners.get(sig);
+  if (old !== undefined) {
+    gproc.off(name, old);
+    signalListeners.delete(sig);
+  }
+  if (!on || deliver === null) return;
+  const listener = () => { go(deliver, [sig]); };
+  try {
+    gproc.on(name, listener);
+    signalListeners.set(sig, listener);
+  } catch {
+    // A signal the host cannot handle (SIGKILL), as with the gc runtime.
+  }
+}
 
 // runtime.rand, which packages reach by linkname: random uint64s from the
 // host's CSPRNG, drawn a block at a time.
@@ -1363,8 +1407,10 @@ export function native$internal$poll$runtime_Semrelease(sema: any): void {
 
 // ---- time: clocks ----
 //
-// The wall clock is Date.now (millisecond resolution); the monotonic clock
-// is performance.now, in nanoseconds since the program started.
+// The wall clock is Date.now, refined below the millisecond by
+// performance.timeOrigin + performance.now while the two agree (the host's
+// clock was not set since); the monotonic clock is performance.now, in
+// nanoseconds since the program started.
 
 const perf = (globalThis as any).performance;
 const monoStart = perf ? perf.now() : Date.now();
@@ -1374,8 +1420,13 @@ function monoNanos(): bigint {
 }
 
 function wallNow(): [bigint, number, bigint] {
-  const ms = Date.now();
-  return [BigInt(Math.floor(ms / 1000)), (ms % 1000) * 1e6, monoNanos()];
+  let ms = Date.now();
+  if (perf && typeof perf.timeOrigin === "number") {
+    const precise = perf.timeOrigin + perf.now();
+    if (Math.abs(precise - ms) < 1) ms = precise;
+  }
+  const sec = Math.floor(ms / 1000);
+  return [BigInt(sec), Math.min(Math.round((ms - sec * 1000) * 1e6), 999999999), monoNanos()];
 }
 
 export const native$time$now = wallNow;

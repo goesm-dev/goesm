@@ -12,6 +12,7 @@ import (
 	"go/token"
 	"go/types"
 	"sort"
+	"strings"
 	"sync"
 
 	"golang.org/x/tools/go/packages"
@@ -82,9 +83,25 @@ type Program struct {
 	// goexits are the functions that may call runtime.Goexit.
 	goexits map[any]bool
 
+	// //go:linkname pulls (bodyless functions) and the functions providing
+	// their symbols (see linkname.go).
+	linkPulls    map[*types.Func]string
+	linkProvides map[*types.Func]string
+	linkTargets  map[*types.Func]*types.Func
+
+	// TracksGoroutines is set when the program uses goroutine-local storage
+	// (runtime.GetTraceContextFromGLS and friends): async functions then
+	// restore the running goroutine after every await.
+	TracksGoroutines bool
+
+	// Deps are the packages of third-party modules (see loader.Program).
+	// Like the standard library, their functions that goesm cannot lower
+	// become stubs that panic when called.
+	Deps map[*packages.Package]bool
+
 	Diags []Diagnostic
-	// Warns are standard library functions that were replaced by stubs
-	// that panic when called.
+	// Warns are standard library and dependency functions that were
+	// replaced by stubs that panic when called.
 	Warns []Diagnostic
 }
 
@@ -113,8 +130,25 @@ func NewProgram(fset *token.FileSet, pkgs []*packages.Package, std map[*packages
 		p.byTypes[pkg.Types] = pkg
 	}
 	p.analyzeAddrs()
+	p.analyzeLinknames()
+	p.TracksGoroutines = usesGLS(pkgs)
 	p.analyzeBlocking()
 	return p
+}
+
+// usesGLS reports whether a package refers to goroutine-local storage.
+func usesGLS(pkgs []*packages.Package) bool {
+	for _, pkg := range pkgs {
+		if pkg.PkgPath == "runtime" {
+			continue
+		}
+		for _, obj := range pkg.TypesInfo.Uses {
+			if fn, ok := obj.(*types.Func); ok && fn.Pkg() != nil && fn.Pkg().Path() == "runtime" && strings.HasSuffix(fn.Name(), "GLS") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isAggregate(t types.Type) bool {
@@ -276,6 +310,12 @@ func (p *Program) propagateBlocking() {
 			}
 			if p.unitBlocks(u, p.units) {
 				p.async[u.key] = true
+				changed = true
+			}
+		}
+		for pull, target := range p.linkTargets {
+			if !p.async[pull] && p.async[target] {
+				p.async[pull] = true
 				changed = true
 			}
 		}

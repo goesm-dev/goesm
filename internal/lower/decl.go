@@ -370,6 +370,12 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 			pe.errorf(fd.Pos(), "internal error lowering %s: %v", fn.FullName(), r)
 		}
 	}()
+	if sym, ok := pe.prog.linkPulls[fn]; ok && fd.Body == nil {
+		// A //go:linkname pull: call the function providing sym.
+		deferrable := sig.Results().Len() == 0
+		w.ln("%sfunction %s(...a: any[]): any { return $rt.linkCall(%s, a, %v); }", pe.tab.mark(fd.Pos()), name, jsString(sym), deferrable)
+		return
+	}
 	if fd.Body == nil || pe.std && natives.Override(fn.FullName()) {
 		// Standard library functions without a Go body (assembly,
 		// linkname, goesm replacements) are implemented by the runtime's

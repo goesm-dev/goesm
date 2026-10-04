@@ -49,6 +49,16 @@ class IndexPtr {
   set v(x: any) { this.a[this.i] = x; }
 }
 
+// fieldPtrTarget returns the object and property a field pointer refers to.
+export function fieldPtrTarget(p: unknown): { o: any; k: string } | undefined {
+  return p instanceof FieldPtr ? { o: (p as any).o, k: (p as any).k } : undefined;
+}
+
+// indexPtrTarget returns the array and index an element pointer refers to.
+export function indexPtrTarget(p: unknown): { a: any[]; i: number } | undefined {
+  return p instanceof IndexPtr ? { a: (p as any).a, i: (p as any).i } : undefined;
+}
+
 const fieldPtrs = new WeakMap<object, Map<string | number, any>>();
 
 function cached(o: object, k: string | number, make: () => any): any {
@@ -181,11 +191,14 @@ export function zeroSizePtrEq(a: unknown, b: unknown): boolean {
 }
 
 const addresses = new WeakMap<object, number>();
+const pointers = new Map<number, WeakRef<object>>();
+const forgetAddress = new FinalizationRegistry<number>((a) => pointers.delete(a));
 let nextAddress = 0xc000010000;
 
 // addressOf stands in for uintptr(unsafe.Pointer(p)): a stable number per
 // pointer object, distinct for distinct pointers. There is no memory behind
-// it, so arithmetic on it means nothing.
+// it: arithmetic on it means nothing, but unsafe.Pointer of the number
+// (fromAddress) is the pointer again.
 export function addressOf(p: any): number {
   if (p === null || p === undefined || (typeof p !== "object" && typeof p !== "function")) return 0;
   let a = addresses.get(p);
@@ -193,6 +206,66 @@ export function addressOf(p: any): number {
     a = nextAddress;
     nextAddress += 0x1000;
     addresses.set(p, a);
+    pointers.set(a, new WeakRef(p));
+    forgetAddress.register(p, a);
   }
   return a;
+}
+
+// fromAddress is unsafe.Pointer(a) for a uintptr a: the pointer addressOf
+// gave a, or nil for 0.
+export function fromAddress(a: number): any {
+  if (a === 0) return null;
+  const p = pointers.get(a)?.deref();
+  if (p === undefined) runtimePanic("goesm: unsafe.Pointer of a uintptr that is not the address of a live pointer (goesm has no address space)");
+  return p;
+}
+
+// embedFS builds the embed.FS value of a //go:embed variable: entries are
+// [name, data] in embed's search order, directories named "dir/".
+export function embedFS(fsType: Type, entries: [string, string][]): any {
+  const fsys = fsType.zero();
+  const filesField = fsType.fields[0]; // files *[]file
+  const fileType = filesField.type.elem!.elem!;
+  const [nameProp, dataProp] = [fileType.fields[0].prop, fileType.fields[1].prop];
+  const files = entries.map(([name, data]) => {
+    const f = fileType.zero();
+    f[nameProp] = name;
+    f[dataProp] = data;
+    return f;
+  });
+  fsys[filesField.prop] = new Cell(new Slice(files, 0, files.length, files.length));
+  return fsys;
+}
+
+// //go:linkname symbols (see internal/lower/linkname.go): the functions
+// packages provide to pulls in other packages, and the result-less calls
+// made before the providing package was initialized.
+const linkSyms = new Map<string, (...a: any[]) => any>();
+const linkQueue = new Map<string, any[][]>();
+
+export function linkProvide(sym: string, fn: (...a: any[]) => any): void | Promise<void> {
+  linkSyms.set(sym, fn);
+  const q = linkQueue.get(sym);
+  if (q === undefined) return;
+  linkQueue.delete(sym);
+  const run = (i: number): void | Promise<void> => {
+    for (; i < q.length; i++) {
+      const r = fn(...q[i]);
+      if (r instanceof Promise) return r.then(() => run(i + 1));
+    }
+  };
+  return run(0);
+}
+
+export function linkCall(sym: string, args: any[], deferrable: boolean): any {
+  const fn = linkSyms.get(sym);
+  if (fn !== undefined) return fn(...args);
+  if (deferrable) {
+    let q = linkQueue.get(sym);
+    if (q === undefined) linkQueue.set(sym, (q = []));
+    q.push(args);
+    return undefined;
+  }
+  plainPanic(`goesm: ${sym} called through //go:linkname before its package was initialized`);
 }
