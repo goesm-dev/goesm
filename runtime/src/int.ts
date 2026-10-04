@@ -11,6 +11,11 @@ import { bytesToString, encodeRune, runesToString, stringToBytes, stringToRunes 
 import { Complex, c64, cadd, cdiv, cmul, cneg, complex, csub } from "./complex.ts";
 import { Kind, Type } from "./types.ts";
 
+// divZero is the panic of an inline division (see the lowering's binary).
+export function divZero(): never {
+  runtimePanic("integer divide by zero");
+}
+
 export function div(a: number, b: number): number {
   if (b === 0) runtimePanic("integer divide by zero");
   return Math.trunc(a / b) + 0; // + 0: -1 / 2 is 0, not -0

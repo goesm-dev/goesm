@@ -124,7 +124,7 @@ V8 (Chrome、Node、Deno) では BigInt が 4 つ中 3 つで最速の正確な�
 
 ### 型 metadata
 
-すべての named type は runtime descriptor (`$rt.named(pkgPath, name)`) を持ち、underlying 型、field (名前・pkgPath・tag・embedded)、value / pointer の method set (method 名と signature descriptor) を登録します。複合型 (`[]T`, `map[K]V`, `func(...)`, `struct{...}`, `interface{...}`) は構造で memoize されるため、**descriptor の同一性 = Go の type identity** です。interface 判定はこの method table で行い、TypeScript の structural typing には依存しません。unexported method は pkgPath で修飾されます。interface 経由の呼び出しは動的型の table から method を直接読む (`x.t.mt["M"](x.v, ...)`) ので、呼び出し箇所ごとにそこを通る少数の型に対する inline cache が効きます。
+すべての named type は runtime descriptor (`$rt.named(pkgPath, name)`) を持ち、underlying 型、field (名前・pkgPath・tag・embedded)、value / pointer の method set (method 名と signature descriptor) を登録します。複合型 (`[]T`, `map[K]V`, `func(...)`, `struct{...}`, `interface{...}`) は構造で memoize されるため、**descriptor の同一性 = Go の type identity** です。interface 判定はこの method table で行い、TypeScript の structural typing には依存しません。unexported method は pkgPath で修飾されます。interface 経由の呼び出しは動的型の table から method を直接読む (`x.t.mt["M"](x.v, ...)`) ので、呼び出し箇所ごとにそこを通る少数の型に対する inline cache が効きます。各型の table は、その型の method 関数そのもの (receiver の調整が要らないものはラッパーなし) を prototype に持つ空のオブジェクトなので、JS の class の method と同じく hidden class ごとに既知の関数へ解決され、エンジンがインライン化できます。
 
 ### Generics: type erasure + runtime type dictionary
 

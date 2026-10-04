@@ -130,9 +130,23 @@ func (pe *pkgEmitter) methodEntries(T types.Type, named *types.Named, tp tpScope
 		}
 		s := fn.Signature()
 		sig := types.NewSignatureType(nil, nil, nil, s.Params(), s.Results(), s.Variadic())
-		entries = append(entries, fmt.Sprintf("%s: [%s, %s]", jsString(methodKey(fn)), pe.methodWrapper(T, sel, tp, ""), pe.typeDesc(sig, mtp)))
+		entries = append(entries, fmt.Sprintf("%s: [%s, %s]", jsString(methodKey(fn)), pe.methodEntry(T, sel, tp), pe.typeDesc(sig, mtp)))
 	}
 	return entries
+}
+
+// methodEntry is the function of method sel in the table of T: the method's
+// own function where it takes a receiver of type T as it is, so that a call
+// through the table (icall) reaches it directly, and a methodWrapper
+// otherwise.
+func (pe *pkgEmitter) methodEntry(T types.Type, sel *types.Selection, tp tpScope) string {
+	fn := sel.Obj().(*types.Func)
+	if len(sel.Index()) == 1 && types.Identical(fn.Signature().Recv().Type(), T) && pe.recvTypeArgs(fn.Signature().Recv().Type(), tp) == "" {
+		if named, ok := types.Unalias(T).(*types.Named); !ok || named.TypeParams().Len() == 0 {
+			return pe.methodFuncName(fn)
+		}
+	}
+	return pe.methodWrapper(T, sel, tp, "")
 }
 
 // promotedMethods reports whether t is an unnamed struct type, or a pointer

@@ -41,6 +41,14 @@ export interface MethodImpl {
 
 let nextID = 1;
 
+// The method table of each type with methods is an empty object whose
+// prototype holds the functions: one hidden class per type, so the access
+// t.mt[key] at a call site sees one class per dynamic type and engines
+// resolve it, as a method of a JS class, to the type's function, which they
+// can inline (the function stored in an object shared by every table would
+// be a value unknown to the call site).
+const noMethods: Record<string, (recv: any, ...args: any[]) => any> = Object.freeze({}) as any;
+
 export class Type {
   id = nextID++;
   kind = 0;
@@ -62,7 +70,8 @@ export class Type {
   methods = new Map<string, MethodImpl>();
   // The same methods' functions by key, for calls through interfaces: a
   // property access is cached at each call site (see icall in the lowering).
-  mt: Record<string, (recv: any, ...args: any[]) => any> = {};
+  // The functions live on a prototype of the type's own (see addMethods).
+  mt: Record<string, (recv: any, ...args: any[]) => any> = noMethods;
   // Constructs the zero value.
   zero: () => any = () => null;
   // JS class for struct types (named or not).
@@ -317,7 +326,8 @@ export function addMethods(t: Type, methods: Record<string, [(recv: any, ...args
   for (const k of Object.keys(methods)) {
     const [fn, type] = methods[k];
     t.methods.set(k, { fn, type });
-    t.mt[k] = fn;
+    if (t.mt === noMethods) t.mt = Object.create({});
+    Object.getPrototypeOf(t.mt)[k] = fn;
   }
 }
 
