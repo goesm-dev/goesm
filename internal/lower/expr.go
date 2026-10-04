@@ -159,6 +159,11 @@ func (fe *funcEmitter) genericFuncValue(fn string, targs *types.TypeList) string
 }
 
 func (fe *funcEmitter) funcInstance(e ast.Expr, x ast.Expr) string {
+	if sel, ok := unparen(x).(*ast.SelectorExpr); ok && fe.info.Selections[sel] != nil {
+		// A generic method value or expression with explicit type
+		// arguments (s.M[int]): they are recorded on the selector.
+		return fe.selector(sel)
+	}
 	id := identOf(x)
 	inst, ok := fe.info.Instances[id]
 	if !ok {
@@ -297,7 +302,14 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 		}
 		// The same function as the method table entry: it follows embedded
 		// fields (promoted methods) and adjusts the receiver.
-		return "(" + fe.pe.methodWrapper(recvT, sel, fe.tp) + ")"
+		targs := ""
+		if inst, ok := fe.info.Instances[e.Sel]; ok { // T.M[int]: the method's own type arguments come last
+			n, m := inst.TypeArgs.Len(), fn.Signature().TypeParams().Len()
+			for i := n - m; i < n; i++ {
+				targs += fe.desc(inst.TypeArgs.At(i)) + ", "
+			}
+		}
+		return "(" + fe.pe.methodWrapper(recvT, sel, fe.tp, targs) + ")"
 	}
 	return "undefined"
 }
@@ -791,6 +803,12 @@ func (fe *funcEmitter) shiftCount(e ast.Expr) string {
 // length, a shift count): BigInts are converted (a value beyond 2^53 is out
 // of range either way).
 func (fe *funcEmitter) intNumber(e ast.Expr) string {
+	if tv, ok := fe.info.Types[e]; ok && tv.Value != nil {
+		// A constant, possibly untyped float or complex (x << 1.0).
+		if v := constant.ToInt(tv.Value); v.Kind() == constant.Int {
+			return v.ExactString()
+		}
+	}
 	t := fe.info.TypeOf(e)
 	if isTypeParam(t) {
 		return "$rt.intNumber(" + fe.expr(e) + ")"
@@ -956,6 +974,9 @@ func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
 
 func (fe *funcEmitter) call(e *ast.CallExpr) string {
 	fun := unparen(e.Fun)
+	if sel, ok := unparen(funcIdent(fun)).(*ast.SelectorExpr); ok && fe.info.Selections[sel] != nil {
+		fun = sel // s.M[int](): the method's type arguments are recorded on M
+	}
 	if tv, ok := fe.info.Types[fun]; ok && tv.IsType() {
 		return fe.conversion(e, tv.Type)
 	}
