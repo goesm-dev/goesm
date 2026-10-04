@@ -1,0 +1,8 @@
+{
+  "name": "goesm-bench",
+  "private": true,
+  "description": "goesm's comparison benchmark (see README.md). playwright-core drives Chromium for the browser runs; install with npm ci in this directory.",
+  "devDependencies": {
+    "playwright-core": "1.56.1"
+  }
+}
