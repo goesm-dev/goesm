@@ -34,7 +34,13 @@ type funcEmitter struct {
 	resultTs []types.Type
 	named    bool                     // results are named Go variables (their address may escape)
 	gotos    map[*ast.BranchStmt]bool // forward gotos, lowered to labelled breaks
-	rangeFn  *rangeFuncCtx            // the range-over-func body being lowered
+	// Goto state machines (see gotoMachine): the targets of their labels,
+	// the variables declared before them, and the enclosing breakable
+	// statements, whose unlabelled break and continue a machine would capture.
+	gotoTargets map[types.Object]gotoTarget
+	hoisted     map[*types.Var]bool
+	breakables  []breakable
+	rangeFn     *rangeFuncCtx // the range-over-func body being lowered
 }
 
 func (pe *pkgEmitter) newFuncEmitter(w *writer, sig *types.Signature) *funcEmitter {

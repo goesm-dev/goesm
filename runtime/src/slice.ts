@@ -93,7 +93,62 @@ export function sliceArray<T = any>(a: T[], lo?: number, hi?: number, max?: numb
   const h = hi ?? c;
   const m = max ?? c;
   if (l < 0 || h < l || m < h || m > c) boundsPanic(l, h, m, c);
+  const v = views.get(a);
+  if (v !== undefined) return new Slice(v.a, v.off + l, h - l, m - l);
   return new Slice(a, l, h - l, m - l);
+}
+
+// sliceToArrayPtr implements the conversion (*[n]T)(s). A pointer to an array
+// is the JS array itself, so the result must be an array that aliases s's
+// backing array: the backing array itself when s covers all of it (as for
+// make([]T, n) or a[:]), otherwise a Proxy that views s's elements.
+const views = new WeakMap<object, { a: any[]; off: number }>();
+const viewCache = new WeakMap<object, Map<string, any[]>>();
+
+export function sliceToArrayPtr<T = any>(s: S<T>, n: number): T[] | null {
+  const l = s === null ? 0 : s.$length;
+  if (l < n) runtimePanic(`cannot convert slice with length ${l} to array or pointer to array with length ${n}`);
+  if (s === null) return null;
+  const a = s.$array, off = s.$offset;
+  if (off === 0 && a.length === n) return a;
+  let m = viewCache.get(a);
+  if (m === undefined) viewCache.set(a, (m = new Map()));
+  const key = off + ":" + n;
+  let p = m.get(key);
+  if (p === undefined) {
+    const index = (k: string | symbol): number => {
+      if (typeof k !== "string") return -1;
+      const i = +k;
+      return Number.isInteger(i) && i >= 0 && i < n && String(i) === k ? i : -1;
+    };
+    p = new Proxy(new Array<T>(n), {
+      get(t, k, r) {
+        const i = index(k);
+        return i >= 0 ? a[off + i] : Reflect.get(t, k, r);
+      },
+      set(t, k, x, r) {
+        const i = index(k);
+        if (i >= 0) {
+          a[off + i] = x;
+          return true;
+        }
+        return Reflect.set(t, k, x, r);
+      },
+      has(t, k) {
+        return index(k) >= 0 || Reflect.has(t, k);
+      },
+      getOwnPropertyDescriptor(t, k) {
+        const i = index(k);
+        return i >= 0 ? { value: a[off + i], writable: true, enumerable: true, configurable: true } : Reflect.getOwnPropertyDescriptor(t, k);
+      },
+      ownKeys(t) {
+        return [...Array.from({ length: n }, (_, i) => String(i)), ...Reflect.ownKeys(t)];
+      },
+    });
+    views.set(p, { a, off });
+    m.set(key, p);
+  }
+  return p;
 }
 
 function grow(oldCap: number, needed: number): number {

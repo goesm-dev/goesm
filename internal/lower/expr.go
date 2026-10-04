@@ -369,8 +369,8 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 	switch x := unparen(e).(type) {
 	case *ast.Ident:
 		v := fe.info.Uses[x].(*types.Var)
-		if _, isTP := types.Unalias(t).(*types.TypeParam); isTP {
-			fe.errorf(e.Pos(), "taking the address of a type-parameter-typed variable is not supported yet")
+		if _, isTP := types.Unalias(t).(*types.TypeParam); isTP && fe.boxed(v) {
+			return fmt.Sprintf("$rt.tpAddr(%s, %s)", fe.desc(t), fe.nameOf(v))
 		}
 		if isAggregate(t) {
 			return fe.nameOf(v)
@@ -1247,8 +1247,7 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 	if p, ok := tu.(*types.Pointer); ok {
 		if _, ok := under(p.Elem()).(*types.Array); ok {
 			if _, ok := fu.(*types.Slice); ok {
-				fe.errorf(e.Pos(), "conversion from slice to array pointer is not supported yet")
-				return s
+				return fmt.Sprintf("$rt.sliceToArrayPtr(%s, %d)", s, under(p.Elem()).(*types.Array).Len())
 			}
 		}
 	}

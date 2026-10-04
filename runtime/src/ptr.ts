@@ -102,6 +102,19 @@ export function store(t: Type, p: any, v: any): void {
   else p.v = v;
 }
 
+// tpAddr is &x for a variable x of a type parameter's type t whose address is
+// taken: x is a Cell, and a pointer to an aggregate is the object itself.
+export function tpAddr(t: Type, x: Cell<any>): any {
+  return isAggregate(t) ? x.v : x;
+}
+
+// tpSet assigns v to such a variable, in place for an aggregate so that
+// pointers to it observe the change.
+export function tpSet(t: Type, x: Cell<any>, v: any): void {
+  if (isAggregate(t)) assign(t, x.v, v);
+  else x.v = v;
+}
+
 // assign copies aggregate value src into the existing object dst in place, so
 // pointers to dst observe the change.
 export function assign(t: Type, dst: any, src: any): void {

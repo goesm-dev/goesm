@@ -15,6 +15,10 @@ import (
 // declarations, so the block only wraps statements that declare nothing
 // visible at the label.
 func (fe *funcEmitter) stmts(list []ast.Stmt) {
+	if fe.backwardGoto(list) {
+		fe.gotoMachine(list)
+		return
+	}
 	type span struct {
 		start, end int // wrap list[start:end]; list[end] is the label
 		name       string
@@ -149,15 +153,25 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 	case *ast.IfStmt:
 		fe.ifStmt(s, label)
 	case *ast.ForStmt:
+		label = fe.pushBreakable(s, label, true)
 		fe.forStmt(s, label)
+		fe.popBreakable()
 	case *ast.RangeStmt:
+		label = fe.pushBreakable(s, label, true)
 		fe.rangeStmt(s, label)
+		fe.popBreakable()
 	case *ast.SwitchStmt:
+		label = fe.pushBreakable(s, label, false)
 		fe.switchStmt(s, label)
+		fe.popBreakable()
 	case *ast.TypeSwitchStmt:
+		label = fe.pushBreakable(s, label, false)
 		fe.typeSwitchStmt(s, label)
+		fe.popBreakable()
 	case *ast.SelectStmt:
+		label = fe.pushBreakable(s, label, false)
 		fe.selectStmt(s, label)
+		fe.popBreakable()
 	case *ast.ReturnStmt:
 		if fe.rangeFn != nil {
 			fe.rangeFuncReturn(s)
@@ -183,14 +197,20 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 			}
 			if s.Label != nil {
 				w.ln("%s%s %s;", m, kw, fe.labelName(s.Label))
+			} else if l := fe.branchLabel(s.Tok == token.CONTINUE); l != "" {
+				w.ln("%s%s %s;", m, kw, l)
 			} else {
 				w.ln("%s%s;", m, kw)
 			}
 		case token.FALLTHROUGH:
 			// handled by switchStmt: the JS case is emitted without break
 		case token.GOTO:
+			if t, ok := fe.gotoTargets[fe.info.Uses[s.Label]]; ok {
+				w.ln("%s%s = %d; continue %s;", m, t.state, t.n, t.loop)
+				return
+			}
 			if !fe.gotos[s] {
-				fe.errorf(s.Pos(), "backward goto is not supported yet")
+				fe.errorf(s.Pos(), "goto %s is not supported here", s.Label.Name)
 			}
 			w.ln("%sbreak G$%s;", m, s.Label.Name)
 		}
@@ -266,6 +286,13 @@ func (fe *funcEmitter) defineVar(m string, v *types.Var, init string) {
 		return
 	}
 	n := fe.declare(v)
+	if fe.hoisted[v] {
+		if fe.boxed(v) {
+			init = "$rt.cell(" + init + ")"
+		}
+		fe.w.ln("%s%s = %s;", m, n, init)
+		return
+	}
 	if fe.boxed(v) {
 		fe.w.ln("%slet %s: $rt.Cell<%s> = $rt.cell(%s);", m, n, fe.ts(v.Type()), init)
 		return
@@ -509,6 +536,12 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 			return lvalue{get: "undefined", set: func(rhs string) string { return rhs }}
 		}
 		v := fe.info.Uses[x].(*types.Var)
+		if _, isTP := types.Unalias(t).(*types.TypeParam); isTP && fe.boxed(v) {
+			n := fe.nameOf(v)
+			return lvalue{get: n + ".v", set: func(rhs string) string {
+				return fmt.Sprintf("$rt.tpSet(%s, %s, %s)", fe.desc(t), n, rhs)
+			}}
+		}
 		return fe.simpleLvalue(fe.varRef(v), t)
 	case *ast.SelectorExpr:
 		if _, ok := fe.info.Selections[x]; !ok {
@@ -627,7 +660,7 @@ func (fe *funcEmitter) forStmt(s *ast.ForStmt, label string) {
 			n := fe.declare(v)
 			if fe.boxed(v) {
 				decls = append(decls, fmt.Sprintf("%s: $rt.Cell<%s> = $rt.cell(%s)", n, fe.ts(v.Type()), val))
-				renew = append(renew, fmt.Sprintf("%s = $rt.cell(%s.v)", n, n))
+				renew = append(renew, fmt.Sprintf("%s = $rt.cell(%s)", n, fe.pe.copyExpr(n+".v", v.Type(), fe.tp)))
 			} else {
 				decls = append(decls, fmt.Sprintf("%s: %s = %s", n, fe.ts(v.Type()), val))
 				if isAggregate(v.Type()) { // the next iteration gets its own copy
@@ -873,14 +906,17 @@ func isBlank(e ast.Expr) bool {
 // rangeFunc lowers range-over-func (Go 1.23 iterators) to a call with a
 // yield callback. break and continue of this loop and return (also from
 // nested loops, switches and labeled statements in the body) become the
-// callback's result; the body must not block.
+// callback's result. A body that may block is an async callback; the
+// analysis treats it as a function value of the yield type, so the
+// iterators that may call it await their yield calls.
 //
 // A state variable reproduces Go's checks on misbehaving iterators: calling
 // yield again after the body returned false, after the loop exited or after
 // the body panicked, and returning normally after recovering a body panic.
 func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Signature) {
 	w := fe.w
-	branches, exits, ok := fe.rangeFuncBranches(s, label)
+	async := fe.pe.prog.RangeBodyAsync(s)
+	branches, exits, ok := fe.rangeFuncBranches(s, label, async)
 	if !ok {
 		return
 	}
@@ -906,7 +942,10 @@ func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Sign
 		decls = append(decls, p+": "+fe.ts(ptypes[i]))
 	}
 	call := fmt.Sprintf("%s((%s): boolean => {", fe.expr(s.X), strings.Join(decls, ", "))
-	if fe.pe.prog.RangeBlocks(fe.info, s) {
+	if async {
+		call = fmt.Sprintf("%s(async (%s): Promise<boolean> => {", fe.expr(s.X), strings.Join(decls, ", "))
+	}
+	if async || fe.pe.prog.RangeBlocks(fe.info, s) {
 		call = "await " + call
 	}
 	w.ln("%s", call)
@@ -924,10 +963,10 @@ func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Sign
 	if k != "" {
 		fe.rangeVars(s, k, v, kt, vt)
 	}
-	outer := fe.rangeFn
-	fe.rangeFn = rf
+	outer, outerAsync := fe.rangeFn, fe.async
+	fe.rangeFn, fe.async = rf, async
 	fe.stmts(s.Body.List)
-	fe.rangeFn = outer
+	fe.rangeFn, fe.async = outer, outerAsync
 	if !terminates(s.Body.List) {
 		w.ln("%s", rf.next(true))
 	}
@@ -997,7 +1036,7 @@ func (fe *funcEmitter) rangeFuncReturn(s *ast.ReturnStmt) {
 // that target it and those that leave it for an enclosing labeled
 // statement, and reports unsupported forms in the body (those in nested
 // range-over-func bodies are reported when lowering them).
-func (fe *funcEmitter) rangeFuncBranches(s *ast.RangeStmt, label string) (map[*ast.BranchStmt]bool, []*ast.BranchStmt, bool) {
+func (fe *funcEmitter) rangeFuncBranches(s *ast.RangeStmt, label string, async bool) (map[*ast.BranchStmt]bool, []*ast.BranchStmt, bool) {
 	ok := true
 	nested := 0
 	bad := func(n ast.Node, format string, args ...any) {
@@ -1033,8 +1072,6 @@ func (fe *funcEmitter) rangeFuncBranches(s *ast.RangeStmt, label string) (map[*a
 				return false
 			case *ast.RangeStmt:
 				switch under(fe.info.TypeOf(n.X)).(type) {
-				case *types.Chan:
-					bad(n, "receiving from a channel in a range-over-func body is not supported yet")
 				case *types.Signature:
 					nested++
 					visit(n, false, false)
@@ -1047,21 +1084,14 @@ func (fe *funcEmitter) rangeFuncBranches(s *ast.RangeStmt, label string) (map[*a
 				visit(n, false, cont)
 				return false
 			case *ast.SelectStmt:
-				bad(n, "select in a range-over-func body is not supported yet")
+				if !async {
+					bad(n, "select in a range-over-func body is not supported here")
+				}
+				visit(n, false, cont)
 				return false
 			case *ast.DeferStmt:
 				bad(n, "defer in a range-over-func body is not supported yet")
 				return false
-			case *ast.SendStmt:
-				bad(n, "channel send in a range-over-func body is not supported yet")
-			case *ast.UnaryExpr:
-				if n.Op == token.ARROW {
-					bad(n, "channel receive in a range-over-func body is not supported yet")
-				}
-			case *ast.CallExpr:
-				if fe.pe.prog.CallBlocks(fe.info, n) {
-					bad(n, "call of a function that may block in a range-over-func body is not supported yet")
-				}
 			case *ast.BranchStmt:
 				switch {
 				case n.Tok == token.GOTO:
@@ -1510,5 +1540,269 @@ func containsReturn(s ast.Node) bool {
 		}
 		return !found
 	})
+	return found
+}
+
+// A gotoTarget is a label of a goto state machine: goto sets the machine's
+// state variable to n and continues its loop.
+type gotoTarget struct {
+	state, loop string
+	n           int
+}
+
+// A breakable is an enclosing for, range, switch or select statement (loop
+// reports whether continue applies to it), or a goto state machine.
+type breakable struct {
+	label   string
+	loop    bool
+	machine bool
+}
+
+// pushBreakable records the breakable statement s with JS label label. A
+// statement gets a label even without a Go one if an unlabelled break or
+// continue of it is inside a goto state machine, so that it can name it.
+func (fe *funcEmitter) pushBreakable(s ast.Stmt, label string, loop bool) string {
+	if label == "" && containsGoto(s) && fe.branchesFromMachine(s, loop) {
+		label = "J" + fe.tmp()
+	}
+	fe.breakables = append(fe.breakables, breakable{label: label, loop: loop})
+	return label
+}
+
+func (fe *funcEmitter) popBreakable() { fe.breakables = fe.breakables[:len(fe.breakables)-1] }
+
+// branchLabel returns the JS label an unlabelled break (or continue) must
+// name because a goto state machine lies between it and its statement, or "".
+func (fe *funcEmitter) branchLabel(cont bool) string {
+	crossed := false
+	for i := len(fe.breakables) - 1; i >= 0; i-- {
+		b := fe.breakables[i]
+		switch {
+		case b.machine:
+			crossed = true
+		case cont && !b.loop:
+		case crossed:
+			return b.label
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
+func containsGoto(n ast.Node) bool {
+	found := false
+	ast.Inspect(n, func(c ast.Node) bool {
+		switch c := c.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.BranchStmt:
+			found = found || c.Tok == token.GOTO
+		}
+		return !found
+	})
+	return found
+}
+
+// gotosTo calls f for each goto in n (outside function literals) whose
+// target is label.
+func (fe *funcEmitter) gotosTo(n ast.Node, label types.Object, f func(*ast.BranchStmt)) {
+	ast.Inspect(n, func(c ast.Node) bool {
+		switch c := c.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.BranchStmt:
+			if c.Tok == token.GOTO && fe.info.Uses[c.Label] == label {
+				f(c)
+			}
+		}
+		return true
+	})
+}
+
+// backwardGoto reports whether a goto jumps back to a label of list: from
+// the labelled statement itself or from a later one.
+func (fe *funcEmitter) backwardGoto(list []ast.Stmt) bool {
+	for k, s := range list {
+		ls, ok := s.(*ast.LabeledStmt)
+		if !ok {
+			continue
+		}
+		label := fe.info.Defs[ls.Label]
+		found := false
+		for _, t := range list[k:] {
+			fe.gotosTo(t, label, func(*ast.BranchStmt) { found = true })
+		}
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+// gotoMachine lowers a statement list with a backward goto to a state
+// machine: a loop around a switch on a state variable, with a case at each
+// goto target. Falling through the cases runs the statements in order; goto
+// sets the state and continues the loop:
+//
+//	let $1 = 0;
+//	M$1: for (;;) {
+//		switch ($1) {
+//		case 0:
+//			...
+//		case 1: // L:
+//			...; $1 = 1; continue M$1; // goto L
+//		}
+//		break;
+//	}
+//
+// The switch body is entered afresh on every jump, so the variables the
+// list declares are declared before the loop (Go forbids jumping over a
+// declaration into its scope, so they are always assigned before use).
+// Jumping back over a declaration therefore reuses its variable, where Go
+// would make a new one; this is only observable through closures created
+// before the jump.
+func (fe *funcEmitter) gotoMachine(list []ast.Stmt) {
+	w := fe.w
+	state := fe.tmp()
+	loop := "M" + state
+	if fe.gotoTargets == nil {
+		fe.gotoTargets = map[types.Object]gotoTarget{}
+	}
+	if fe.hoisted == nil {
+		fe.hoisted = map[*types.Var]bool{}
+	}
+	cases := map[int]int{} // list index -> state
+	for k, s := range list {
+		ls, ok := s.(*ast.LabeledStmt)
+		if !ok {
+			continue
+		}
+		label := fe.info.Defs[ls.Label]
+		found := false
+		for _, t := range list {
+			fe.gotosTo(t, label, func(*ast.BranchStmt) { found = true })
+		}
+		if found {
+			cases[k] = len(cases) + 1
+			fe.gotoTargets[label] = gotoTarget{state: state, loop: loop, n: cases[k]}
+		}
+	}
+	for _, s := range list {
+		for _, v := range fe.declaredVars(s) {
+			n := fe.declare(v)
+			fe.hoisted[v] = true
+			if fe.boxed(v) {
+				w.ln("let %s!: $rt.Cell<%s>;", n, fe.ts(v.Type()))
+			} else {
+				w.ln("let %s!: %s;", n, fe.ts(v.Type()))
+			}
+		}
+	}
+	w.ln("let %s = 0;", state)
+	w.ln("%s: for (;;) {", loop)
+	w.indent++
+	w.ln("switch (%s) {", state)
+	w.ln("case 0:")
+	fe.breakables = append(fe.breakables, breakable{machine: true})
+	w.indent++
+	for k, s := range list {
+		if n, ok := cases[k]; ok {
+			w.indent--
+			w.ln("case %d:", n)
+			w.indent++
+		}
+		fe.stmt(s, "")
+	}
+	fe.popBreakable()
+	w.indent--
+	w.ln("}")
+	w.ln("break;")
+	w.indent--
+	w.ln("}")
+}
+
+// declaredVars returns the variables a statement of a list declares in the
+// list's scope.
+func (fe *funcEmitter) declaredVars(s ast.Stmt) []*types.Var {
+	var vars []*types.Var
+	add := func(id *ast.Ident) {
+		if v, ok := fe.info.Defs[id].(*types.Var); ok && v.Name() != "_" {
+			vars = append(vars, v)
+		}
+	}
+	switch s := s.(type) {
+	case *ast.LabeledStmt:
+		return fe.declaredVars(s.Stmt)
+	case *ast.AssignStmt:
+		if s.Tok == token.DEFINE {
+			for _, l := range s.Lhs {
+				if id, ok := l.(*ast.Ident); ok {
+					add(id)
+				}
+			}
+		}
+	case *ast.DeclStmt:
+		if gd, ok := s.Decl.(*ast.GenDecl); ok && gd.Tok == token.VAR {
+			for _, spec := range gd.Specs {
+				for _, id := range spec.(*ast.ValueSpec).Names {
+					add(id)
+				}
+			}
+		}
+	}
+	return vars
+}
+
+// branchesFromMachine reports whether an unlabelled break of s (or continue,
+// if it is a loop) lies in a statement list lowered to a goto state machine.
+func (fe *funcEmitter) branchesFromMachine(s ast.Stmt, loop bool) bool {
+	found := false
+	var visit func(n ast.Node, brk, cont, machine bool)
+	visitList := func(list []ast.Stmt, brk, cont, machine bool) {
+		machine = machine || fe.backwardGoto(list)
+		for _, st := range list {
+			visit(st, brk, cont, machine)
+		}
+	}
+	visit = func(n ast.Node, brk, cont, machine bool) {
+		if found || n == nil {
+			return
+		}
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return
+		case *ast.BranchStmt:
+			if n.Label == nil && machine && (n.Tok == token.BREAK && brk || n.Tok == token.CONTINUE && cont) {
+				found = true
+			}
+			return
+		case *ast.BlockStmt:
+			visitList(n.List, brk, cont, machine)
+			return
+		case *ast.CaseClause:
+			visitList(n.Body, brk, cont, machine)
+			return
+		case *ast.CommClause:
+			visitList(n.Body, brk, cont, machine)
+			return
+		case *ast.ForStmt, *ast.RangeStmt:
+			if n != s {
+				return // break and continue inside are its own
+			}
+		case *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+			if n != s {
+				brk = false
+			}
+		}
+		ast.Inspect(n, func(c ast.Node) bool {
+			if c == n {
+				return true
+			}
+			visit(c, brk, cont, machine)
+			return false
+		})
+	}
+	visit(s, true, loop, false)
 	return found
 }
