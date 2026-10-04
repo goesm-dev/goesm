@@ -16,9 +16,13 @@
 // natives.ts is a separate module (@goesm/runtime/natives) that uses the
 // runtime only through its public module, so split builds share one runtime.
 import {
-  GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, assign, chanLen, copy, exitProcess,
+  GoMap, addressOf, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, assign, chanLen, copy, exitProcess,
   fromJSString, hostNodeFS, implementsIface, isAggregate, load, toJSString, writeConsole, writeSyncAll,
   makeSlice, mapLen, numGoroutine, runtimePanic, sizeOf, store, panic, types, append,
+  alignOf, arrayElemPtr, arrayOf, bytesToString, c64, chanCap, chanOf, close, encodeRune, equal, fieldPtr,
+  funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
+  newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
+  sliceElemPtr, sliceLit, sliceOf, stringToBytes, stringToRunes,
 } from "./index.ts";
 import type { S } from "./index.ts";
 
@@ -52,6 +56,57 @@ export function native$math$Float32bits(f: number): number {
 export function native$math$Float32frombits(b: number): number {
   scratch.setUint32(0, b);
   return scratch.getFloat32(0);
+}
+
+// ---- math: functions with exactly specified results ----
+//
+// IEEE 754 fixes these results (Sqrt is correctly rounded), so the JS
+// builtins return what Go's code would, much faster than its bit
+// manipulation on BigInt (natives.Override).
+
+export const native$math$archFloor = Math.floor;
+export const native$math$archCeil = Math.ceil;
+export const native$math$archTrunc = Math.trunc;
+export const native$math$Floor = Math.floor;
+export const native$math$Ceil = Math.ceil;
+export const native$math$Trunc = Math.trunc;
+export const native$math$Sqrt = Math.sqrt;
+
+// Round rounds half away from zero.
+export function native$math$Round(x: number): number {
+  const t = Math.trunc(x);
+  return Math.abs(x - t) >= 0.5 ? t + Math.sign(x) : t;
+}
+
+// RoundToEven rounds half to even. (Go's body shifts by a uint difference
+// that wraps around, which an int-sized number does not.)
+export function native$math$RoundToEven(x: number): number {
+  const t = Math.trunc(x);
+  const d = Math.abs(x - t);
+  return d > 0.5 || (d === 0.5 && t % 2 !== 0) ? t + Math.sign(x) : t;
+}
+
+export function native$math$Abs(x: number): number {
+  scratch.setFloat64(0, x);
+  scratch.setUint8(0, scratch.getUint8(0) & 0x7f);
+  return scratch.getFloat64(0);
+}
+
+export function native$math$Signbit(x: number): boolean {
+  scratch.setFloat64(0, x);
+  return (scratch.getUint8(0) & 0x80) !== 0;
+}
+
+export function native$math$Copysign(f: number, sign: number): number {
+  scratch.setFloat64(0, sign);
+  const s = scratch.getUint8(0) & 0x80;
+  scratch.setFloat64(0, f);
+  scratch.setUint8(0, (scratch.getUint8(0) & 0x7f) | s);
+  return scratch.getFloat64(0);
+}
+
+export function native$math$Inf(sign: number): number {
+  return sign >= 0 ? Infinity : -Infinity;
 }
 
 export const native$internal$strconv$float64bits = native$math$Float64bits;
@@ -367,6 +422,332 @@ export function native$internal$reflectlite$swapper(t: Type, s: Slice<any> | nul
       a[o + j] = tmp;
     }
   };
+}
+
+// ---- reflect ----
+//
+// Like reflectlite: a reflect *rtype is a runtime type descriptor and a
+// Value's ptr is the JS value itself, or (flagAddr) a goesm pointer to it.
+// int64 and uint64 cross as bigint, the other integers as numbers.
+
+export const native$reflect$ifaceType = native$internal$reflectlite$ifaceType;
+export const native$reflect$ifaceValue = native$internal$reflectlite$ifaceValue;
+export const native$reflect$asIface = native$internal$reflectlite$asIface;
+export const native$reflect$typeName = native$internal$reflectlite$typeName;
+export const native$reflect$typePkgPath = native$internal$reflectlite$typePkgPath;
+export const native$reflect$typeSize = sizeOf;
+export const native$reflect$typeAlign = alignOf;
+export const native$reflect$typeKind = native$internal$reflectlite$typeKind;
+export const native$reflect$typeString = native$internal$reflectlite$typeString;
+export const native$reflect$typeComparable = native$internal$reflectlite$typeComparable;
+export const native$reflect$typeElem = native$internal$reflectlite$typeElem;
+export const native$reflect$implements = native$internal$reflectlite$implements;
+export const native$reflect$directlyAssignable = native$internal$reflectlite$directlyAssignable;
+export const native$reflect$load = native$internal$reflectlite$load;
+export const native$reflect$store = native$internal$reflectlite$store;
+export const native$reflect$assignConvert = native$internal$reflectlite$convert;
+export const native$reflect$length = native$internal$reflectlite$length;
+export const native$reflect$swapper = native$internal$reflectlite$swapper;
+export const native$reflect$copyValue = copy;
+export const native$reflect$equal = equal;
+export const native$reflect$newPtr = newPtr;
+
+export function native$reflect$box(t: Type, x: any): Iface | null {
+  return t.kind === Kind.Interface ? x : new Iface(t, copy(t, x));
+}
+
+export function native$reflect$typeKey(t: Type): Type | null { return t.key; }
+export function native$reflect$typeLen(t: Type): number { return t.len; }
+export function native$reflect$typeNumField(t: Type): number { return t.fields.length; }
+export function native$reflect$typeNumIn(t: Type): number { return t.params.length; }
+export function native$reflect$typeIn(t: Type, i: number): Type { return t.params[i]; }
+export function native$reflect$typeNumOut(t: Type): number { return t.results.length; }
+export function native$reflect$typeOut(t: Type, i: number): Type { return t.results[i]; }
+export function native$reflect$typeVariadic(t: Type): boolean { return t.variadic; }
+
+// goesm numbers channel directions send 1, receive 2; reflect the reverse.
+function chanDir(d: number): number {
+  return d === 1 ? 2 : d === 2 ? 1 : d;
+}
+
+export function native$reflect$typeChanDir(t: Type): number { return chanDir(t.dir); }
+
+export function native$reflect$typeField(t: Type, i: number): [string, string, Type, string, boolean, number] {
+  let off = 0;
+  for (let j = 0; j < i; j++) {
+    const ft = t.fields[j].type;
+    const a = alignOf(ft);
+    off = Math.ceil(off / a) * a + sizeOf(ft);
+  }
+  const f = t.fields[i];
+  const a = alignOf(f.type);
+  off = Math.ceil(off / a) * a;
+  return [f.name, f.pkgPath, f.type, f.tag, f.embedded, off];
+}
+
+interface ReflectMethod { name: string; pkgPath: string; type: Type; key: string }
+
+const methodLists = new WeakMap<Type, ReflectMethod[]>();
+
+// methodList is t's methods in reflect's order (by name): an interface's
+// methods, or the exported methods of t's method set.
+function methodList(t: Type): ReflectMethod[] {
+  let ms = methodLists.get(t);
+  if (ms === undefined) {
+    ms = [];
+    if (t.kind === Kind.Interface) {
+      for (const m of t.imethods) ms.push({ name: m.name, pkgPath: m.pkgPath, type: m.type, key: methodKey(m.name, m.pkgPath) });
+    } else {
+      for (const [key, impl] of t.methods) {
+        if (!key.includes(".")) ms.push({ name: key, pkgPath: "", type: impl.type, key });
+      }
+    }
+    ms.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    methodLists.set(t, ms);
+  }
+  return ms;
+}
+
+export function native$reflect$typeNumMethod(t: Type): number { return methodList(t).length; }
+
+export function native$reflect$typeMethod(t: Type, i: number): [string, string, Type] {
+  const m = methodList(t)[i];
+  return [m.name, m.pkgPath, m.type];
+}
+
+export function native$reflect$methodValue(t: Type, x: any, i: number): (...a: any[]) => any {
+  const m = methodList(t)[i];
+  if (t.kind === Kind.Interface) return (...a: any[]) => icall(x, m.key, ...a);
+  const fn = t.methods.get(m.key)!.fn;
+  const recv = copy(t, x);
+  return (...a: any[]) => fn(recv, ...a);
+}
+
+export function native$reflect$methodExpr(t: Type, i: number): (r: any, ...a: any[]) => any {
+  const fn = t.methods.get(methodList(t)[i].key)!.fn;
+  return (r: any, ...a: any[]) => fn(r, ...a);
+}
+
+const isIntKind = (k: number) => k >= Kind.Int && k <= Kind.Uintptr;
+const isFloatKind = (k: number) => k === Kind.Float32 || k === Kind.Float64;
+const isComplexKind = (k: number) => k === Kind.Complex64 || k === Kind.Complex128;
+
+export function native$reflect$convertible(dst: Type, src: Type): boolean {
+  if (native$internal$reflectlite$directlyAssignable(dst, src) || native$internal$reflectlite$implements(dst, src)) return true;
+  const dk = dst.kind, sk = src.kind;
+  if ((isIntKind(dk) || isFloatKind(dk)) && (isIntKind(sk) || isFloatKind(sk))) return true;
+  if (isComplexKind(dk) && isComplexKind(sk)) return true;
+  const plainElem = (t: Type) => !t.elem!.named || t.elem!.pkgPath === "";
+  if (dk === Kind.String) {
+    if (isIntKind(sk)) return true;
+    if (sk === Kind.Slice && plainElem(src) && (src.elem!.kind === Kind.Uint8 || src.elem!.kind === Kind.Int32)) return true;
+  }
+  if (sk === Kind.String && dk === Kind.Slice && plainElem(dst) && (dst.elem!.kind === Kind.Uint8 || dst.elem!.kind === Kind.Int32)) return true;
+  if (sk === Kind.Slice && dk === Kind.Array && dst.elem === src.elem) return true;
+  if (sk === Kind.Slice && dk === Kind.Pointer && dst.elem!.kind === Kind.Array && dst.elem!.elem === src.elem) return true;
+  if (dst.underlying === src.underlying) return true;
+  if (dk === Kind.Pointer && sk === Kind.Pointer && !dst.named && !src.named && dst.elem!.underlying === src.elem!.underlying) return true;
+  return false;
+}
+
+export function native$reflect$convertValue(dst: Type, src: Type, x: any): any {
+  const dk = dst.kind, sk = src.kind;
+  if (dk === Kind.Interface) return sk === Kind.Interface ? x : new Iface(src, copy(src, x));
+  if (isIntKind(dk) && isIntKind(sk)) return intOf(dst, BigInt(x));
+  if (isIntKind(dk) && isFloatKind(sk)) return intOf(dst, floatToBigInt(x));
+  if (isFloatKind(dk) && (isIntKind(sk) || isFloatKind(sk))) {
+    const f = Number(x);
+    return dk === Kind.Float32 ? Math.fround(f) : f;
+  }
+  if (isComplexKind(dk) && isComplexKind(sk)) return dk === Kind.Complex64 ? c64(x) : x;
+  if (dk === Kind.String) {
+    if (isIntKind(sk)) {
+      const r = BigInt(x);
+      return encodeRune(r < 0n || r > 0x10ffffn ? 0xfffd : Number(r));
+    }
+    if (sk === Kind.Slice) return src.elem!.kind === Kind.Int32 ? runesToString(x) : bytesToString(x);
+    return x;
+  }
+  if (dk === Kind.Slice && sk === Kind.String) return dst.elem!.kind === Kind.Int32 ? stringToRunes(x) : stringToBytes(x);
+  if (dk === Kind.Array && sk === Kind.Slice) {
+    const a = new Array(dst.len);
+    for (let i = 0; i < dst.len; i++) a[i] = copy(dst.elem!, x.$array[x.$offset + i]);
+    return a;
+  }
+  if (dk === Kind.Pointer && sk === Kind.Slice) {
+    if (x === null) return null;
+    if (x.$offset === 0 && x.$array.length === dst.elem!.len) return x.$array;
+    plainPanic("reflect: converting a slice to an array pointer that does not share its whole backing array is not supported by goesm");
+  }
+  return copy(src, x);
+}
+
+// intOf wraps the integer x to the width of integer type t.
+function intOf(t: Type, x: bigint): any {
+  switch (t.kind) {
+    case Kind.Int64: return BigInt.asIntN(64, x);
+    case Kind.Uint64: return BigInt.asUintN(64, x);
+    case Kind.Int: return Number(BigInt.asIntN(64, x));
+    case Kind.Uint: case Kind.Uintptr: return Number(BigInt.asUintN(64, x));
+    case Kind.Int32: return Number(BigInt.asIntN(32, x));
+    case Kind.Int16: return Number(BigInt.asIntN(16, x));
+    case Kind.Int8: return Number(BigInt.asIntN(8, x));
+    case Kind.Uint32: return Number(BigInt.asUintN(32, x));
+    case Kind.Uint16: return Number(BigInt.asUintN(16, x));
+    case Kind.Uint8: return Number(BigInt.asUintN(8, x));
+  }
+  return Number(x);
+}
+
+function floatToBigInt(f: number): bigint {
+  return Number.isFinite(f) ? BigInt(Math.trunc(f)) : 0n;
+}
+
+export function native$reflect$valueInt(_t: Type, x: any): bigint { return BigInt(x); }
+export function native$reflect$valueUint(_t: Type, x: any): bigint { return BigInt(x); }
+export function native$reflect$makeInt(t: Type, x: bigint): any { return intOf(t, x); }
+export function native$reflect$makeUint(t: Type, x: bigint): any { return intOf(t, x); }
+
+function identity<T>(x: T): T { return x; }
+export const native$reflect$asBool = identity;
+export const native$reflect$asFloat = identity;
+export const native$reflect$asComplex = identity;
+export const native$reflect$asString = identity;
+export const native$reflect$asBytes = identity;
+export const native$reflect$fromBool = identity;
+export const native$reflect$fromFloat = identity;
+export const native$reflect$fromComplex = identity;
+export const native$reflect$fromString = identity;
+export const native$reflect$fromBytes = identity;
+export const native$reflect$fromUint8 = identity;
+
+export function native$reflect$zero(t: Type): any { return t.zero(); }
+
+export function native$reflect$isNil(x: any): boolean { return x === null || x === undefined; }
+
+export function native$reflect$capacity(t: Type, x: any): number {
+  if (t.kind === Kind.Chan) return chanCap(x);
+  return x === null ? 0 : x.$capacity;
+}
+
+export function native$reflect$fieldAddr(t: Type, p: any, i: number): any {
+  const f = t.fields[i];
+  if (p === null) runtimePanic("invalid memory address or nil pointer dereference");
+  return isAggregate(f.type) ? p[f.prop] : fieldPtr(p, f.prop);
+}
+
+export function native$reflect$fieldValue(t: Type, x: any, i: number): any {
+  return x[t.fields[i].prop];
+}
+
+export function native$reflect$elemAddr(t: Type, x: any, i: number): any {
+  const agg = isAggregate(t.elem!);
+  if (t.kind === Kind.Array) return agg ? x[i] : arrayElemPtr(x, i);
+  return agg ? x.$array[x.$offset + i] : sliceElemPtr(x, i);
+}
+
+export function native$reflect$elemValue(_t: Type, x: any, i: number): any { return x[i]; }
+
+export function native$reflect$sliceValue(t: Type, x: any, i: number, j: number, k: number): any {
+  return t.kind === Kind.Array ? sliceArray(x, i, j, k) : slice(x, i, j, k);
+}
+
+export function native$reflect$sameSlice(x: any, y: any): boolean {
+  return x === y || (x !== null && y !== null && x.$array === y.$array && x.$offset === y.$offset);
+}
+
+export function native$reflect$makeSlice(t: Type, n: number, c: number): any {
+  return makeSlice(n, c, t.elem!.zero);
+}
+
+export function native$reflect$appendValue(t: Type, s: any, x: any): any {
+  return append(s, [x], t.elem!.zero, t.elem!);
+}
+
+export function native$reflect$grow(t: Type, s: any, n: number): any {
+  const len = s === null ? 0 : s.$length;
+  const zeros = new Array(n);
+  for (let i = 0; i < n; i++) zeros[i] = t.elem!.zero();
+  const r = append(s, zeros, t.elem!.zero, t.elem!);
+  return slice(r, 0, len, r!.$capacity);
+}
+
+export function native$reflect$clearValue(t: Type, x: any): void {
+  if (t.kind === Kind.Map) mapClear(x);
+  else sliceClear(x, t.elem!.zero, t.elem!);
+}
+
+export function native$reflect$makeMap(t: Type): any { return makeMap(t.key!); }
+
+export function native$reflect$mapIndex(m: any, k: any): [any, boolean] {
+  return mapLookup(m, k, () => undefined);
+}
+
+export function native$reflect$mapSet(m: any, k: any, x: any): void { mapSet(m, k, x); }
+export function native$reflect$mapDelete(m: any, k: any): void { mapDelete(m, k); }
+
+export function native$reflect$mapKeys(m: any): S<any> {
+  const keys: any[] = [];
+  for (const [k] of mapRange(m)) keys.push(k);
+  return keys.length === 0 ? null : sliceLit(keys);
+}
+
+export function native$reflect$makeChan(t: Type, n: number): any { return makeChan(n, t.elem!.zero); }
+
+export function native$reflect$trySend(ch: any, x: any): boolean {
+  return select([[ch, true, x]], true)[0] === 0;
+}
+
+export function native$reflect$tryRecv(ch: any): [any, boolean, boolean] {
+  const [i, v, ok] = select([[ch, false, undefined]], true);
+  return i === 0 ? [v, ok, true] : [undefined, false, false];
+}
+
+export function native$reflect$chanClose(ch: any): void { close(ch); }
+
+export function native$reflect$callFunc(t: Type, fn: (...a: any[]) => any, args: S<any>): S<any> {
+  const a = args === null ? [] : args.$array.slice(args.$offset, args.$offset + args.$length);
+  const r = fn(...a);
+  if (r instanceof Promise) {
+    plainPanic("reflect: Call of a function that blocks is not supported by goesm");
+  }
+  const n = t.results.length;
+  return n === 0 ? null : sliceLit(n === 1 ? [r] : r);
+}
+
+export function native$reflect$makeFunc(t: Type, impl: (args: S<any>) => S<any>): (...a: any[]) => any {
+  const n = t.results.length;
+  return (...a: any[]) => {
+    const r = impl(sliceLit(a));
+    if (n === 0) return undefined;
+    const out = r!.$array.slice(r!.$offset, r!.$offset + r!.$length);
+    return n === 1 ? out[0] : out;
+  };
+}
+
+// pointerID stands in for an address: a stable number per object.
+export function native$reflect$pointerID(t: Type, x: any): number {
+  if (t.kind === Kind.Slice) {
+    if (x === null) return 0;
+    return addressOf(x.$array) + x.$offset * sizeOf(t.elem!);
+  }
+  return addressOf(x);
+}
+
+export function native$reflect$unsafePointer(t: Type, x: any): any {
+  if (t.kind === Kind.Slice) return sliceData(x, isAggregate(t.elem!));
+  return x;
+}
+
+export function native$reflect$ptrTo(t: Type): Type { return ptrTo(t); }
+export function native$reflect$sliceOf(t: Type): Type { return sliceOf(t); }
+export function native$reflect$mapOf(k: Type, e: Type): Type { return mapOf(k, e); }
+export function native$reflect$arrayOf(n: number, e: Type): Type { return arrayOf(e, n); }
+export function native$reflect$chanOf(dir: number, e: Type): Type { return chanOf(e, chanDir(dir)); }
+
+export function native$reflect$funcOf(ins: S<Type>, outs: S<Type>, variadic: boolean): Type {
+  const arr = (s: S<Type>) => (s === null ? [] : s.$array.slice(s.$offset, s.$offset + s.$length));
+  return funcOf(arr(ins), arr(outs), variadic);
 }
 
 // ---- syscall/js ----

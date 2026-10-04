@@ -826,8 +826,43 @@ func terminates(list []ast.Stmt) bool {
 			return false
 		}
 		return terminates([]ast.Stmt{s.Else})
+	case *ast.ForStmt: // for {} without a break of it never ends normally
+		return s.Cond == nil && !breaks(s.Body, "", true)
+	case *ast.LabeledStmt:
+		if f, ok := s.Stmt.(*ast.ForStmt); ok {
+			return f.Cond == nil && !breaks(f.Body, s.Label.Name, true)
+		}
 	}
 	return false
+}
+
+// breaks reports whether n contains a break of the loop whose body it is:
+// an unlabeled break outside nested loops, switches and selects (when
+// direct), or a break of label.
+func breaks(n ast.Node, label string, direct bool) bool {
+	found := false
+	ast.Inspect(n, func(c ast.Node) bool {
+		if found {
+			return false
+		}
+		switch c := c.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.BranchStmt:
+			if c.Tok == token.BREAK && ((c.Label == nil && direct) || (c.Label != nil && c.Label.Name == label)) {
+				found = true
+			}
+		case *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+			if c != n {
+				found = label != "" && breaks(c, label, false)
+				if !found {
+					return false
+				}
+			}
+		}
+		return true
+	})
+	return found
 }
 
 func isBlank(e ast.Expr) bool {
