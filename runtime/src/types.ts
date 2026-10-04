@@ -257,10 +257,13 @@ function sameFields(a: Type, b: Type): boolean {
   return a.fields.length === b.fields.length && a.fields.every((f, i) => f.type === b.fields[i].type);
 }
 
+// zeroStruct passes the zero fields to the constructor, which takes them in
+// order: setting them after the constructor left them undefined would make
+// V8 keep the class's fields as tagged values (boxing every float64).
 function zeroStruct(t: Type): any {
-  const o = new t.ctor();
-  for (const f of t.fields) o[f.prop] = f.type.zero();
-  return o;
+  const fs = t.fields, a = new Array(fs.length);
+  for (let i = 0; i < fs.length; i++) a[i] = fs[i].type.zero();
+  return new t.ctor(...a);
 }
 
 // named creates the descriptor of a defined (named) type. The underlying type

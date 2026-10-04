@@ -1279,6 +1279,15 @@ func (fe *funcEmitter) caseBodies(pos token.Pos, c, label string, clauses []ast.
 	w.ln("}")
 }
 
+// concreteCase reports whether a type switch case of type t matches exactly
+// the values whose dynamic type is t (not an interface, type parameter or nil).
+func concreteCase(t types.Type) bool {
+	if b, ok := t.(*types.Basic); ok && b.Kind() == types.UntypedNil {
+		return false
+	}
+	return !isTypeParam(t) && !types.IsInterface(t) && !hasTypeParam(t)
+}
+
 func (fe *funcEmitter) typeSwitchStmt(s *ast.TypeSwitchStmt, label string) {
 	w := fe.w
 	w.ln("{")
@@ -1297,6 +1306,15 @@ func (fe *funcEmitter) typeSwitchStmt(s *ast.TypeSwitchStmt, label string) {
 	c := fe.tmp()
 	w.ln("let %s = -1;", c)
 	clauses := s.Body.List
+	// Cases of concrete types compare the dynamic type, loaded once.
+	xt := ""
+	for _, cl := range clauses {
+		for _, e := range cl.(*ast.CaseClause).List {
+			if t := fe.info.TypeOf(e); concreteCase(t) && xt == "" {
+				xt = fe.forceTmp(fmt.Sprintf("%s === null ? null : %s.t", xv, xv))
+			}
+		}
+	}
 	def := -1
 	first := true
 	for i, cl := range clauses {
@@ -1310,6 +1328,8 @@ func (fe *funcEmitter) typeSwitchStmt(s *ast.TypeSwitchStmt, label string) {
 			t := fe.info.TypeOf(e)
 			if b, ok := t.(*types.Basic); ok && b.Kind() == types.UntypedNil {
 				conds = append(conds, xv+" === null")
+			} else if concreteCase(t) {
+				conds = append(conds, fmt.Sprintf("%s === %s", xt, fe.desc(t)))
 			} else {
 				conds = append(conds, fmt.Sprintf("$rt.typeIs(%s, %s)", xv, fe.desc(t)))
 			}
