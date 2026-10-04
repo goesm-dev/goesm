@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 import { DEFAULT_OPTS } from "./harness.mjs";
 import { IMPLS, SUITE } from "./suite.mjs";
-import { markdown } from "./report.mjs";
+import { markdown, writeCharts } from "./report.mjs";
 
 const benchDir = fileURLToPath(new URL("..", import.meta.url));
 const out = join(benchDir, "out");
@@ -214,6 +214,7 @@ function save() {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
   writeFileSync(file.replace(/\.json$/, ".md"), markdown(data));
+  writeCharts(join(dirname(file), "charts"), data);
 }
 
 for (const runtime of runtimes) {

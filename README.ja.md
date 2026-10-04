@@ -146,65 +146,81 @@ Result(); // 3
 
 <!-- bench:start -->
 - Intel(R) Xeon(R) Processor @ 2.80GHz (4 threads), linux 6.18.44-fc-v64
-- goesm 1c9565d, go version go1.27.1 linux/amd64
+- goesm cd14a3b, go version go1.27.1 linux/amd64
 - GopherJS 1.21.0+go1.21.13
 - tinygo version 0.42.0 linux/amd64 (using go version go1.27.1 and LLVM version 22.1.4)
 - Node.js v26.10.0, Bun 1.4.2, Chromium 141.0.7390.37
 - 2026-10-04 計測。300 ms 以上ウォームアップしたあと、カーネルごとに 10 回以上かつ 1000 ms 以上計測した中央値
 
+![ネイティブ Go に対する遅さ](bench/results/charts/slowdown.ja.svg)
+
+![合計時間](bench/results/charts/total.ja.svg)
+
 ネイティブ Go に対する遅さ（各カーネルの時間の比の幾何平均。小さいほど速い）:
 
 | ランタイム | 手書き JS | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Node.js v26.10.0 | 1.1× | 4.6× | 8.3× | 2.6× | **1.5×** |
-| Bun 1.4.2 | 1.6× | 4.4× | 6.7× | 2.5× | **1.6×** |
-| Chromium 141.0.7390.37 | 1.1× | 4.2× | 6.7× | 2.7× | **1.5×** |
+| Node.js v26.10.0 | 1.0× | 3.7× | 11.0× | 2.9× | **1.7×** |
+| Bun 1.4.2 | 1.4× | 4.3× | 8.7× | 2.6× | **1.9×** |
+| Chromium 141.0.7390.37 | 0.9× | 3.3× | 9.0× | 3.0× | **1.8×** |
+
+全カーネルを 1 回ずつ実行した合計時間（ms、中央値の和。呼び出し系カーネルはループ全体。* はないカーネルを除いた値。小さいほど速い）:
+
+| ランタイム | 手書き JS | goesm | GopherJS | Go wasm | TinyGo wasm |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Node.js v26.10.0 | 314* | 2086 | 10649 | 1398 | **806** |
+| Bun 1.4.2 | 1198* | 3011 | 8978 | 1231 | **935** |
+| Chromium 141.0.7390.37 | 278* | 1784 | 8909 | 1530 | **945** |
 
 Node.js v26.10.0 での 1 回あたりの時間（ms、中央値。小さいほど速い）:
 
 | カーネル | 対象 | ネイティブ Go | 手書き JS | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Fib | 再帰呼び出し、int 演算 | 4.68 | 9.68 | 9.87 | 9.11 | 14.8 | **3.93** |
-| Sieve | []bool、密なループ | 7.90 | 11.2 | 53.8 | 79.5 | 13.8 | **10.3** |
-| Mandelbrot | float64 のループ | 15.3 | 16.1 | 16.2 | 16.0 | 15.4 | **14.5** |
-| NBody | ポインタ経由の構造体の float64 フィールド | 8.52 | 10.6 | 136 | 918 | 11.3 | **8.42** |
-| FNV32 | uint32 の乗算と xor | 11.4 | 11.2 | 16.5 | 25.4 | 25.1 | **10.9** |
-| FNV64 | uint64 の乗算と xor | 11.2 | 45.2 | 232 | 332 | 24.7 | **10.7** |
-| BinaryTrees | メモリ確保、GC | 66.9 | 47.3 | **50.7** | 82.6 | 290 | 130 |
-| Interfaces | インターフェースのメソッド呼び出し | 21.4 | 13.4 | 77.3 | 43.7 | 97.3 | **29.4** |
-| MapInt | map[int]int の挿入・検索・削除 | 31.7 | 25.2 | 61.8 | **48.3** | 78.8 | 123 |
-| MapString | map[string]int での集計 | 9.09 | 24.3 | 30.6 | 133 | **29.5** | 73.3 |
-| Strings | strings.Builder、strconv、Split、Join | 10.3 | 13.2 | 186 | 593 | 32.8 | **13.0** |
-| Sort | sort.Ints、sort.Strings | 32.9 | 62.8 | 257 | 189 | 111 | **38.0** |
-| JSON | encoding/json の Marshal + Unmarshal | 10.2 | 2.73 | 181 | 590 | **29.0** | 30.7 |
-| Sprintf | fmt.Sprintf | 15.7 | 7.10 | 355 | 1546 | 66.4 | **49.9** |
-| Channels | goroutine、バッファなしチャネル | 89.6 | — | 112 | 382 | 271 | **31.0** |
-| Add (ns/回) | JS から Go への呼び出し 10 万回 | — | 0.59 | **0.59** | 4317 | 11891 | 2.06 |
-| **ネイティブ Go 比の幾何平均** | | 1× | 1.1× | 4.6× | 8.3× | 2.6× | **1.5×** |
+| Fib | 再帰呼び出し、int 演算 | 4.70 | 10.1 | 9.92 | 9.39 | 14.1 | **4.00** |
+| Sieve | []bool、密なループ | 8.19 | 11.1 | 36.8 | 85.1 | 13.7 | **10.4** |
+| Mandelbrot | float64 のループ | 15.4 | 16.1 | 16.1 | 14.7 | 15.4 | **14.7** |
+| NBody | ポインタ経由の構造体の float64 フィールド | 8.56 | 10.6 | 28.5 | 911 | 11.6 | **8.50** |
+| FNV32 | uint32 の乗算と xor | 11.2 | 11.0 | 12.7 | 25.0 | 24.6 | **10.9** |
+| FNV64 | uint64 の乗算と xor | 10.9 | 48.8 | 63.4 | 319 | 25.0 | **10.6** |
+| BinaryTrees | メモリ確保、GC | 66.4 | 48.1 | **50.4** | 76.4 | 270 | 113 |
+| Interfaces | インターフェースのメソッド呼び出し | 24.6 | 13.5 | 45.7 | 42.7 | 97.2 | **29.4** |
+| MapInt | map[int]int の挿入・検索・削除 | 28.7 | 25.9 | 53.5 | **41.2** | 84.7 | 118 |
+| MapString | map[string]int での集計 | 9.44 | 24.3 | **26.3** | 140 | 32.9 | 71.7 |
+| Strings | strings.Builder、strconv、Split、Join | 9.67 | 11.9 | 111 | 584 | 33.7 | **13.3** |
+| Sort | sort.Ints、sort.Strings | 33.2 | 50.8 | 158 | 195 | 115 | **38.9** |
+| JSON | encoding/json の Marshal + Unmarshal | 9.39 | 2.71 | 121 | 580 | 29.1 | **28.7** |
+| Sprintf | fmt.Sprintf | 16.7 | 7.03 | 207 | 1528 | 66.4 | **42.4** |
+| Channels | goroutine、バッファなしチャネル | 82.5 | — | 121 | 365 | 291 | **30.3** |
+| Add (ns/回) | JS からの呼び出し: 数値 2 つを渡して 1 つ受け取る | — | 0.59 | **0.59** | 3947 | 6.18 | 2.06 |
+| Upper (ns/回) | JS からの呼び出し: strings.ToUpper、文字列を渡して受け取る | 151 | 58.1 | 1348 | 14801 | 1034 | **883** |
+| Handle (ns/回) | JS からの呼び出し: JSON のリクエストハンドラ、文字列を渡して受け取る | 3973 | 1565 | 88909 | 385552 | **16973** | 17321 |
+| **合計 ms（全カーネルを 1 回ずつ）** | | 394* | 314* | 2086 | 10649 | 1398 | **806** |
+| **ネイティブ Go 比の幾何平均** | | 1× | 1.0× | 3.7× | 11.0× | 2.9× | **1.7×** |
 
 起動時間（出力を読み込み始めてから関数を呼べるようになるまで、ms）:
 
 | ランタイム | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | ---: | ---: | ---: | ---: |
-| Node.js | 133 | 94.3 | 55.5 | **22.5** |
-| Bun | 236 | 115 | 50.1 | **21.9** |
-| Chromium | 90.3 | 80.5 | 78.0 | **26.1** |
+| Node.js | 126 | 89.8 | 51.3 | **21.3** |
+| Bun | 235 | 230 | 51.1 | **20.2** |
+| Chromium | 89.4 | 92.3 | 68.2 | **24.9** |
 
 出力サイズ（カーネル一式と、使っている標準ライブラリ）:
 
-| | ファイル | 非圧縮 | gzip -9 | brotli -11 |
-| --- | --- | ---: | ---: | ---: |
-| goesm | `kernels.js` | 1158 KiB | 299 KiB | 230 KiB |
-| GopherJS | `bench.js` | 1149 KiB | 228 KiB | **168 KiB** |
-| Go wasm | `bench.wasm` + `wasm_exec.js` | 4380 KiB | 1208 KiB | 892 KiB |
-| TinyGo wasm | `bench.wasm` + `wasm_exec.js` | 1096 KiB | 404 KiB | 297 KiB |
+| | goesm | GopherJS | Go wasm | TinyGo wasm |
+| --- | ---: | ---: | ---: | ---: |
+| ファイル | `kernels.js` | `bench.js` | `bench.wasm` + `wasm_exec.js` | `bench.wasm` + `wasm_exec.js` |
+| 非圧縮 | 1193 KiB | 1153 KiB | 4393 KiB | **1104 KiB** |
+| gzip -9 | 306 KiB | **228 KiB** | 1211 KiB | 406 KiB |
+| brotli -11 | 236 KiB | **169 KiB** | 894 KiB | 299 KiB |
 <!-- bench:end -->
 
 この数値から読み取れる goesm の現状:
 
-- **JS から Go を呼ぶコストでは goesm が際立っています。** goesm の関数は JS の関数そのものなので、呼び出しコストは手書き JS と同じ（0.6 ns）です。`syscall/js` を経由する GopherJS と Go wasm は 1 回あたり 3〜12 µs、TinyGo の素の wasm export でも 2〜3 ns かかります。JavaScript から Go を頻繁に呼ぶコード（イベントハンドラ、要素ごとのコールバック、描画）は、呼ぶたびにこの差を払います。
-- **処理全体の速さでは、goesm は GopherJS より速いものの、まだ WebAssembly には届いていません。** 全カーネルの幾何平均で、ネイティブ Go に対して goesm は 4.2〜4.6 倍遅く、GopherJS は 6.7〜8.3 倍、Go wasm は 2.5〜2.7 倍、TinyGo は 1.5〜1.6 倍です。メモリ確保の多い BinaryTrees ではどのランタイムでも goesm が最速で、Channels でも GopherJS と Go wasm より速くなっています。起動時間と出力サイズは GopherJS より大きいです。
-- **差は JavaScript ではなく goesm の変換にあります。** 手書き JS は Node.js と Chromium でネイティブ Go の 1.1 倍以内です。goesm が手書き JS から最も離れているカーネルが、次に改善すべき箇所を示しています。ポインタ経由の構造体フィールドのアクセス（NBody）、汎用の配列に入れて境界チェックを関数呼び出しで行う `[]bool` やバイトのスライス（Sieve）、標準ライブラリ内のバイト文字列・`append`・インターフェースへの詰め込み（Strings、Sort、Sprintf、JSON）、BigInt で表す `int64`（FNV64）です。goesm の変換は、これまでほとんど最適化していません。
+- **合計時間は TinyGo が最速で、Go wasm、goesm の順に続き、GopherJS は大きく離れています。** 全カーネルを 1 回ずつ実行すると、goesm は 1.8〜3.0 秒、Go wasm は 1.2〜1.5 秒、TinyGo は 0.8〜0.9 秒、GopherJS は 8.9〜10.6 秒かかります。ネイティブ Go に対する幾何平均では、goesm が 3.3〜4.3 倍（最初の最適化の前は 4.2〜4.6 倍）、Go wasm が 2.6〜3.0 倍、TinyGo が 1.7〜1.9 倍、GopherJS が 8.7〜11 倍です。
+- **JavaScript から呼ぶコストは、数値なら goesm ではゼロですが、文字列と `encoding/json` ではまだ wasm より高くつきます。** goesm の関数は JS の関数そのものなので、`Add` のコストは手書き JS と同じ 0.6 ns です。素の wasm export 経由では TinyGo が 2〜3 ns、Go wasm が 5〜8 ns（`syscall/js` 経由ならマイクロ秒単位）、GopherJS は 3〜4 µs です。文字列を渡して受け取る `Upper` では、3 つとも 1 回あたり 1〜2 µs 程度です（手書き JS は 0.05〜0.07 µs）。JSON のリクエストハンドラは、goesm が 1 回 70〜100 µs、wasm が 17〜24 µs です。リフレクションで動く goesm の `encoding/json` が最も遅い部分で、次の改善対象です。
+- **goesm が強いところと弱いところ。** メモリ確保の多い BinaryTrees ではどのランタイムでも最速で、Fib、Mandelbrot、FNV32 では手書き JS と同等です。ネイティブ Go から最も離れているのは Strings、Sprintf、JSON（11〜13 倍）で、どれもバイト文字列、リフレクション、インターフェースを使う標準ライブラリのコードです。BigInt で表す `int64` を使う FNV64 も遅い部類です。起動は 89〜235 ms で wasm の 20〜68 ms より遅く、サイズは brotli で 236 KiB です（GopherJS 169 KiB、TinyGo 299 KiB、Go wasm 894 KiB）。
+- **差は JavaScript ではなく goesm の変換にあります。** 手書き JS は Node.js と Chromium でネイティブ Go とほぼ同じ速さなので、goesm との差は goesm が生成するコードとランタイムにあり、引き続きそこを最適化していきます。
 
 ## 仕組み
 
