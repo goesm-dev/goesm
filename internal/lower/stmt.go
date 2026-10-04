@@ -110,7 +110,7 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 			if fe.syncOnly {
 				w.ln("%s%s$rt.recvNow(%s);", m, fe.mark(u), fe.expr(u.X))
 			} else {
-				w.ln("%s%sawait $rt.recv(%s);", m, fe.mark(u), fe.expr(u.X))
+				w.ln("%s%s%s;", m, fe.mark(u), fe.await("$rt.recv("+fe.expr(u.X)+")"))
 			}
 			return
 		}
@@ -230,7 +230,7 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 		if fe.syncOnly {
 			w.ln("%s$rt.sendNow(%s, %s);", m, ch, fe.valueOf(s.Value, elem))
 		} else {
-			w.ln("%sawait $rt.send(%s, %s);", m, ch, fe.valueOf(s.Value, elem))
+			w.ln("%s%s;", m, fe.await(fmt.Sprintf("$rt.send(%s, %s)", ch, fe.valueOf(s.Value, elem))))
 		}
 	default:
 		fe.errorf(s.Pos(), "unsupported statement %T", s)
@@ -651,7 +651,7 @@ func (fe *funcEmitter) stmtExpr(s ast.Stmt) string {
 		return strings.TrimSuffix(body, ";")
 	}
 	if fe.async {
-		return "await (async () => { " + body + " })()"
+		return fe.await("(async () => { " + body + " })()")
 	}
 	return "(() => { " + body + " })()"
 }
@@ -873,7 +873,7 @@ func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 		w.ln("%sconst %s = %s;", m, ch, fe.expr(s.X))
 		w.ln("%sfor (;;) {", lp)
 		w.indent++
-		w.ln("const %s = await $rt.recv(%s);", r, ch)
+		w.ln("const %s = %s;", r, fe.await("$rt.recv("+ch+")"))
 		w.ln("if (!%s[1]) break;", r)
 		fe.rangeVars(s, r+"[0]", "", u.Elem(), nil)
 		fe.stmts(s.Body.List)
@@ -990,7 +990,8 @@ func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Sign
 	if async {
 		call = fmt.Sprintf("%s(async (%s): Promise<boolean> => {", fe.expr(s.X), strings.Join(decls, ", "))
 	}
-	if async || fe.pe.prog.RangeBlocks(fe.info, s) {
+	awaited := async || fe.pe.prog.RangeBlocks(fe.info, s)
+	if awaited {
 		call = "await " + call
 	}
 	w.ln("%s", call)
@@ -1017,6 +1018,9 @@ func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Sign
 	}
 	w.indent--
 	w.ln("});")
+	if awaited && fe.pe.prog.TracksGoroutines {
+		w.ln("$rt.resumeG($g, 0);")
+	}
 	w.ln("if (%s === 3) $rt.rangeError(4);", rf.state)
 	w.ln("%s = 2;", rf.state)
 	switch {
@@ -1373,11 +1377,11 @@ func (fe *funcEmitter) selectStmt(s *ast.SelectStmt, label string) {
 	w.ln("{")
 	w.indent++
 	sel := fe.tmp()
-	aw := "await "
-	if hasDefault {
-		aw = ""
+	sc := fmt.Sprintf("$rt.select([%s], %v)", strings.Join(real, ", "), hasDefault)
+	if !hasDefault {
+		sc = fe.await(sc)
 	}
-	w.ln("%sconst %s = %s$rt.select([%s], %v);", fe.mark(s), sel, aw, strings.Join(real, ", "), hasDefault)
+	w.ln("%sconst %s = %s;", fe.mark(s), sel, sc)
 	w.ln("%sswitch (%s[0]) {", labelPrefix(label), sel)
 	w.indent++
 	j := 0
@@ -1549,6 +1553,11 @@ func (fe *funcEmitter) deferredCall(call *ast.CallExpr) string {
 		delete(fe.override, e)
 	}
 	if fe.pe.prog.CallBlocks(fe.info, call) || strings.Contains(body, "await ") {
+		if fe.pe.prog.TracksGoroutines {
+			// The thunk runs on the goroutine that calls it: a new one for
+			// a go statement.
+			return "async () => { const $g = $rt.getG(); " + body + "; }"
+		}
 		return "async () => { " + body + "; }"
 	}
 	return "() => { " + body + "; }"

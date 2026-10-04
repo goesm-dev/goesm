@@ -218,3 +218,35 @@ export function embedFS(fsType: Type, entries: [string, string][]): any {
   fsys[filesField.prop] = new Cell(new Slice(files, 0, files.length, files.length));
   return fsys;
 }
+
+// //go:linkname symbols (see internal/lower/linkname.go): the functions
+// packages provide to pulls in other packages, and the result-less calls
+// made before the providing package was initialized.
+const linkSyms = new Map<string, (...a: any[]) => any>();
+const linkQueue = new Map<string, any[][]>();
+
+export function linkProvide(sym: string, fn: (...a: any[]) => any): void | Promise<void> {
+  linkSyms.set(sym, fn);
+  const q = linkQueue.get(sym);
+  if (q === undefined) return;
+  linkQueue.delete(sym);
+  const run = (i: number): void | Promise<void> => {
+    for (; i < q.length; i++) {
+      const r = fn(...q[i]);
+      if (r instanceof Promise) return r.then(() => run(i + 1));
+    }
+  };
+  return run(0);
+}
+
+export function linkCall(sym: string, args: any[], deferrable: boolean): any {
+  const fn = linkSyms.get(sym);
+  if (fn !== undefined) return fn(...args);
+  if (deferrable) {
+    let q = linkQueue.get(sym);
+    if (q === undefined) linkQueue.set(sym, (q = []));
+    q.push(args);
+    return undefined;
+  }
+  plainPanic(`goesm: ${sym} called through //go:linkname before its package was initialized`);
+}

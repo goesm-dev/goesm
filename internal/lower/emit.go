@@ -318,11 +318,25 @@ func (pe *pkgEmitter) emit() *Module {
 		}
 	}
 
+	// Symbols this package provides to //go:linkname pulls, once its
+	// variables are initialized (see linkname.go).
+	for _, name := range scope.Names() {
+		if fn, ok := scope.Lookup(name).(*types.Func); ok {
+			if sym, ok := pe.prog.linkProvides[fn]; ok {
+				call := fmt.Sprintf("$rt.linkProvide(%s, %s)", jsString(sym), jsName(name))
+				if pe.prog.async[fn] {
+					call = pe.prog.awaitMain(call)
+				}
+				pe.vars.ln("%s;", call)
+			}
+		}
+	}
+
 	// init functions in source order, then main for the entry package.
 	for i, f := range pe.inits {
 		call := f + "()"
 		if pe.prog.async[pe.initObjs[i]] {
-			call = "await " + call
+			call = pe.prog.awaitMain(call)
 		}
 		pe.vars.ln("%s;", call)
 	}
