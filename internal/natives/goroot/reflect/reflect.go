@@ -1935,9 +1935,12 @@ func New(typ Type) Value {
 	return Value{typ: ptrTo(t), ptr: newPtr(t)}
 }
 
-// NewAt is not supported: goesm has no address space.
+// NewAt returns a Value representing a pointer to a value of the specified
+// type, using p as that pointer. goesm resolves p, which may point into the
+// middle of an aggregate (runtime/src/unsafe.ts), to a pointer to typ.
 func NewAt(typ Type, p unsafe.Pointer) Value {
-	panic("reflect.NewAt is not supported by goesm")
+	t := typ.common()
+	return Value{typ: ptrTo(t), ptr: pointerAt(p, t)}
 }
 
 // SliceAt is not supported: goesm has no address space.
@@ -2488,6 +2491,7 @@ func callFunc(t *rtype, fn unsafe.Pointer, args []unsafe.Pointer) []unsafe.Point
 func makeFunc(t *rtype, impl func([]unsafe.Pointer) []unsafe.Pointer) unsafe.Pointer
 func pointerID(t *rtype, x unsafe.Pointer) uintptr
 func unsafePointer(t *rtype, x unsafe.Pointer) unsafe.Pointer
+func pointerAt(p unsafe.Pointer, t *rtype) unsafe.Pointer
 
 func asBool(x unsafe.Pointer) bool
 func asFloat(x unsafe.Pointer) float64
