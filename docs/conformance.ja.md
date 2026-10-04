@@ -48,11 +48,11 @@ Go 1.27.0 の `test/` ディレクトリ、Node.js 22、2026-10-04 時点の mai
 |---|---|---|
 | `test/` | 86.8% (118/136) | 9 |
 | `chan/` | 100.0% (17/17) | 0 |
-| `fixedbugs/` | 91.7% (565/616) | 30 |
+| `fixedbugs/` | 92.4% (569/616) | 30 |
 | `interface/` | 100.0% (11/11) | 0 |
 | `ken/` | 100.0% (40/40) | 0 |
 | `typeparam/` | 98.6% (139/141) | 0 |
-| **合計** | **92.6% (890/961)** | 39 |
+| **合計** | **93.0% (894/961)** | 39 |
 | import のないテスト | 98.8% (506/512) | |
 
 `GOESM_CONFORMANCE_NATIVE=1` で確認すると、native の `go run` は対象テストのすべてで `.out` を再現します。例外は go コマンドを呼び出す（`os/exec`）11 本で、これはどのみち goesm ではビルドできません。
@@ -61,22 +61,22 @@ Go 1.27.0 の `test/` ディレクトリ、Node.js 22、2026-10-04 時点の mai
 
 | パッケージ | 通過率 |
 |---|---|
-| `fmt` | 89.5% (187/209) |
-| `runtime` | 67.3% (74/110) |
-| `reflect` | 76.5% (52/68) |
-| `os` | 86.2% (50/58) |
-| `unsafe` | 60.0% (33/55) |
+| `fmt` | 90.4% (189/209) |
+| `runtime` | 69.1% (76/110) |
+| `reflect` | 79.4% (54/68) |
+| `os` | 87.9% (51/58) |
+| `unsafe` | 67.3% (37/55) |
 | `strings` | 66.7% (28/42) |
 | `math` | 96.6% (28/29) |
 | `time` | 100.0% (19/19) |
 | `strconv` | 87.5% (14/16) |
 | `sync` | 100.0% (15/15) |
 
-この表は毎回の実行結果にも出力されます。失敗した 73 本は次のように分類できます。
+この表は毎回の実行結果にも出力されます。失敗した 67 本は次のように分類できます。
 
 | 分類 | テスト |
 |---|---|
-| アドレス空間がない: `unsafe` のポインタ演算、`uintptr` からポインタへの変換、`unsafe.Pointer` を介したメモリの読み替え | `cmp`、`strcopy`、`unsafebuiltins`、`fixedbugs/issue15329` など 23 本（goesm がビルド時に報告） |
+| アドレス空間がない: field offset 以外の `unsafe` のポインタ演算、`uintptr` からポインタへの変換、`unsafe.Pointer` を介したメモリの読み替え | `cmp`、`strcopy`、`unsafebuiltins` など 19 本（goesm がビルド時か実行時に報告） |
 | `runtime.Caller`、スタックトレース、PC テーブル | `inline_literal`、`devirtualization_nil_panics`、`fixedbugs/bug347`、`issue4562`、`issue5856`、`issue7690`、`issue14646`、`issue18149`、`issue21879`、`issue22083`、`issue22662`、`issue27201`、`issue29504`、`issue33724`、`issue56990`、`issue58300`、`issue58300b`、`issue79762` |
 | GC の観測（finalizer、`MemStats`、liveness） | `init1`、`stackobj`、`stackobj3`、`fixedbugs/issue15281`、`issue27518b`、`issue32477`、`issue46725`、`issue54343` |
 | 未実装 | `range4` と `fixedbugs/issue71675`（range-over-func 本体の `defer`）、`fixedbugs/issue72063` と `typeparam/nested`（型パラメータに依存するローカル型）、`fixedbugs/issue30606`、`issue30606b`、`issue49110`（`reflect.StructOf`）、`fixedbugs/issue73748a`、`issue73748b`（`runtime/trace`） |
