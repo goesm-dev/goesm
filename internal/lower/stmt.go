@@ -123,7 +123,12 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 			op = token.SUB
 		}
 		one := "1"
-		if isComplex(t) {
+		switch {
+		case isTypeParam(t):
+			one = "$rt.constT(" + fe.desc(t) + ", 1)"
+		case isBig(t):
+			one = "1n"
+		case isComplex(t):
 			one = "$rt.complex(1, 0)"
 		}
 		w.ln("%s%s;", m, lv.set(fe.arith(op, lv.get, one, t)))
@@ -307,7 +312,7 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 		t := fe.info.TypeOf(s.Lhs[0])
 		var val string
 		if op == token.SHL || op == token.SHR {
-			val = fe.shift(op, lv.get, fe.expr(s.Rhs[0]), t)
+			val = fe.shift(op, lv.get, fe.shiftCount(s.Rhs[0]), t)
 		} else {
 			val = fe.arith(op, lv.get, fe.valueOf(s.Rhs[0], t), t)
 		}
@@ -473,7 +478,7 @@ type lvalue struct {
 func (fe *funcEmitter) aggregateSet(dst string, t types.Type, rhs string) string {
 	switch t.Underlying().(type) {
 	case *types.Struct:
-		if n, ok := types.Unalias(t).(*types.Named); ok && n.TypeArgs().Len() > 0 {
+		if isGenericType(t) {
 			return fmt.Sprintf("%s.$set(%s, %s)", dst, rhs, fe.desc(t))
 		}
 		return fmt.Sprintf("%s.$set(%s)", dst, rhs)
@@ -524,7 +529,7 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 			}
 		case *types.Slice:
 			s := stab(fe.expr(x.X))
-			i := stab(fe.expr(x.Index))
+			i := stab(fe.intNumber(x.Index))
 			get := fmt.Sprintf("%s$rt.index(%s, %s)", fe.mark(x), s, i)
 			if isAggregate(u.Elem()) {
 				return fe.simpleLvalue(get, t)
@@ -727,7 +732,14 @@ func (fe *funcEmitter) rangeStmt(s *ast.RangeStmt, label string) {
 		}
 		// range over integer (Go 1.22)
 		i, n := fe.tmp(), fe.tmp()
-		w.ln("%s%sfor (let %s = 0, %s = %s; %s < %s; %s++) {", m, lp, i, n, fe.expr(s.X), i, n, i)
+		zero := "0"
+		switch {
+		case isTypeParam(xt):
+			zero = "$rt.constT(" + fe.desc(xt) + ", 0)"
+		case isBig(xt):
+			zero = "0n"
+		}
+		w.ln("%s%sfor (let %s = %s, %s = %s; %s < %s; %s++) {", m, lp, i, zero, n, fe.expr(s.X), i, n, i)
 		w.indent++
 		fe.rangeVars(s, i, "", xt, nil)
 		fe.stmts(s.Body.List)

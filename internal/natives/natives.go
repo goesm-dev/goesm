@@ -93,6 +93,10 @@ var overrides = map[string]bool{
 	"math.Float64bits":     true,
 	"math.Float64frombits": true,
 
+	// uint is a JS number (exact below 2^53, like int): the Go body narrows
+	// its uint64 digits through uint(u).
+	"internal/strconv.formatBits": true,
+
 	"internal/strconv.float32bits":     true,
 	"internal/strconv.float32frombits": true,
 	"internal/strconv.float64bits":     true,

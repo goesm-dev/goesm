@@ -48,7 +48,7 @@ func TestOxlint(t *testing.T) {
 		split        bool
 	}
 	targets := []target{{testdata("example"), "./main", true}}
-	for _, p := range []string{"basics", "complexnum", "conformance", "generics", "goroutines", "panics", "stdlibuse"} {
+	for _, p := range []string{"basics", "complexnum", "conformance", "generics", "goroutines", "int64s", "panics", "stdlibuse"} {
 		targets = append(targets, target{testdata("semantics"), "./" + p, false})
 	}
 	targets = append(targets, target{testdata("semantics"), "./stdlibuse", true})

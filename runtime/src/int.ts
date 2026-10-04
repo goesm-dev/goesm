@@ -1,14 +1,14 @@
 // Integer semantics.
 //
 // 8/16/32-bit integers are exact: the lowering wraps every arithmetic result
-// (x|0, x>>>0, x<<24>>24, ...). int, int64, uint, uint64 and uintptr are
-// represented as JS numbers in the PoC: exact up to 2^53, without 64-bit
-// wrap-around. This is a documented gap (see ARCHITECTURE.md); the helpers
-// below are where a BigInt or hi/lo representation would plug in.
+// (x|0, x>>>0, x<<24>>24, ...). int64 and uint64 are BigInts, wrapped inline
+// with BigInt.asIntN/asUintN; the helpers here cover what needs a check
+// (division, shifts). int, uint and uintptr are JS numbers: exact up to 2^53,
+// without 64-bit wrap-around (a documented gap, see ARCHITECTURE.md).
 
 import { runtimePanic } from "./panic.ts";
 import { bytesToString, encodeRune, runesToString, stringToBytes, stringToRunes } from "./string.ts";
-import { c64, cadd, cdiv, cmul, cneg, csub } from "./complex.ts";
+import { Complex, c64, cadd, cdiv, cmul, cneg, complex, csub } from "./complex.ts";
 import { Kind, Type } from "./types.ts";
 
 export function div(a: number, b: number): number {
@@ -20,6 +20,53 @@ export function mod(a: number, b: number): number {
   if (b === 0) runtimePanic("integer divide by zero");
   const r = a % b;
   return r === 0 ? 0 : r; // avoid -0
+}
+
+// ---- int64 / uint64 (BigInt) ----
+
+export function divBig(a: bigint, b: bigint): bigint {
+  if (b === 0n) runtimePanic("integer divide by zero");
+  return a / b; // the caller wraps (MinInt64 / -1)
+}
+
+export function modBig(a: bigint, b: bigint): bigint {
+  if (b === 0n) runtimePanic("integer divide by zero");
+  return a % b;
+}
+
+export function shlBig(x: bigint, n: number, signed: boolean): bigint {
+  checkShift(n);
+  if (n >= 64) return 0n;
+  const r = x << BigInt(n);
+  return signed ? BigInt.asIntN(64, r) : BigInt.asUintN(64, r);
+}
+
+export function shrBig(x: bigint, n: number): bigint {
+  checkShift(n);
+  return x >> BigInt(n >= 64 ? 64 : n);
+}
+
+const two63 = 9223372036854775808;
+const two64 = 18446744073709551616;
+
+// floatToBig converts a float to int64 or uint64 like GOARCH=wasm's
+// saturating truncation (out-of-range results are implementation-specific
+// in Go).
+export function floatToBig(f: number, signed: boolean): bigint {
+  if (f !== f) return 0n;
+  if (signed) {
+    if (f >= two63) return 9223372036854775807n;
+    if (f <= -two63) return -9223372036854775808n;
+  } else {
+    if (f >= two64) return 18446744073709551615n;
+    if (f <= 0) return 0n;
+  }
+  return BigInt(Math.trunc(f));
+}
+
+// intNumber converts an integer of a type parameter's type to a JS number.
+export function intNumber(x: number | bigint): number {
+  return typeof x === "bigint" ? Number(x) : x;
 }
 
 export const imul = Math.imul;
@@ -92,7 +139,11 @@ export function max(...xs: any[]): any {
 // from the type argument's descriptor, so these helpers switch on it.
 
 function is64(k: number): boolean {
-  return k === Kind.Int || k === Kind.Int64 || k === Kind.Uint || k === Kind.Uint64 || k === Kind.Uintptr;
+  return k === Kind.Int || k === Kind.Uint || k === Kind.Uintptr;
+}
+
+function isBig(k: number): boolean {
+  return k === Kind.Int64 || k === Kind.Uint64;
 }
 
 function isSigned(k: number): boolean {
@@ -106,6 +157,8 @@ function isInteger(k: number): boolean {
 // wrapT wraps x to the width of integer kind t (and rounds float32).
 export function wrapT(t: Type, x: any): any {
   switch (t.kind) {
+    case Kind.Int64: return BigInt.asIntN(64, x);
+    case Kind.Uint64: return BigInt.asUintN(64, x);
     case Kind.Int8: return (x << 24) >> 24;
     case Kind.Int16: return (x << 16) >> 16;
     case Kind.Int32: return x | 0;
@@ -132,6 +185,19 @@ export function arithT(t: Type, op: string, a: any, b: any): any {
       case "/": return wrapT(t, a / b);
     }
   }
+  if (isBig(k)) {
+    switch (op) {
+      case "+": return wrapT(t, a + b);
+      case "-": return wrapT(t, a - b);
+      case "*": return wrapT(t, a * b);
+      case "/": return wrapT(t, divBig(a, b));
+      case "%": return modBig(a, b);
+      case "&": return a & b;
+      case "|": return a | b;
+      case "^": return a ^ b;
+      case "&^": return a & ~b;
+    }
+  }
   switch (op) {
     case "+": return wrapT(t, a + b);
     case "-": return wrapT(t, a - b);
@@ -147,6 +213,7 @@ export function arithT(t: Type, op: string, a: any, b: any): any {
 }
 
 export function shiftT(t: Type, left: boolean, a: any, n: number): any {
+  if (isBig(t.kind)) return left ? shlBig(a, n, isSigned(t.kind)) : shrBig(a, n);
   if (is64(t.kind)) return left ? shl64(a, n, isSigned(t.kind)) : shr64(a, n, isSigned(t.kind));
   return wrapT(t, left ? shl32(a, n) : shr32(a, n, isSigned(t.kind)));
 }
@@ -157,6 +224,7 @@ export function negT(t: Type, x: any): any {
 }
 
 export function notT(t: Type, x: any): any {
+  if (isBig(t.kind)) return wrapT(t, ~x);
   return is64(t.kind) ? not64(x, isSigned(t.kind)) : wrapT(t, ~x);
 }
 
@@ -164,6 +232,16 @@ export function notT(t: Type, x: any): any {
 // parameter.
 export function convertT(to: Type, from: Type, x: any): any {
   const tk = to.kind, fk = from.kind;
+  if (isBig(fk) && !isBig(tk)) {
+    // To a number first: the width and sign of narrower kinds come from
+    // wrapT below.
+    x = isInteger(tk) && !is64(tk) ? Number(BigInt.asUintN(32, x)) : tk === Kind.Uint || tk === Kind.Uintptr ? Number(BigInt.asUintN(64, x)) : Number(x);
+  }
+  if (isBig(tk)) {
+    if (isBig(fk)) return wrapT(to, x);
+    if (isInteger(fk)) return wrapT(to, BigInt(x));
+    return floatToBig(x, tk === Kind.Int64);
+  }
   if (tk === Kind.String) {
     if (isInteger(fk)) return encodeRune(x);
     if (fk === Kind.Slice) return from.elem!.kind === Kind.Int32 ? runesToString(x) : bytesToString(x);
@@ -176,4 +254,22 @@ export function convertT(to: Type, from: Type, x: any): any {
   if (tk === Kind.Float32 || tk === Kind.Float64) return wrapT(to, x);
   if (tk === Kind.Complex64 && fk !== Kind.Complex64) return c64(x);
   return x;
+}
+
+// constT is a numeric constant of a type parameter's type, in the
+// representation of the type argument. go/types has checked that the value
+// is representable in every type of the type set.
+export function constT(t: Type, v: any): any {
+  if (v instanceof Complex && t.kind !== Kind.Complex64 && t.kind !== Kind.Complex128) v = v.re;
+  switch (t.kind) {
+    case Kind.Int64: case Kind.Uint64:
+      return typeof v === "bigint" ? v : BigInt(v);
+    case Kind.Float32:
+      return Math.fround(Number(v));
+    case Kind.Complex64:
+      return c64(typeof v === "number" ? complex(v, 0) : v);
+    case Kind.Complex128:
+      return typeof v === "number" ? complex(v, 0) : v;
+  }
+  return typeof v === "bigint" ? Number(v) : v;
 }
