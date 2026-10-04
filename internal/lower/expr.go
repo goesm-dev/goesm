@@ -10,6 +10,62 @@ import (
 	"strings"
 )
 
+func isNumericConst(v constant.Value) bool {
+	k := v.Kind()
+	return k == constant.Int || k == constant.Float || k == constant.Complex
+}
+
+// numericTypeSet reports whether t is a type parameter whose type set has
+// only numeric types.
+func numericTypeSet(t types.Type) bool {
+	tp, ok := types.Unalias(t).(*types.TypeParam)
+	if !ok {
+		return false
+	}
+	found := false
+	var numeric func(t types.Type) bool
+	numeric = func(t types.Type) bool {
+		switch u := t.Underlying().(type) {
+		case *types.Basic:
+			found = true
+			return u.Info()&types.IsNumeric != 0
+		case *types.Union:
+			for i := 0; i < u.Len(); i++ {
+				if !numeric(u.Term(i).Type()) {
+					return false
+				}
+			}
+			return true
+		case *types.Interface:
+			for i := 0; i < u.NumEmbeddeds(); i++ {
+				if !numeric(u.EmbeddedType(i)) {
+					return false
+				}
+			}
+			return true
+		}
+		return false
+	}
+	return numeric(tp.Constraint()) && found
+}
+
+// constT lowers numeric constant v of type parameter type t: its
+// representation (Number, BigInt, complex) is that of the type argument.
+func (fe *funcEmitter) constT(v constant.Value, t types.Type) string {
+	if v.Kind() == constant.Complex {
+		if constant.Sign(constant.Imag(v)) != 0 {
+			return fmt.Sprintf("$rt.constT(%s, %s)", fe.desc(t), constLit(v, types.Typ[types.Complex128]))
+		}
+		v = constant.Real(v) // representable in every type of t's type set
+	}
+	if v.Kind() == constant.Int {
+		if i, exact := constant.Int64Val(v); !exact || i > 1<<53 || i < -(1<<53) {
+			return fmt.Sprintf("$rt.constT(%s, %sn)", fe.desc(t), v.ExactString())
+		}
+	}
+	return fmt.Sprintf("$rt.constT(%s, %s)", fe.desc(t), constLit(v, types.Typ[types.UntypedFloat]))
+}
+
 // expr lowers an expression to a JS expression string. The result denotes
 // the Go value without copying it; contexts that need Go copy semantics
 // use valueOf.
@@ -19,18 +75,7 @@ func (fe *funcEmitter) expr(e ast.Expr) string {
 	}
 	if tv, ok := fe.info.Types[e]; ok && tv.Value != nil {
 		if isTypeParam(tv.Type) && tv.Value.Kind() != constant.String && tv.Value.Kind() != constant.Bool {
-			// A numeric constant of type parameter type: its representation
-			// (Number, BigInt, complex) is that of the type argument.
-			v := tv.Value
-			if v.Kind() == constant.Complex {
-				return fmt.Sprintf("$rt.constT(%s, %s)", fe.desc(tv.Type), constLit(v, types.Typ[types.Complex128]))
-			}
-			if v.Kind() == constant.Int {
-				if i, exact := constant.Int64Val(v); !exact || i > 1<<53 || i < -(1<<53) {
-					return fmt.Sprintf("$rt.constT(%s, %sn)", fe.desc(tv.Type), v.ExactString())
-				}
-			}
-			return fmt.Sprintf("$rt.constT(%s, %s)", fe.desc(tv.Type), constLit(v, types.Typ[types.UntypedFloat]))
+			return fe.constT(tv.Value, tv.Type)
 		}
 		return constLit(tv.Value, tv.Type)
 	}
@@ -1056,7 +1101,7 @@ func (fe *funcEmitter) args(e *ast.CallExpr, sig *types.Signature) string {
 		variadicElemTS = fe.ts(params.At(n - 1).Type().(*types.Slice).Elem())
 	}
 	var vals []string
-	if len(e.Args) == 1 && n > 1 {
+	if len(e.Args) == 1 { // f(g()) with g returning several results
 		if tt, ok := fe.info.TypeOf(e.Args[0]).(*types.Tuple); ok {
 			t := fe.tmp()
 			var parts []string
@@ -1111,6 +1156,9 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 		// Truncation, wrapping and string conversions depend on the type
 		// arguments.
 		if tv := fe.info.Types[arg]; tv.Value != nil && !isTypeParam(from) {
+			if isNumericConst(tv.Value) && numericTypeSet(to) {
+				return fe.constT(tv.Value, to) // representable in every type of to's type set
+			}
 			from = types.Default(from)
 		}
 		return fmt.Sprintf("$rt.convertT(%s, %s, %s)", fe.desc(to), fe.desc(from), s)
@@ -1218,6 +1266,23 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 }
 
 func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
+	if len(e.Args) == 1 && (name == "complex" || name == "append" || name == "copy") {
+		if tt, ok := fe.info.TypeOf(e.Args[0]).(*types.Tuple); ok {
+			// complex(f()), append(f()), copy(f()): the results of f are
+			// the arguments.
+			t := fe.tmp()
+			call := *e
+			call.Args = make([]ast.Expr, tt.Len())
+			for i := range call.Args {
+				id := &ast.Ident{NamePos: e.Args[0].Pos(), Name: "_"}
+				fe.info.Types[id] = types.TypeAndValue{Type: tt.At(i).Type()}
+				fe.override[id] = fmt.Sprintf("%s[%d]", t, i)
+				call.Args[i] = id
+			}
+			fe.info.Types[&call] = fe.info.Types[e]
+			return fmt.Sprintf("((%s: any) => %s)(%s)", t, fe.builtin(&call, name), fe.expr(e.Args[0]))
+		}
+	}
 	arg := func(i int) string { return fe.expr(e.Args[i]) }
 	m := fe.mark(e)
 	switch name {
@@ -1381,9 +1446,10 @@ func (fe *funcEmitter) elemTypeArg(elem types.Type) string {
 // An unsafe.Pointer holds the pointer object itself (see runtime/src/ptr.ts):
 // converting a pointer to unsafe.Pointer and back to the same pointer type is
 // the identity. There is no address space, so reinterpreting memory as
-// another type, pointer arithmetic and conversions to and from uintptr are
-// diagnosed. unsafe.String and unsafe.Slice are supported where their pointer
-// operand is an element of a slice or array (&x[i], unsafe.SliceData(x)).
+// another type, pointer arithmetic and conversions from uintptr are
+// diagnosed; uintptr(p) is a stand-in address ($rt.addressOf). unsafe.String
+// and unsafe.Slice are supported where their pointer operand is an element of
+// a slice or array (&x[i], unsafe.SliceData(x)).
 
 func isUnsafePointer(t types.Type) bool {
 	b, ok := t.(*types.Basic)
@@ -1401,6 +1467,9 @@ func (fe *funcEmitter) unsafeConversion(e *ast.CallExpr, to, from types.Type, s 
 		}
 		fe.errorf(e.Pos(), "conversion from %s to unsafe.Pointer is not supported (goesm has no address space)", from)
 		return s
+	}
+	if b, ok := tu.(*types.Basic); ok && b.Kind() == types.Uintptr {
+		return "$rt.addressOf(" + s + ")" // a stand-in address, for printing and hashing
 	}
 	tp, ok := tu.(*types.Pointer)
 	if !ok {

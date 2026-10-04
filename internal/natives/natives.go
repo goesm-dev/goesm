@@ -88,6 +88,20 @@ var overrides = map[string]bool{
 
 	"slices.overlaps": true, // compares element addresses
 
+	// IEEE 754 fixes their results; JS builtins are much faster than the
+	// bit manipulation (on BigInt) of their Go bodies. RoundToEven's body
+	// also shifts by a uint difference that wraps around.
+	"math.Floor":       true,
+	"math.Ceil":        true,
+	"math.Trunc":       true,
+	"math.Round":       true,
+	"math.RoundToEven": true,
+	"math.Sqrt":        true,
+	"math.Abs":         true,
+	"math.Signbit":     true,
+	"math.Copysign":    true,
+	"math.Inf":         true,
+
 	"math.Float32bits":     true,
 	"math.Float32frombits": true,
 	"math.Float64bits":     true,
