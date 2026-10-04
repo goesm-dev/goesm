@@ -144,6 +144,19 @@ export function native$internal$strconv$formatDecimal(u: bigint, neg: boolean): 
   return neg ? "-" + s : s;
 }
 
+// strings.ToUpper and ToLower of ASCII strings (see the strings patch). A Go
+// string holds bytes as UTF-16 code units below 256.
+const nonASCIIByte = /[\x80-\xff]/;
+export function native$strings$isASCII(s: string): boolean {
+  return !nonASCIIByte.test(s);
+}
+export function native$strings$upperASCII(s: string): string {
+  return s.toUpperCase();
+}
+export function native$strings$lowerASCII(s: string): string {
+  return s.toLowerCase();
+}
+
 export function native$internal$strconv$itoa(i: number): string {
   return Number.isSafeInteger(i) ? String(i) : BigInt.asIntN(64, BigInt(i)).toString();
 }
