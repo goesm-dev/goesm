@@ -219,17 +219,19 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * loader は `packages.Config.ParseFile` を設定します。go/packages が `$GOROOT/src` 以下の置換対象 package の file を parse するとき、最初の file が置換 source になり、残りは空 file になります。したがって go/types はすべての importer を置換後の package に対して型検査し、go command が解決した package graph は変わりません。`packages.Config.Overlay` ではできません: `go tool goesm` の toolchain がある module cache 以下の file は go command が overlay を拒否します。
 * 型検査済みの import (置換後) で到達できる package だけを lowering するので、gc runtime の内部 (`internal/runtime/*` など) は外れます。
 * Go の body を持たない関数 (assembly、`//go:linkname` 宣言、置換で body を省いたもの) は `runtime/src/natives.ts` に、`types.Func.FullName` から決まる名前の export として実装します。export の有無は goesm が compile 時に確認します。メモリを再解釈する Go body を持つ関数も、短い固定 list (`natives.Override`) で natives に置き換えます: `math.Float64bits` など、64-bit の `math/bits` 関数 (BigInt の半分ずつで計算)、`internal/strconv.formatBits` (Go の body が `uint64` の桁を `uint` 経由で狭めるため)、`slices.overlaps`、`internal/abi.NoEscape`。結果が IEEE 754 で決まる math の関数 (`Floor`、`Ceil`、`Trunc`、`Round`、`RoundToEven`、`Sqrt`、`Abs`、`Signbit`、`Copysign`、`Inf`) も JS の builtin にしています。Go の body の bit 操作より数倍速くなります。
-* 置換・override・natives は goesm に compile される固定の集合です。適用されるのは `$GOROOT/src` 以下の file だけで、依存 package の内容がこれを増やすことはできません。
+* **patch** (`internal/natives/patch/<import path>/<file>.go`) は、それ以外は自身の source から compile する package の一部の宣言だけを変えます。patch の宣言は package 内の同名の宣言を置き換え (元の宣言はその場で `_` に rename するので、型検査はされますが出力はされません)、import とともに同名の file に追加されます。`time` はこの方法で patch しています: gc runtime が実装する `Sleep`、`Timer`、`Ticker` と timer 関数を host の `setTimeout` (natives.ts の `armTimer`) の上で動かし、timer の関数は発火時に新しい goroutine で実行します。
+* 置換・patch・override・natives は goesm に compile される固定の集合です。適用されるのは `$GOROOT/src` 以下の file だけで、依存 package の内容がこれを増やすことはできません。
 
 現状 (`go test ./test -run TestStdlibStatus -v`、golden テストは `testdata/semantics/stdlibuse`):
 
 * Go source のまま compile でき native Go と一致: `errors` (`Is`、`As`、`Join`、`Unwrap`)、`strings` (検索、split、fields、大文字小文字、`Builder`、`Replacer`、`EqualFold`)、`strconv` (整数の format、`Atoi`、quote、`NumError`)、`sort`、`slices`、`maps`、`sync`、`unicode`、`unicode/utf8`、`math/bits`、`strconv` の 64-bit parse と最短表現の float format (`testdata/semantics/int64s`)。
 * `fmt` (verb、flag、幅と精度、`Stringer` / `error` / `Formatter` / `GoStringer`、`%w` 付き `Errorf`、`Sscanf`)、`reflect`、`encoding/json` (struct tag、embedded、map、`RawMessage`、`Marshaler` / `TextMarshaler`、`Decoder` の stream、`UseNumber`、error) は `testdata/programs/fmtverbs`、`reflection`、`jsoncodec` で native Go と一致します。
+* `time` (`Sleep`、`Stop` / `Reset` 付きの `Timer`、`Ticker`、`AfterFunc`、`select` 内の `After`、時計、`Duration`、format と parse) は `testdata/programs/timers` で native Go と一致します。
 
 ## 10. Tooling compatibility と security
 
 * `.go` file は普通の Go で、goesm 専用 syntax・directive・magic comment はありません。fixture は `go vet` / `go build` / `go run` がそのまま通り、golden テストはまさに native Go 実行と比較しています。package graph は go command が解決したもので、govulncheck 等の call graph も変わりません。
-* 依存 package を import しても goesm 側でコードは実行されません。compiler plugin や third-party の extension 機構はありません。esbuild の plugin は `goesm build -split` で使う goesm 自身の resolver だけで、出力した tree には plugin は不要です。stdlib の置換と natives (§9) は goesm 内の固定の集合で、`$GOROOT/src` にだけ適用されます。stdlib 以外で body の無い Go 関数は error であり、hook にはなりません。
+* 依存 package を import しても goesm 側でコードは実行されません。compiler plugin や third-party の extension 機構はありません。esbuild の plugin は `goesm build -split` で使う goesm 自身の resolver だけで、出力した tree には plugin は不要です。stdlib の置換、patch、natives (§9) は goesm 内の固定の集合で、`$GOROOT/src` にだけ適用されます。stdlib 以外で body の無い Go 関数は error であり、hook にはなりません。
 * 懸念点: (1) go/packages は `go list` を実行するので、`GOFLAGS` などの環境、`go.work`、`GOPROXY` からの module 取得について go command と同じ trust 境界を継承します (goesm がそれを広げることはありません)。(2) 生成コードは Go の型安全性に依存しており、goesm の lowering bug は JS 上の memory safety ではなく誤動作として現れます (JS 自体は memory safe)。(3) 生成 ESM は `globalThis.reportError` 等の host API を使いますが、DOM API binding は未実装です。(4) `GoPanic` の message や source map の `sourcesContent` は Go source を含むため、公開 bundle に Go source が載ります (`SourcesContent` を外すオプションは未実装)。
 
 ## 11. 実装済み / 未実装 / native Go との差分
@@ -238,9 +240,9 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 
 **未実装** (goesm 診断になるか、動作しないもの):
 * 64-bit の `int` と `uint` の正確な表現 (number のまま、§5 参照)
-* `time` の timer、`iter.Pull` (coroutine)、§7 を超える `unsafe` と `reflect`
+* `iter.Pull` (coroutine)、§7 を超える `unsafe` と `reflect`
 * 後方への `goto`、range-over-func の body 内での blocking 操作 / select / defer / goto (診断として報告)、型 parameter 型の変数の address、型 parameter に依存する local type、slice から配列 pointer への変換 (`(*[N]T)(s)`)
-* host に未完了の処理 (timer、I/O) が残っている間の deadlock 検出、goroutine の preemption、goroutine-local な recover 状態
+* Go が知らない未完了の処理 (JavaScript の timer、I/O) が host に残っている間の deadlock 検出、goroutine の preemption、goroutine-local な recover 状態
 * JS からの呼び出し ABI (Go の値 ⇔ JS 値の自動変換)
 * `go 1.22` 未満の file における共有 loop 変数の range 意味論
 
@@ -254,9 +256,10 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * `print` / `println` は Go ランタイムと同じ書式で stderr に出力するが、ポインタ・map・channel・func・スライス・interface の値は実アドレスではなく固定のアドレスを表示する。
 * `sync`: 解析 (§5) が同期のままにした `Lock` は、待つ必要があると panic する。解析はこれを起こさないはずなので、goesm の bug である。最初の呼び出しの関数が block している間に 2 回目の `Once.Do` を呼ぶと、待たずに panic する。unlock 済み `Mutex` の unlock などの誤用は fatal error ではなく recover できる panic。`runtime.Caller` / `Callers` / `Stack` は何も報告せず、`SetFinalizer` は何もしない。
 * Bun では JavaScriptCore が NaN の payload を保たないので、NaN の `math.Float64bits` が Go と異なることがある。
+* `time`: timer の channel は `GODEBUG=asynctimerchan=1` と同じく buffer が 1 つある (`len(t.C)` が 1 になり得る)。`Stop` と `Reset` は channel を空にするので、Go 1.23 と同じくその後に古い値を受信することはない。`Timer` と `Ticker` には unexported field が 1 つ多く、`%+v` で表示される。timer は host の event loop が処理できたときに発火するので、走り続ける goroutine があると遅れる。
 
 ## 12. 次に実装すべき 3 項目
 
-1. **`time`**: host の timer の上の timer と `Sleep`、wall clock と monotonic clock (`int64` で正確)、timer が残っている間の deadlock 検出。
-2. **goroutine runtime の完成**: goroutine-local な panic / recover 状態 (async 境界を跨ぐ recover)、`iter.Pull`、JS 呼び出し ABI (exported 関数の引数・戻り値の変換)。
+1. **goroutine runtime の完成**: goroutine-local な panic / recover 状態 (async 境界を跨ぐ recover)、`iter.Pull`、JS 呼び出し ABI (exported 関数の引数・戻り値の変換)。
+2. **conformance の穴** (GOROOT/test で見つかったもの): 後方 `goto`、range-over-func 本体の defer と select、巨大な array literal。
 3. **bundle size**: `unicode` の表のような package-level の表は eager に構築され、tree shaking で落ちません (`fmt` の hello world は gzip で約 210 KB)。

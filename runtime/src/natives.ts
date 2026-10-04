@@ -16,7 +16,7 @@
 // natives.ts is a separate module (@goesm/runtime/natives) that uses the
 // runtime only through its public module, so split builds share one runtime.
 import {
-  GoMap, addressOf, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, assign, chanLen, copy, exitProcess,
+  GoMap, addressOf, go, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, assign, chanLen, copy, exitProcess,
   fromJSString, hostNodeFS, implementsIface, isAggregate, load, toJSString, writeConsole, writeSyncAll,
   makeSlice, mapLen, numGoroutine, runtimePanic, sizeOf, store, panic, types, append,
   alignOf, arrayElemPtr, arrayOf, bytesToString, c64, chanCap, chanOf, close, encodeRune, equal, fieldPtr,
@@ -1096,6 +1096,43 @@ function wallNow(): [bigint, number, bigint] {
 export const native$time$now = wallNow;
 export const native$time$runtimeNow = wallNow;
 export const native$time$runtimeNano = monoNanos;
+
+// ---- time: timers ----
+//
+// time's timers (internal/natives/patch/time) are armed on the host's
+// setTimeout. A pending timer keeps Node and Bun running, so a goroutine
+// waiting for one is not a deadlock, as in Go.
+
+const hostTimers = new Map<number, any>();
+let nextTimerID = 1;
+const maxDelay = 2 ** 31 - 1; // setTimeout's limit, in milliseconds
+
+export function native$time$armTimer(when: bigint, period: bigint, fire: (delta: bigint) => any): number {
+  const id = nextTimerID++;
+  let target = when;
+  const arm = () => {
+    const ms = Number(target - monoNanos()) / 1e6;
+    hostTimers.set(id, setTimeout(run, Math.min(Math.max(ms, 0), maxDelay)));
+  };
+  const run = () => {
+    const delta = monoNanos() - target;
+    if (delta < 0n) return arm(); // a delay beyond setTimeout's limit
+    if (period > 0n) {
+      target += period * (delta / period + 1n); // drop missed ticks
+      arm();
+    } else {
+      hostTimers.delete(id);
+    }
+    go(fire, [delta]);
+  };
+  arm();
+  return id;
+}
+
+export function native$time$disarmTimer(id: number): void {
+  clearTimeout(hostTimers.get(id));
+  hostTimers.delete(id);
+}
 
 export function native$time$runtimeIsBubbled(): boolean {
   return false;

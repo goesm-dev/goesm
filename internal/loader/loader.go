@@ -158,9 +158,17 @@ func replacingParser(goroot string) func(*token.FileSet, string, []byte) (*ast.F
 			return parser.ParseFile(fset, filename, data, mode)
 		}
 		pkgDir := filepath.Dir(filename)
-		repl, ok := natives.Replacement(filepath.ToSlash(strings.TrimPrefix(pkgDir, src)))
+		importPath := filepath.ToSlash(strings.TrimPrefix(pkgDir, src))
+		repl, ok := natives.Replacement(importPath)
 		if !ok {
-			return parser.ParseFile(fset, filename, data, mode)
+			f, err := parser.ParseFile(fset, filename, data, mode)
+			if err != nil {
+				return nil, err
+			}
+			if names := natives.Patched(importPath); names != nil {
+				return patch(fset, f, names, importPath, filepath.Base(filename))
+			}
+			return f, nil
 		}
 		mu.Lock()
 		first := !replaced[pkgDir]
@@ -175,6 +183,77 @@ func replacingParser(goroot string) func(*token.FileSet, string, []byte) (*ast.F
 		}
 		return &ast.File{Package: f.Package, Name: f.Name, FileStart: f.FileStart, FileEnd: f.FileEnd}, nil
 	}
+}
+
+// patch applies the natives patches of package importPath to its file f
+// (base is its file name). The declarations the patches replace are renamed
+// to _, which keeps them type-checked (and their imports used) while nothing
+// can refer to them, and goesm does not emit blank functions; a replaced
+// variable's original initializer still runs. The patch of this file, if
+// any, is added to it.
+func patch(fset *token.FileSet, f *ast.File, names map[string]bool, importPath, base string) (*ast.File, error) {
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			if ns := natives.DeclNames(d); len(ns) == 1 && names[ns[0]] {
+				d.Name = ast.NewIdent("_")
+			}
+		case *ast.GenDecl:
+			for _, s := range d.Specs {
+				switch s := s.(type) {
+				case *ast.TypeSpec:
+					if names[s.Name.Name] {
+						s.Name = ast.NewIdent("_")
+					}
+				case *ast.ValueSpec:
+					for i, n := range s.Names {
+						if names[n.Name] {
+							s.Names[i] = ast.NewIdent("_")
+						}
+					}
+				}
+			}
+		}
+	}
+	p, ok := natives.Patch(importPath, base)
+	if !ok {
+		return f, nil
+	}
+	pf, err := parser.ParseFile(fset, p.Name, p.Src, parser.AllErrors|parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	have := map[string]bool{}
+	for _, is := range f.Imports {
+		have[importKey(is)] = true
+	}
+	var imports, rest []ast.Decl
+	for _, d := range pf.Decls {
+		if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.IMPORT {
+			var specs []ast.Spec
+			for _, s := range g.Specs {
+				if is := s.(*ast.ImportSpec); !have[importKey(is)] {
+					specs = append(specs, is)
+					f.Imports = append(f.Imports, is)
+				}
+			}
+			if len(specs) > 0 {
+				g.Specs = specs
+				imports = append(imports, g)
+			}
+			continue
+		}
+		rest = append(rest, d)
+	}
+	f.Decls = append(append(imports, f.Decls...), rest...)
+	return f, nil
+}
+
+func importKey(is *ast.ImportSpec) string {
+	if is.Name != nil {
+		return is.Name.Name + " " + is.Path.Value
+	}
+	return is.Path.Value
 }
 
 // reachable keeps the packages actually imported (by their syntax, after
