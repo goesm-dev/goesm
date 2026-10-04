@@ -15,7 +15,7 @@ import (
 // split mode) and from the examples, and fails on any finding of its
 // correctness rules.
 //
-// oxlintrc.json turns off five rules that fire on correct generated code:
+// oxlintrc.json turns off six rules that fire on correct generated code:
 //
 //   - no-unused-vars: Go allows unused parameters and package-level
 //     variables, and lowering adds parameters some functions do not read
@@ -31,6 +31,8 @@ import (
 //     for its nil and bounds checks.
 //   - unicorn/no-new-array: the runtime allocates arrays of a length with
 //     new Array(n).
+//   - no-extra-boolean-cast: an element of a []bool that a Uint8Array backs
+//     is loaded as !!b[i], also where JS would convert it anyway (if, !).
 //
 // The test is skipped when oxlint is not installed, unless
 // GOESM_REQUIRE_TOOLS is set (as in CI).

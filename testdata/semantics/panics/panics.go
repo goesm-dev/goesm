@@ -244,3 +244,64 @@ func LoopIndices() []string {
 	)
 	return out
 }
+
+// MadeLenIndices indexes slices in loops bounded by the length they were
+// made with (a sieve), next to loops that look alike but may go out of
+// range, which must still panic.
+func MadeLenIndices() []string { return madeLenIndices(100) }
+
+func madeLenIndices(n int) []string {
+	composite := make([]bool, n)
+	count := 0
+	for i := 2; i < n; i++ {
+		if composite[i] {
+			continue
+		}
+		count++
+		for j := i * i; j < n; j += i {
+			composite[j] = true
+		}
+	}
+	const k = 5
+	sq := make([]int, k)
+	for i := 0; i < k; i++ {
+		sq[i] = i * i
+	}
+	out := []string{itoa(count), itoa(sq[k-1])}
+	return append(out,
+		catch(func() {
+			m := n
+			s := make([]int, m)
+			m++
+			for i := 0; i < m; i++ {
+				s[i] = i
+			}
+		}),
+		catch(func() {
+			s := make([]int, k)
+			for i := 0; i < k+1; i++ {
+				s[i] = i
+			}
+		}),
+		catch(func() {
+			s := make([]int, n)
+			for i := 0; i < n; i += 0 - 1 {
+				s[i] = i
+			}
+		}),
+		catch(func() {
+			s := make([]int, n)
+			s = s[:1]
+			for i := 0; i < n; i++ {
+				s[i] = i
+			}
+		}),
+		catch(func() {
+			b := make([]bool, 3)
+			b[1] = n > 0
+			for i := 0; i < 4; i++ {
+				_ = b[i]
+			}
+		}),
+	)
+}
