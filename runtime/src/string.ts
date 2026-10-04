@@ -55,18 +55,26 @@ export function decodeRune(s: string, i: number): [number, number] {
 export function bytesToString(b: S<number>): string {
   if (b === null) return "";
   const n = b.$length, a = b.$array, o = b.$offset;
-  if (n <= 16) {
+  if (n <= 4) {
     let s = "";
     for (let i = 0; i < n; i++) s += String.fromCharCode(a[o + i]);
     return s;
   }
   // String.fromCharCode over chunks: one flat string instead of a rope of
   // one-character concatenations. The chunks stay below engines' argument
-  // count limits.
+  // count limits. Engines spread an Array's elements as arguments faster
+  // than a Uint8Array's, even counting the copy.
   let s = "";
   for (let i = 0; i < n; i += 8192) {
-    const j = o + Math.min(i + 8192, n);
-    s += String.fromCharCode.apply(null, (a instanceof Uint8Array ? a.subarray(o + i, j) : a.slice(o + i, j)) as any);
+    const m = Math.min(8192, n - i);
+    let c: number[];
+    if (a instanceof Uint8Array) {
+      c = new Array(m);
+      for (let k = 0; k < m; k++) c[k] = a[o + i + k];
+    } else {
+      c = a.slice(o + i, o + i + m);
+    }
+    s += String.fromCharCode.apply(null, c);
   }
   return s;
 }
