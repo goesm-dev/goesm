@@ -1,4 +1,4 @@
-<h1 align="center"><img src="docs/assets/goesm.svg" alt="goesm" width="480"></h1>
+<h1 align="center"><img src="docs/assets/goesm.png" alt="goesm" width="480"></h1>
 
 [![CI](https://github.com/goesm-dev/goesm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/goesm-dev/goesm/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/goesm-dev/goesm.svg)](https://pkg.go.dev/github.com/goesm-dev/goesm)
