@@ -96,6 +96,7 @@ async function runNative() {
   const ms = (v) => `${v}ms`;
   const lines = await runJSONLines(join(out, "bin", "native"), ["-warmup", ms(opts.warmup), "-time", ms(opts.time), "-samples", String(opts.samples)], {
     // Add measures calls from JS; a Go loop calling Add measures nothing.
+    // Upper and Handle run as in JS, called arg times by a Go loop.
     input: JSON.stringify(suite.filter((k) => k.name !== "Add").map(({ name, arg }) => ({ name, arg }))),
   });
   return collect(lines);

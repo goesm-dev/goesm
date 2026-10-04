@@ -36,13 +36,20 @@
 | JSON | 2,000 レコード | `encoding/json` の Marshal + Unmarshal |
 | Sprintf | 50,000 | `fmt.Sprintf` |
 | Channels | 100,000 個の値 | goroutine、バッファなしチャネル、`sync.WaitGroup` |
-| Add | 100,000 回 | JS から Go を 1 回呼ぶコスト |
+| Add | 100,000 回 | JS からの呼び出し: 数値 2 つを渡して 1 つ受け取る |
+| Upper | 100,000 回 | JS からの呼び出し: `strings.ToUpper`、文字列を渡して受け取る |
+| Handle | 10,000 回 | JS からの呼び出し: JSON のリクエストハンドラ（`encoding/json` でデコード、集計、エンコード）、文字列を渡して受け取る |
 
 各カーネルはサイズを受け取り、チェックサムを返します。ハーネスはすべての実装のチェックサムをネイティブ Go の値と照合するので、結果に載る数値はどれも正しい計算にかかった時間です。
 
-- **時間の計り方**: カーネルごとに、ハーネス（[js/harness.mjs](js/harness.mjs)。ネイティブ Go は [native/main.go](native/main.go)）は 3 回以上かつ 300 ms 以上ウォームアップしたあと、1 回ずつの呼び出しを 10 回以上かつ合計 1 秒以上計測し、中央値を報告します。Add は 100,000 回呼ぶ JS のループとして計測し、1 回あたりで報告します。
+最後の 3 つはライブラリ API の形をしています。JavaScript から小さな呼び出しを何度も行い、そのたびに境界で引数と結果を変換します。[`callInputs`](js/suite.mjs)（100 種類の入力）を順に渡す JS のループとして計測し、1 回あたりで報告するので、JS から 1 回呼ぶコスト（処理と境界越えの合計）がわかります。ネイティブ Go は同じループを Go で実行します（[kernels/api.go](kernels/api.go) の `CallChecksum`）。これは処理だけのコストで、Add はありません。
+
+**合計**は全カーネルの中央値の和（呼び出し系カーネルはループ全体）で、各カーネルを 1 回ずつ実行するのにかかる時間です。幾何平均はどのカーネルも同じ重みで扱いますが、合計は遅いカーネルをアプリケーションで体感するのと同じ重みで扱います。
+
+- **時間の計り方**: カーネルごとに、ハーネス（[js/harness.mjs](js/harness.mjs)。ネイティブ Go は [native/main.go](native/main.go)）は 3 回以上かつ 300 ms 以上ウォームアップしたあと、1 回ずつの呼び出しを 10 回以上かつ合計 1 秒以上（遅い呼び出しは 3 回以上かつ 10 秒以上）計測し、中央値を報告します。
 - **分離**: 各実装はそれぞれ別のプロセス（Node.js、Bun）またはページ（Chromium）で、順番に実行します。
-- **呼び出し方**: goesm の出力は Go の関数をそのまま export する ES モジュールなので、ハーネスは `kernels` を import して `Fib(30)` を直接呼びます。GopherJS、Go wasm、TinyGo はパッケージではなくプログラムをビルドするので、[jsmain](jsmain) が `syscall/js`（`js.FuncOf`）でカーネルを `globalThis.goBench` に公開します。これらのプログラムを JS から呼ぶときの一般的な方法です。`syscall/js` のコールバックはブロックできないので、これらでは Channels は Promise を返し、専用の goroutine で動きます。goesm では Channels 自体が async 関数になります。Add については、TinyGo では数値の受け渡しで一般的な wasm の export（`//export add`）を使います。
+- **呼び出し方**: goesm の出力は Go の関数をそのまま export する ES モジュールなので、ハーネスは `kernels` を import して `Fib(30)` を直接呼びます。GopherJS、Go wasm、TinyGo はパッケージではなくプログラムをビルドするので、[jsmain](jsmain) が `syscall/js`（`js.FuncOf`）でカーネルを `globalThis.goBench` に公開します。これらのプログラムを JS から呼ぶときの一般的な方法です。`syscall/js` のコールバックはブロックできないので、これらでは Channels は Promise を返し、専用の goroutine で動きます。goesm では Channels 自体が async 関数になります。
+- **呼び出し系カーネル**: 各実装で最も速い呼び方を使います。goesm は export をそのまま呼び、文字列はランタイムの `fromJSString` / `toJSString` で変換します（Go の文字列はバイト列です）。Go と TinyGo の wasm では `syscall/js` の呼び出しに数マイクロ秒（Go）から約 1 ミリ秒（TinyGo）かかるので、[jsmain/export_wasm.go](jsmain/export_wasm.go) が Add、Upper、Handle を素の WebAssembly 関数として export し（Go は `//go:wasmexport`、TinyGo は `//export`。TinyGo の `//go:wasmexport` は `main` がブロックしている間 1 回あたり約 0.2 ms かかります）、文字列は `TextEncoder.encodeInto` と `TextDecoder` で UTF-8 として線形メモリ経由で渡します。GopherJS は `syscall/js` を通しますが、GopherJS ではそれがそのまま JS の呼び出しです。
 - **起動時間**: 出力の読み込み（ファイルの読み込みまたは fetch、コンパイル、パッケージ初期化と `main` の実行）を始めてから、最初の関数が呼べるようになるまでの時間です。
 - **サイズ**: ページが読み込む必要のあるファイルのサイズです。goesm はバンドルしたモジュール、GopherJS はスクリプト、Go と TinyGo は `.wasm` と `wasm_exec.js` です。カーネルが使う標準ライブラリ（`fmt`、`encoding/json`、`sort`、`strconv`、`strings`、`sync`、`math`）を含みます。
 

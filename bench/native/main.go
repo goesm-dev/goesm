@@ -35,6 +35,15 @@ var byName = map[string]func(int) int{
 	"Channels":    kernels.Channels,
 }
 
+// calls are the API kernels: e.Arg calls with the inputs in turn.
+var calls = map[string]struct {
+	f      func(string) string
+	inputs []string
+}{
+	"Upper":  {kernels.Upper, kernels.UpperInputs()},
+	"Handle": {kernels.Handle, kernels.HandleInputs()},
+}
+
 type entry struct {
 	Name string `json:"name"`
 	Arg  int    `json:"arg"`
@@ -74,6 +83,12 @@ func main() {
 			enc.Encode(r)
 			continue
 		}
+		if call, ok := calls[e.Name]; ok {
+			r := measure(func() int { return kernels.CallChecksum(call.f, call.inputs, e.Arg) }, *warmup, *minTime, *minSamples)
+			r.Name = e.Name
+			enc.Encode(r)
+			continue
+		}
 		f, ok := byName[e.Name]
 		if !ok {
 			fmt.Fprintln(os.Stderr, "native: unknown kernel", e.Name)
@@ -91,7 +106,7 @@ func measure(f func() int, warmup, minTime time.Duration, minSamples int) result
 		r.Result = f()
 	}
 	var total time.Duration
-	for len(r.Times) < minSamples || total < minTime {
+	for (len(r.Times) < minSamples || total < minTime) && !(len(r.Times) >= 3 && total >= 10*minTime) {
 		t := time.Now()
 		got := f()
 		d := time.Since(t)

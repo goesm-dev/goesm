@@ -18,6 +18,7 @@ const T = {
     native: "Native Go",
     perCall: "ns/call",
     geomean: "Geometric mean vs native Go",
+    total: "Total ms, every kernel once",
     runtime: "Runtime",
     files: "Files",
     raw: "Raw",
@@ -29,6 +30,7 @@ const T = {
     native: "ネイティブ Go",
     perCall: "ns/回",
     geomean: "ネイティブ Go 比の幾何平均",
+    total: "合計 ms（全カーネルを 1 回ずつ）",
     runtime: "ランタイム",
     files: "ファイル",
     raw: "非圧縮",
@@ -53,15 +55,40 @@ const what = (k, lang) => {
 };
 const runtimeLabel = (data, r, lang) => data.env[r] ?? T[lang].runtimes[r];
 
-// time returns the comparable time of kernel k in run r: ms per call, or ns
-// per call from JS for Add. It is undefined if the kernel is missing, failed
-// or gave a result different from native Go's.
-function time(data, r, k) {
+// valid returns the measurement of kernel k in run r, or undefined if the
+// kernel is missing, failed or gave a result different from native Go's.
+function valid(data, r, k) {
   const m = r?.kernels?.[k.name];
   if (!m || m.error || m.missing) return undefined;
   const want = data.native.kernels[k.name]?.result;
   if (want !== undefined && m.result !== want) return undefined;
-  return k.name === "Add" ? (m.median * 1e6) / k.arg : m.median;
+  return m;
+}
+
+// perCall converts the median ms of a measurement of k to the time the
+// tables show: ms per call, or ns per call for the kernels that measure
+// calls from JS.
+const perCall = (k, ms) => (k.calls ? (ms * 1e6) / k.arg : ms);
+
+// time returns the comparable time of kernel k in run r (see perCall), or
+// undefined (see valid).
+function time(data, r, k) {
+  const m = valid(data, r, k);
+  return m && perCall(k, m.median);
+}
+
+// total returns the ms run r takes to run every kernel once (the calling
+// kernels' whole loops), and whether some kernel was left out.
+function total(data, r) {
+  let sum = 0, partial = false, any = false;
+  for (const k of data.suite) {
+    const m = valid(data, r, k);
+    if (m) {
+      sum += m.median;
+      any = true;
+    } else partial = true;
+  }
+  return any ? { sum, partial } : undefined;
 }
 
 function cell(data, r, k) {
@@ -84,7 +111,7 @@ export function slowdowns(data, runtime) {
     for (const k of data.suite) {
       const n = data.native.kernels[k.name];
       const t = time(data, r, k);
-      if (n && t !== undefined) ratios.push(t / n.median);
+      if (n && t !== undefined) ratios.push(t / perCall(k, n.median));
     }
     res[impl.id] = ratios.length ? geomean(ratios) : undefined;
   }
@@ -108,9 +135,13 @@ export function timeTable(data, runtime, lang = "en") {
   for (const k of data.suite) {
     const b = bolder(impls, impls.map((i) => time(data, data.runs[runtime][i.id], k)));
     const native = data.native.kernels[k.name];
-    const name = k.name === "Add" ? `Add (${t.perCall})` : k.name;
-    rows.push(`| ${name} | ${what(k, lang)} | ${native ? fmt(native.median) : "—"} | ${impls.map((i, j) => b(j, cell(data, data.runs[runtime][i.id], k))).join(" | ")} |`);
+    const name = k.calls ? `${k.name} (${t.perCall})` : k.name;
+    rows.push(`| ${name} | ${what(k, lang)} | ${native ? fmt(perCall(k, native.median)) : "—"} | ${impls.map((i, j) => b(j, cell(data, data.runs[runtime][i.id], k))).join(" | ")} |`);
   }
+  const tot = impls.map((i) => total(data, data.runs[runtime][i.id]));
+  const bt = bolder(impls, tot.map((x) => (x && !x.partial ? x.sum : undefined)));
+  const nt = total(data, data.native);
+  rows.push(`| **${t.total}** | | ${nt ? `${fmt(nt.sum)}${nt.partial ? "*" : ""}` : "—"} | ${tot.map((x, j) => (x ? bt(j, `${fmt(x.sum)}${x.partial ? "*" : ""}`) : "—")).join(" | ")} |`);
   const sd = slowdowns(data, runtime);
   const b = bolder(impls, impls.map((i) => sd[i.id]));
   rows.push(`| **${t.geomean}** | | 1× | ${impls.map((i, j) => (sd[i.id] ? b(j, `${sd[i.id].toFixed(1)}×`) : "—")).join(" | ")} |`);
@@ -127,6 +158,23 @@ export function summaryTable(data, lang = "en") {
     const sd = slowdowns(data, runtime);
     const b = bolder(impls, impls.map((i) => sd[i.id]));
     rows.push(`| ${runtimeLabel(data, runtime, lang)} | ${impls.map((i, j) => (sd[i.id] === undefined ? "—" : b(j, `${sd[i.id].toFixed(1)}×`))).join(" | ")} |`);
+  }
+  return rows.join("\n");
+}
+
+// totalTable shows, per runtime, the ms each implementation takes to run
+// every kernel once; * marks a total without the kernels the implementation
+// lacks.
+export function totalTable(data, lang = "en") {
+  const impls = data.impls;
+  const rows = [
+    `| ${T[lang].runtime} | ${impls.map((i) => implLabel(i, lang)).join(" | ")} |`,
+    `| --- | ${impls.map(() => "---:").join(" | ")} |`,
+  ];
+  for (const runtime of Object.keys(data.runs)) {
+    const tot = impls.map((i) => total(data, data.runs[runtime][i.id]));
+    const b = bolder(impls, tot.map((x) => (x && !x.partial ? x.sum : undefined)));
+    rows.push(`| ${runtimeLabel(data, runtime, lang)} | ${tot.map((x, j) => (x ? b(j, `${fmt(x.sum)}${x.partial ? "*" : ""}`) : "—")).join(" | ")} |`);
   }
   return rows.join("\n");
 }
@@ -185,6 +233,12 @@ export function markdown(data) {
     "",
     summaryTable(data),
     "",
+    "## Total: ms to run every kernel once",
+    "",
+    "The sum of the medians, the calling kernels' whole loops included; * marks a total without the kernels the implementation lacks (native Go has no Add, hand-written JS no Channels).",
+    "",
+    totalTable(data),
+    "",
   ];
   for (const runtime of Object.keys(data.runs)) {
     parts.push(`## ${runtimeLabel(data, runtime, "en")}: median ms per call`, "", timeTable(data, runtime), "");
@@ -200,12 +254,14 @@ export function readmeBlock(data, lang) {
   const h = lang === "ja"
     ? {
         summary: "ネイティブ Go に対する遅さ（各カーネルの時間の比の幾何平均。小さいほど速い）:",
+        total: "全カーネルを 1 回ずつ実行した合計時間（ms、中央値の和。呼び出し系カーネルはループ全体。* はないカーネルを除いた値。小さいほど速い）:",
         times: `${runtimeLabel(data, node, lang)} での 1 回あたりの時間（ms、中央値。小さいほど速い）:`,
         startup: "起動時間（出力を読み込み始めてから関数を呼べるようになるまで、ms）:",
         size: "出力サイズ（カーネル一式と、使っている標準ライブラリ）:",
       }
     : {
         summary: "Slowdown vs native Go (geometric mean of the per-kernel time ratios; lower is better):",
+        total: "Total ms to run every kernel once (the sum of the medians, the calling kernels' whole loops included; * leaves out kernels the implementation lacks; lower is better):",
         times: `Median ms per call under ${runtimeLabel(data, node, lang)} (lower is better):`,
         startup: "Startup (ms from starting to load the output to the first callable function):",
         size: "Output size (all kernels and the standard library they use):",
@@ -213,6 +269,7 @@ export function readmeBlock(data, lang) {
   return [
     envList(data, lang), "",
     h.summary, "", summaryTable(data, lang), "",
+    h.total, "", totalTable(data, lang), "",
     h.times, "", timeTable(data, node, lang), "",
     h.startup, "", startupTable(data, lang), "",
     h.size, "", sizeTable(data, lang),

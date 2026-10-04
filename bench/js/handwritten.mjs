@@ -275,3 +275,22 @@ export function Sprintf(n) {
 export function Add(a, b) {
   return a + b;
 }
+
+export function Upper(s) {
+  return s.toUpperCase();
+}
+
+export function Handle(req) {
+  let r;
+  try {
+    r = JSON.parse(req);
+  } catch (e) {
+    return JSON.stringify({ error: String(e) });
+  }
+  let count = 0, total = 0;
+  for (const it of r.items ?? []) {
+    count += it.qty;
+    total += it.price * it.qty;
+  }
+  return JSON.stringify({ user: r.user, count, total });
+}
