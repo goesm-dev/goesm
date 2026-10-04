@@ -13,6 +13,7 @@ import (
 	"go/types"
 	"sort"
 	"strings"
+	"sync"
 
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/types/typeutil"
@@ -379,7 +380,47 @@ func (p *Program) findFuncValues() (map[any]bool, map[string][]*types.Signature)
 			})
 		}
 	}
+	p.dropUnusedCoroutines(vals)
 	return vals, exprs
+}
+
+// coroutineFuncs are standard library functions whose function literals
+// block (iter.Pull's next, stop and yield switch coroutines). Function
+// values are matched to dynamic calls by signature, so they would make
+// every call of a func() or func(T) bool value async; they count as
+// function values only in programs that use these functions.
+var coroutineFuncs = map[string]bool{"iter.Pull": true, "iter.Pull2": true}
+
+func (p *Program) dropUnusedCoroutines(vals map[any]bool) {
+	used := map[string]bool{}
+	decls := map[string]*ast.FuncDecl{}
+	for _, pkg := range p.Pkgs {
+		for _, obj := range pkg.TypesInfo.Uses {
+			if fn, ok := obj.(*types.Func); ok && fn.Pkg() != pkg.Types && coroutineFuncs[fn.Origin().FullName()] {
+				used[fn.Origin().FullName()] = true
+			}
+		}
+		for _, f := range pkg.Syntax {
+			for _, d := range f.Decls {
+				if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
+					if fn, ok := pkg.TypesInfo.Defs[fd.Name].(*types.Func); ok && coroutineFuncs[fn.FullName()] {
+						decls[fn.FullName()] = fd
+					}
+				}
+			}
+		}
+	}
+	for name, fd := range decls {
+		if used[name] {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.FuncLit); ok {
+				delete(vals, lit)
+			}
+			return true
+		})
+	}
 }
 
 // SyncOnly reports whether a function (*types.Func) or literal is lowered as
@@ -615,7 +656,37 @@ func sigMatch(a, b *types.Signature) bool {
 		types.NewSignatureType(nil, nil, nil, b.Params(), b.Results(), b.Variadic()))
 }
 
-// hasTypeParam reports whether t mentions a type parameter.
+// outerTypeParams returns the type parameters of the generic function or
+// method whose body declares the local type tn, in source order (receiver
+// type parameters first). Go makes a local type distinct for each
+// instantiation of its function, so they are implicit type parameters of
+// it: its descriptor takes their arguments before its own.
+func outerTypeParams(tn *types.TypeName) []*types.TypeParam {
+	if tn.Pkg() == nil || tn.Parent() == nil || tn.Parent() == tn.Pkg().Scope() {
+		return nil
+	}
+	if v, ok := outerTPs.Load(tn); ok {
+		return v.([]*types.TypeParam)
+	}
+	var tps []*types.TypeParam
+	for s := tn.Parent(); s != nil && s != tn.Pkg().Scope(); s = s.Parent() {
+		for _, name := range s.Names() {
+			if o, ok := s.Lookup(name).(*types.TypeName); ok {
+				if p, ok := o.Type().(*types.TypeParam); ok && p.Obj() == o {
+					tps = append(tps, p)
+				}
+			}
+		}
+	}
+	sort.Slice(tps, func(i, j int) bool { return tps[i].Obj().Pos() < tps[j].Obj().Pos() })
+	outerTPs.Store(tn, tps)
+	return tps
+}
+
+var outerTPs sync.Map // *types.TypeName -> []*types.TypeParam
+
+// hasTypeParam reports whether t mentions a type parameter (or is a local
+// type of a generic function, see outerTypeParams).
 func hasTypeParam(t types.Type) bool {
 	seen := map[types.Type]bool{}
 	var walk func(t types.Type) bool
@@ -633,7 +704,7 @@ func hasTypeParam(t types.Type) bool {
 					return true
 				}
 			}
-			return false
+			return len(outerTypeParams(t.Origin().Obj())) > 0
 		case *types.Pointer:
 			return walk(t.Elem())
 		case *types.Slice:

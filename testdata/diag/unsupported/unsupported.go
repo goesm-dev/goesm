@@ -1,21 +1,11 @@
 package unsupported
 
-func seq(yield func(int) bool) {
-	for i := 0; i < 3; i++ {
-		if !yield(i) {
-			return
-		}
-	}
+import "unsafe"
+
+func Halves(x *int64) *[2]int32 {
+	return (*[2]int32)(unsafe.Pointer(x))
 }
 
-func DeferInRangeFunc() (n int) {
-	for i := range seq {
-		defer func() { n += i }()
-	}
-	return n
-}
-
-func Local[T any]() any {
-	type pair struct{ a, b T }
-	return pair{}
+func Bits(f *float64) *uint64 {
+	return (*uint64)(unsafe.Pointer(f))
 }

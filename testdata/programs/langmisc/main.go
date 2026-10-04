@@ -149,4 +149,13 @@ func main() {
 	fmt.Println(catch(func() { _ = s[i+3 : 1 : j] }))
 	fmt.Println(catch(func() { _ = make([]int, j-10) }))
 	println(-(1 << 63), uint64(1<<64-1))
+
+	// Op-assignments and identity conversions keep the right side's grouping.
+	a, b, c := 30, 10, 4
+	a -= b - c
+	a *= b + c
+	d := float64(b-c) * 2
+	var u8 uint8 = 200
+	u8 -= uint8(b) - uint8(c)
+	fmt.Println(a, d, u8, int64(b-c)*int64(a))
 }

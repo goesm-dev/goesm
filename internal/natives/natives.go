@@ -175,6 +175,17 @@ var overrides = map[string]bool{
 	"math/bits.Mul64":           true,
 	"math/bits.Div64":           true,
 	"math/bits.Rem64":           true,
+	// The 32-bit ones widen to uint64 (BigInt); math/big's words are uint32
+	// under goesm, so they are hot.
+	"math/bits.Add32": true,
+	"math/bits.Sub32": true,
+	"math/bits.Mul32": true,
+	"math/bits.Div32": true,
+	"math/bits.Rem32": true,
+	// The inner loops of multi-precision multiplication (see natives.ts).
+	"math/big.mulAddVWW_g":                     true,
+	"math/big.addMulVVWW_g":                    true,
+	"crypto/internal/fips140/bigmod.addMulVVW": true,
 
 	"slices.overlaps": true, // compares element addresses
 
