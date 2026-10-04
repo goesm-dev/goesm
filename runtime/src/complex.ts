@@ -3,8 +3,8 @@
 // new value. complex64 values hold float32-rounded parts.
 
 export class Complex {
-  readonly re: number;
-  readonly im: number;
+  declare readonly re: number;
+  declare readonly im: number;
   constructor(re: number, im: number) {
     this.re = re;
     this.im = im;

@@ -54,7 +54,7 @@ export function writeStd(fd: number, s: string): void {
 // ProgramExit unwinds the program after os.Exit where the host cannot stop
 // it (in browsers).
 export class ProgramExit {
-  code: number;
+  declare code: number;
   constructor(code: number) {
     this.code = code;
   }

@@ -161,9 +161,18 @@ func (pe *pkgEmitter) methodWrapper(T types.Type, sel *types.Selection, tp tpSco
 		recv = recv + "." + parentProp
 		cur = st.Field(idx).Type()
 	}
+	// The wrapper takes the method's parameters one by one: a rest parameter
+	// and spread would cost every call through an interface.
+	n := fn.Signature().Params().Len()
+	var ps, as []string
+	for i := 0; i < n; i++ {
+		ps = append(ps, fmt.Sprintf(", a%d: any", i))
+		as = append(as, fmt.Sprintf("a%d", i))
+	}
+	params, argList := strings.Join(ps, ""), strings.Join(as, ", ")
 	recvT := fn.Signature().Recv().Type()
 	if isIface(recvT) {
-		return fmt.Sprintf("(r: any, ...a: any[]) => $rt.icall(%s, %s, ...a)", recv, jsString(methodKey(fn)))
+		return "(r: any" + params + ") => " + icallExpr(recv, jsString(methodKey(fn)), argList, n)
 	}
 	_, wantPtr := recvT.(*types.Pointer)
 	base, havePtr := derefType(cur)
@@ -183,7 +192,10 @@ func (pe *pkgEmitter) methodWrapper(T types.Type, sel *types.Selection, tp tpSco
 		}
 	}
 	args := pe.recvTypeArgs(base, tp) + methodTargs
-	return fmt.Sprintf("(r: any, ...a: any[]) => (%s as any)(%s%s, ...a)", pe.methodFuncName(fn), args, recv)
+	if argList != "" {
+		argList = ", " + argList
+	}
+	return fmt.Sprintf("(r: any%s) => (%s as any)(%s%s%s)", params, pe.methodFuncName(fn), args, recv, argList)
 }
 
 // recvTypeArgs returns "d1, d2, " for the type arguments of a generic
@@ -252,7 +264,10 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 		f := s.Field(i)
 		prop := fieldProp(s, i)
 		ft := pe.tsType(f.Type(), tp)
-		w.ln("%s: %s;", prop, ft)
+		// declare: a type only. A class field (prop: T;) would be defined as
+		// undefined before the constructor runs, which makes V8 keep every field
+		// as a tagged value, boxing each float64 store.
+		w.ln("declare %s: %s;", prop, ft)
 		params = append(params, fmt.Sprintf("%s: %s", "$"+prop, ft))
 		assigns = append(assigns, fmt.Sprintf("this.%s = $%s;", prop, prop))
 		src, dst := "this."+prop, "o."+prop
@@ -382,7 +397,20 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 			}
 			generics = "<" + strings.Join(ns, ", ") + ">"
 		}
-		w.ln("%sfunction %s%s(...a: any[]): any { return ($natives.%s as any)(...a); }", pe.tab.mark(fd.Pos()), name, generics, goesmruntime.NativeName(fn.FullName()))
+		native := goesmruntime.NativeName(fn.FullName())
+		if generics != "" || fn.Signature().Recv() != nil {
+			// Callers also pass type dictionaries (and a receiver).
+			w.ln("%sfunction %s%s(...a: any[]): any { return ($natives.%s as any)(...a); }", pe.tab.mark(fd.Pos()), name, generics, native)
+			return
+		}
+		// A plain function forwards its parameters one by one, which V8
+		// inlines (math.Sqrt is Math.sqrt), unlike a rest parameter and spread.
+		var ps, as []string
+		for i := 0; i < fn.Signature().Params().Len(); i++ {
+			ps = append(ps, fmt.Sprintf("a%d: any", i))
+			as = append(as, fmt.Sprintf("a%d", i))
+		}
+		w.ln("%sfunction %s(%s): any { return ($natives.%s as any)(%s); }", pe.tab.mark(fd.Pos()), name, strings.Join(ps, ", "), native, strings.Join(as, ", "))
 		return
 	}
 	fe := pe.newFuncEmitter(w, sig)
