@@ -22,7 +22,7 @@ import {
   alignOf, arrayElemPtr, arrayOf, bytesToString, c64, chanCap, chanOf, close, encodeRune, equal, fieldPtr,
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
-  sliceElemPtr, sliceLit, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate,
+  sliceElemPtr, sliceLit, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt,
 } from "./index.ts";
 import type { S } from "./index.ts";
 
@@ -756,6 +756,7 @@ export function native$reflect$unsafePointer(t: Type, x: any): any {
   return x;
 }
 
+export const native$reflect$pointerAt = ptrAt;
 export function native$reflect$ptrTo(t: Type): Type { return ptrTo(t); }
 export function native$reflect$sliceOf(t: Type): Type { return sliceOf(t); }
 export function native$reflect$mapOf(k: Type, e: Type): Type { return mapOf(k, e); }
@@ -1170,6 +1171,13 @@ export function native$os$hostExecutable(): string {
   const script = gproc?.argv?.[1];
   return typeof script === "string" && /^(\/|[A-Za-z]:[\\/])/.test(script) ? fromJSString(script) : "";
 }
+
+// net/http: the receiver of a (*net.Dialer).Dial or DialContext method
+// value, which goesm marks (dialerMethods in internal/lower), or nil.
+export function native$net$http$dialerOf(dial: any): any {
+  return dial?.$dialer ?? null;
+}
+export const native$net$http$dialerOfContext = native$net$http$dialerOf;
 
 export function native$os$runtime_beforeExit(_code: number): void {}
 export function native$os$sigpipe(): void {}
