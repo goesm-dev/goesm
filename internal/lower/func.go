@@ -24,6 +24,10 @@ type funcEmitter struct {
 	used     map[string]bool
 	override map[ast.Expr]string
 	tmpN     *int
+	// inBody: emitting a function body, which declares ir, the receiver
+	// of interface calls (icall), if any, with var at its end.
+	inBody bool
+	ir     string
 
 	tp       tpScope
 	sig      *types.Signature
@@ -291,6 +295,12 @@ func (fe *funcEmitter) mutatesVar(body *ast.BlockStmt, v *types.Var) bool {
 // signature line).
 func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, body *ast.BlockStmt, sig *types.Signature) {
 	w := fe.w
+	fe.inBody, fe.ir = true, ""
+	defer func() {
+		if fe.ir != "" {
+			w.ln("var %s: any; // hoisted", fe.ir)
+		}
+	}()
 	if fe.async && fe.pe.prog.TracksGoroutines {
 		w.ln("const $g = $rt.getG();") // the goroutine to restore after each await
 	}

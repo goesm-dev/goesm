@@ -120,6 +120,9 @@ type pkgEmitter struct {
 	runsMain bool
 	// usesNatives: the module imports the runtime's natives ($natives).
 	usesNatives bool
+	// usesIR: the module declares $ir, the receiver of interface calls
+	// (funcEmitter.icall).
+	usesIR bool
 
 	inits    []string
 	initObjs []any
@@ -133,7 +136,7 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		info:       pkg.TypesInfo,
 		tab:        tab,
 		isEntry:    entry,
-		reserved:   map[string]bool{"$rt": true, "$natives": true},
+		reserved:   map[string]bool{"$rt": true, "$natives": true, "$ir": true},
 		imports:    map[*types.Package]string{},
 		localTypes: map[*types.TypeName]string{},
 		localGen:   map[*types.TypeName]int{},
@@ -426,6 +429,9 @@ func (pe *pkgEmitter) emit() *Module {
 	}
 	if pe.isEntry {
 		out.ln("export * as $runtime from %s;", jsString(relSpecifier(pkg.PkgPath, RuntimeFile)))
+	}
+	if pe.usesIR {
+		out.ln("let $ir: any;")
 	}
 	for _, sec := range []*writer{pe.classes, pe.phase1, pe.consts, pe.phase2, pe.funcs, pe.vars} {
 		out.append(sec)
