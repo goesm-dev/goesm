@@ -237,6 +237,10 @@ func replacingParser(goroot string, mem *memOverlay) func(*token.FileSet, string
 // variable's original initializer still runs. The patch of this file, if
 // any, is added to it.
 //
+// A patch function whose doc comment has the directive
+// "//goesm:original name" keeps the declaration it replaces, renamed to name,
+// so it can call it.
+//
 // A package may have several init functions, so a patch's init replaces only
 // those of the file it patches.
 func patch(fset *token.FileSet, f *ast.File, names map[string]bool, importPath, base string) (*ast.File, error) {
@@ -249,10 +253,23 @@ func patch(fset *token.FileSet, f *ast.File, names map[string]bool, importPath, 
 		}
 	}
 	patchesInit := false
+	originals := map[string]string{} // replaced declaration -> name it keeps
 	if pf != nil {
 		for _, d := range pf.Decls {
-			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Name.Name == "init" {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			if fd.Recv == nil && fd.Name.Name == "init" {
 				patchesInit = true
+			}
+			if fd.Doc == nil {
+				continue
+			}
+			for _, c := range fd.Doc.List {
+				if name, ok := strings.CutPrefix(c.Text, "//goesm:original "); ok {
+					originals[natives.DeclNames(fd)[0]] = strings.TrimSpace(name)
+				}
 			}
 		}
 	}
@@ -265,7 +282,11 @@ func patch(fset *token.FileSet, f *ast.File, names map[string]bool, importPath, 
 					d.Name = ast.NewIdent("_")
 				}
 			} else if len(ns) == 1 && names[ns[0]] {
-				d.Name = ast.NewIdent("_")
+				if name, ok := originals[ns[0]]; ok {
+					d.Name = ast.NewIdent(name)
+				} else {
+					d.Name = ast.NewIdent("_")
+				}
 			}
 		case *ast.GenDecl:
 			for _, s := range d.Specs {
