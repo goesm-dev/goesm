@@ -549,9 +549,11 @@ fixedbugs/issue7044.go
 fixedbugs/issue70481.go
 fixedbugs/issue7050.go
 fixedbugs/issue7083.go
+fixedbugs/issue71675.go
 fixedbugs/issue71759.go
 fixedbugs/issue71857.go
 fixedbugs/issue71932.go
+fixedbugs/issue72063.go
 fixedbugs/issue72844.go
 fixedbugs/issue72860.go
 fixedbugs/issue73476.go
@@ -725,6 +727,7 @@ print.go
 printbig.go
 range.go
 range3.go
+range4.go
 recover2.go
 recover3.go
 reflectmethod1.go
@@ -866,6 +869,7 @@ typeparam/map.go
 typeparam/maps.go
 typeparam/metrics.go
 typeparam/min.go
+typeparam/nested.go
 typeparam/ordered.go
 typeparam/orderedmap.go
 typeparam/pair.go
