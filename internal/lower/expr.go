@@ -1105,11 +1105,35 @@ func (fe *funcEmitter) binary(e *ast.BinaryExpr) string {
 	case token.NEQ:
 		return "!" + "(" + fe.eqExpr(fe.expr(e.X), xt, fe.expr(e.Y), yt) + ")"
 	case token.LSS, token.LEQ, token.GTR, token.GEQ:
-		return "(" + fe.expr(e.X) + " " + e.Op.String() + " " + fe.expr(e.Y) + ")"
+		return "(" + fe.cmpOperand(e.X) + " " + e.Op.String() + " " + fe.cmpOperand(e.Y) + ")"
 	case token.SHL, token.SHR:
 		return fe.mark(e) + fe.shift(e.Op, fe.expr(e.X), fe.shiftCount(e.Y), fe.info.TypeOf(e))
 	}
 	return fe.mark(e) + fe.arith(e.Op, fe.expr(e.X), fe.expr(e.Y), fe.info.TypeOf(e))
+}
+
+// cmpOperand lowers an operand of an ordered comparison. uint and uintptr
+// are numbers that do not wrap, so uint(i) of a negative i stays negative;
+// converted for a comparison (the bounds check idiom uint(i) < uint(len(s)))
+// it is moved above every int, as the wrapped value would be.
+func (fe *funcEmitter) cmpOperand(x ast.Expr) string {
+	s := fe.expr(x)
+	call, ok := unparen(x).(*ast.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		return s
+	}
+	if tv, ok := fe.info.Types[call.Fun]; !ok || !tv.IsType() {
+		return s
+	}
+	to, ok := intKind(fe.info.TypeOf(x))
+	from, ok2 := intKind(fe.info.TypeOf(call.Args[0]))
+	if !ok || !ok2 || to.signed || to.big || to.bits != 64 || !from.signed || from.big {
+		return s
+	}
+	if tv := fe.info.Types[call.Args[0]]; tv.Value != nil {
+		return s // a constant conversion is representable
+	}
+	return "$rt.ucmp(" + s + ")"
 }
 
 func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {

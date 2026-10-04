@@ -256,7 +256,7 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 * a JS calling ABI (automatic Go ⇔ JS value conversion)
 
 **Known differences from native Go** (`TestKnownGaps` asserts that the first two still differ, via `IntWrap`, `UintWrap` and `AppendCap`; the rest are not deterministic enough to pin and are documented only):
-* `int` and `uint` are inexact above 2^53 and do not wrap on 64-bit overflow (`uint(0)-1` is `-1`); `int64` and `uint64` are exact.
+* `int` and `uint` are inexact above 2^53 and do not wrap on 64-bit overflow (`uint(0)-1` is `-1`); `int64` and `uint64` are exact. An ordered comparison of a conversion `uint(i)` of a negative `i`, the bounds check idiom `uint(i) < uint(len(s))`, does compare as the wrapped value.
 * A backward `goto` over a variable declaration reuses the variable where Go makes a new one; only closures created before the jump can tell.
 * `append` capacity growth is approximated (no size-class rounding), so `cap()` can differ from gc.
 * Map range order is insertion order (Go randomises it; both are unspecified).
