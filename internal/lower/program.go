@@ -78,6 +78,8 @@ type Program struct {
 	// values; waitLockVals those bound to a waiting variant.
 	lockVals     []lockVal
 	waitLockVals map[*ast.SelectorExpr]*types.Func
+	// goexits are the functions that may call runtime.Goexit.
+	goexits map[any]bool
 
 	Diags []Diagnostic
 	// Warns are standard library functions that were replaced by stubs
@@ -206,6 +208,7 @@ type unit struct {
 	dynSigs    []*types.Signature
 	ifaceCalls []ifaceCall
 	lockCalls  []*ast.CallExpr // sync Lock and RLock calls (lockcheck.go)
+	goexit     bool            // calls runtime.Goexit
 }
 
 func (p *Program) analyzeBlocking() {
@@ -423,6 +426,9 @@ func (p *Program) scanUnit(pkg *packages.Package, key any, sig *types.Signature,
 			// A `go` call's callee runs on its own goroutine; its arguments
 			// are still evaluated here and are visited as children.
 			p.classifyCall(info, n, u, inGo[n])
+			if fn, ok := info.Uses[identOf(unparen(n.Fun))].(*types.Func); ok && isGoexit(fn) && !inGo[n] {
+				u.goexit = true
+			}
 			if mc, ok := mutexMethod(info, n); ok && mc.slow != nil && !isSyncPkg(pkg) {
 				p.lockCalls = append(p.lockCalls, mc)
 				if !inGo[n] {

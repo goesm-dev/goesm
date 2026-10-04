@@ -15,6 +15,7 @@ import (
 // goesm-built ES module under Node and Bun, and compares standard output,
 // standard error and the exit status. For a crash (a panic nothing recovered,
 // a deadlock) only the message is compared: goroutine traces differ.
+// A program directory with a node-only file runs under Node only.
 func TestPrograms(t *testing.T) {
 	requireNode(t)
 	runtimes := []string{"node"}
@@ -40,6 +41,11 @@ func TestPrograms(t *testing.T) {
 			want := runProgram(t, bin)
 			bundle := buildPkg(t, dir, "./"+name)
 			for _, rt := range runtimes {
+				// A program with a node-only file says why it cannot run
+				// under the other runtimes.
+				if _, err := os.Stat(filepath.Join(dir, name, "node-only")); err == nil && rt != "node" {
+					continue
+				}
 				got := runProgram(t, rt, bundle)
 				if got.stdout != want.stdout {
 					t.Errorf("%s: stdout differs:\n--- goesm\n%s--- native Go\n%s", rt, got.stdout, want.stdout)

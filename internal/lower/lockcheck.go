@@ -264,7 +264,7 @@ func (p *Program) heldSections() []mutexCall {
 							break
 						}
 					}
-					if !unlocked || bypasses(info, list[i+1:end], mc.expr, false, false) {
+					if !unlocked || p.bypasses(info, list[i+1:end], mc.expr, false, false) {
 						out = append(out, mc) // still locked on return
 						continue
 					}
@@ -283,10 +283,11 @@ func (p *Program) heldSections() []mutexCall {
 }
 
 // bypasses reports whether a path through list leaves it (return, panic,
-// runtime.Goexit, or a break, continue or goto out of it) before an Unlock
-// of expr: the function may then return with the mutex locked. inLoop and
+// runtime.Goexit or a call of a function that may call it, or a break,
+// continue or goto out of it) before an Unlock of expr: the function may
+// then return with the mutex locked. inLoop and
 // inBreakable tell whether an unlabeled continue or break stays inside list.
-func bypasses(info *types.Info, list []ast.Stmt, expr string, inLoop, inBreakable bool) bool {
+func (p *Program) bypasses(info *types.Info, list []ast.Stmt, expr string, inLoop, inBreakable bool) bool {
 	for _, s := range list {
 		if u, ok := lockStmt(info, s); ok && isUnlock(u.method) && u.expr == expr {
 			return false // the rest of this path is unlocked (or unlocks on return)
@@ -294,16 +295,16 @@ func bypasses(info *types.Info, list []ast.Stmt, expr string, inLoop, inBreakabl
 		switch s := s.(type) {
 		case *ast.ReturnStmt:
 			return true
-		case *ast.ExprStmt:
-			if c, ok := unparen(s.X).(*ast.CallExpr); ok {
-				if b, ok := info.Uses[identOf(unparen(c.Fun))].(*types.Builtin); ok && b.Name() == "panic" {
-					return true
-				}
-				if sel, ok := unparen(c.Fun).(*ast.SelectorExpr); ok {
-					if fn, ok := info.Uses[sel.Sel].(*types.Func); ok && fn.Pkg() != nil && fn.Pkg().Path() == "runtime" && fn.Name() == "Goexit" {
+		case *ast.ExprStmt, *ast.AssignStmt, *ast.DeclStmt:
+			if c, ok := s.(*ast.ExprStmt); ok {
+				if c, ok := unparen(c.X).(*ast.CallExpr); ok {
+					if b, ok := info.Uses[identOf(unparen(c.Fun))].(*types.Builtin); ok && b.Name() == "panic" {
 						return true
 					}
 				}
+			}
+			if p.callsGoexit(info, s) {
+				return true
 			}
 		case *ast.BranchStmt:
 			switch {
@@ -314,24 +315,27 @@ func bypasses(info *types.Info, list []ast.Stmt, expr string, inLoop, inBreakabl
 				return true
 			}
 		case *ast.LabeledStmt:
-			if bypasses(info, []ast.Stmt{s.Stmt}, expr, inLoop, inBreakable) {
+			if p.bypasses(info, []ast.Stmt{s.Stmt}, expr, inLoop, inBreakable) {
 				return true
 			}
 		case *ast.BlockStmt:
-			if bypasses(info, s.List, expr, inLoop, inBreakable) {
+			if p.bypasses(info, s.List, expr, inLoop, inBreakable) {
 				return true
 			}
 		case *ast.IfStmt:
-			if bypasses(info, s.Body.List, expr, inLoop, inBreakable) ||
-				(s.Else != nil && bypasses(info, []ast.Stmt{s.Else}, expr, inLoop, inBreakable)) {
+			if (s.Init != nil && p.callsGoexit(info, s.Init)) || p.callsGoexit(info, s.Cond) {
+				return true
+			}
+			if p.bypasses(info, s.Body.List, expr, inLoop, inBreakable) ||
+				(s.Else != nil && p.bypasses(info, []ast.Stmt{s.Else}, expr, inLoop, inBreakable)) {
 				return true
 			}
 		case *ast.ForStmt:
-			if bypasses(info, s.Body.List, expr, true, true) {
+			if p.bypasses(info, s.Body.List, expr, true, true) {
 				return true
 			}
 		case *ast.RangeStmt:
-			if bypasses(info, s.Body.List, expr, true, true) {
+			if p.bypasses(info, s.Body.List, expr, true, true) {
 				return true
 			}
 		case *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
@@ -352,13 +356,61 @@ func bypasses(info *types.Info, list []ast.Stmt, expr string, inLoop, inBreakabl
 				case *ast.CommClause:
 					stmts = c.Body
 				}
-				if bypasses(info, stmts, expr, inLoop, true) {
+				if p.bypasses(info, stmts, expr, inLoop, true) {
 					return true
 				}
 			}
 		}
 	}
 	return false
+}
+
+// callsGoexit reports whether n calls runtime.Goexit, or a function that
+// may call it (see goexits), outside function literals and go statements.
+func (p *Program) callsGoexit(info *types.Info, n ast.Node) bool {
+	if p.goexits == nil {
+		p.goexits = p.findGoexits()
+	}
+	found := false
+	ast.Inspect(n, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit, *ast.GoStmt:
+			return false
+		case *ast.CallExpr:
+			if fn, ok := info.Uses[identOf(unparen(n.Fun))].(*types.Func); ok && (isGoexit(fn) || p.goexits[fn.Origin()]) {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+func isGoexit(fn *types.Func) bool {
+	return fn.Pkg() != nil && fn.Pkg().Path() == "runtime" && fn.Name() == "Goexit"
+}
+
+// findGoexits returns the functions and literals that may call
+// runtime.Goexit directly or through the functions they call statically.
+func (p *Program) findGoexits() map[any]bool {
+	exits := map[any]bool{}
+	for changed := true; changed; {
+		changed = false
+		for _, u := range p.units {
+			if exits[u.key] {
+				continue
+			}
+			calls := u.goexit
+			for _, c := range u.callees {
+				calls = calls || exits[c]
+			}
+			if calls {
+				exits[u.key] = true
+				changed = true
+			}
+		}
+	}
+	return exits
 }
 
 // escapingMutexes returns the direct mutexes whose address escapes (see the
