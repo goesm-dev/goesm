@@ -490,7 +490,7 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 		return m + set + strIndex(x, i) + closeIf(set)
 	case *types.Slice:
 		x, set, i := fe.indexTemp(fe.expr(e.X), fe.intNumber(e.Index))
-		return m + set + sliceIndex(x, i) + closeIf(set)
+		return fe.byteBoolLoad(e.X, m+set+sliceIndex(x, i)+closeIf(set))
 	case *types.Map:
 		return fmt.Sprintf("%s$rt.mapGet(%s, %s, %s)", m, fe.expr(e.X), fe.valueOf(e.Index, u.Key()), fe.zeroFn(u.Elem()))
 	case *types.Array:
@@ -1315,6 +1315,17 @@ func sliceIndex(s, i string) string {
 	return fmt.Sprintf("(%s ? (%[2]s as any).$array[(%[2]s as any).$offset + %[3]s] : $rt.index(%[2]s, %[3]s))", inBounds(ss, is), ss, is)
 }
 
+// byteBoolLoad converts load, an element of slice x, to a boolean where a
+// Uint8Array backs x (see byteBools).
+func (fe *funcEmitter) byteBoolLoad(x ast.Expr, load string) string {
+	if id, ok := ast.Unparen(x).(*ast.Ident); ok {
+		if v, ok := fe.info.ObjectOf(id).(*types.Var); ok && fe.pe.byteBools[v] {
+			return "$rt.byteBool(" + load + ")"
+		}
+	}
+	return load
+}
+
 // reuse2 makes the operands a and b of an inline binary operation
 // reusable: an operand that cannot be evaluated again is assigned to a
 // variable of the function, by the prefixes pa and pb ("t = x, "), which
@@ -1757,7 +1768,11 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			if len(e.Args) > 2 {
 				c = fe.intNumber(e.Args[2])
 			}
-			return fmt.Sprintf("%s$rt.makeSlice(%s, %s, %s)", m, l, c, fe.zeroFn(u.Elem()))
+			zero := fe.zeroFn(u.Elem())
+			if fe.pe.byteBoolMakes[e] {
+				zero = "($rt.zeroByte as any)" // see byteBools
+			}
+			return fmt.Sprintf("%s$rt.makeSlice(%s, %s, %s)", m, l, c, zero)
 		case *types.Map:
 			if len(e.Args) > 1 { // the size hint is evaluated, then unused
 				return fmt.Sprintf("%s$rt.makeMap(%s, %s)", m, fe.desc(u.Key()), arg(1))
