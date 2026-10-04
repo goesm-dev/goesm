@@ -65,7 +65,7 @@ PoC は Go 言語の大部分と、標準ライブラリのかなりの部分を
 
 - `int` と `uint` は JS の number です。2^53 未満では正確ですが、64 ビットのオーバーフローで折り返しません。`int64` と `uint64` は正確です（BigInt）。
 - JS 呼び出し ABI はまだありません。Go の文字列とスライスはランタイムのオブジェクトなので、各モジュールが再 export しているランタイム（`rt.fromJSString`、`rt.sliceLit`、`rt.toArray` など）で手作業で変換します。ブロックしうる関数は Promise を返します。
-- 1 ワードあたり 53 ビットを超える値を扱う `math/big`（とその上に作られた `crypto/rsa`、`crypto/x509`）、`iter.Pull`、range-over-func の本体の中の `defer` や `goto`、goroutine ごとの `recover` の状態、ホストに保留中の処理があるときのデッドロック検出、DOM バインディング。
+- goroutine ごとの `recover` の状態、ホストに保留中の処理があるときのデッドロック検出、DOM バインディング。
 
 ## インストール
 
