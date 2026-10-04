@@ -60,6 +60,12 @@ export function bytesToString(b: S<number>): string {
     for (let i = 0; i < n; i++) s += String.fromCharCode(a[o + i]);
     return s;
   }
+  if (a instanceof Uint8Array && n >= 64) {
+    // The engine's windows-1252 decoder is latin1 except for 0x80-0x9f,
+    // which it maps above U+00FF.
+    const r = latin1.decode(a.subarray(o, o + n));
+    if (!aboveLatin1.test(r)) return r;
+  }
   // String.fromCharCode over chunks: one flat string instead of a rope of
   // one-character concatenations. The chunks stay below engines' argument
   // count limits. Engines spread an Array's elements as arguments faster
@@ -79,9 +85,18 @@ export function bytesToString(b: S<number>): string {
   return s;
 }
 
+const latin1 = new TextDecoder("latin1");
+const aboveLatin1 = /[\u0100-\uffff]/;
+const utf8 = new TextEncoder();
+const fitsASCII = (r: TextEncoderEncodeIntoResult, n: number) => r.read === n && r.written === n;
+
 export function stringToBytes(s: string): Slice<number> {
   const a = newBytes(s.length);
-  for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
+  // The engine's UTF-8 encoder writes ASCII as is; other code units take two
+  // bytes, so a string with them does not fit.
+  if (s.length < 64 || !fitsASCII(utf8.encodeInto(s, a), s.length)) {
+    for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
+  }
   return new Slice(a as any, 0, a.length, a.length);
 }
 

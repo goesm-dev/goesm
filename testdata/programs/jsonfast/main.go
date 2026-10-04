@@ -54,6 +54,11 @@ type Dup struct {
 
 type Named string
 
+type Digits struct {
+	A int `json:"1"`
+	B int `json:"b"`
+}
+
 type WithStr struct {
 	N int `json:"n,string"`
 }
@@ -85,7 +90,14 @@ func main() {
 	show("zero", Plain{})
 	show("emptyslices", Plain{Tags: []string{}, Empty: []int{}, Map: map[string]int{}, Bytes: []byte{}, Nested: map[string][]bool{}})
 	show("ptr", &Plain{Ptr: &Inner{B: "x"}, Any: []any{1, "s", nil, 2.5, true, map[string]any{"k": nil}}})
-	show("ctl", "a\x00b\x1fc\x7f")
+	show("ctl", "a\x00b\x1fc\x7f\b\f")
+	show("numkeys", map[string]int{"10": 1, "2": 2, "a": 3, "__proto__": 4})
+	show("numkeys2", map[string]any{"b": map[string]int{"z": 1, "é<": 2}, "a": "\u2028x&"})
+	show("numtag", Digits{1, 2})
+	show("bigints", []any{int64(1) << 60, uint64(1) << 63, int64(-(1 << 53) - 1), 1 << 53})
+	show("smallints", []any{int64(-5), uint64(7), int8(-1), uint32(4000000000), 0.5, -1.25e-10})
+	show("negzero", map[string]float64{"z": math.Copysign(0, -1)})
+	show("unicode", []string{"日本語", "é", "😀", "\u2029"})
 	show("badutf8", "a\xffb\xc3")
 	show("floats", []float64{0, 1, -1, 0.1, 1e20, 1e21, 1e-6, 1e-7, 123456789, 1.5e300, 5e-324, math.MaxFloat64})
 	show("float32s", []float32{0.1, 1e20, 1e21, 1e-7, 3.4e38, 16777216})

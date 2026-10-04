@@ -10,7 +10,8 @@
 // a precision for floats) by concatenating strings, which the engine does
 // without copying, instead of through a pp and its []byte. Anything else,
 // down to a missing or extra argument, takes Go's own code, whose output
-// fastSprintf would have to reproduce.
+// fastSprintf would have to reproduce. Before fastSprintf, jsSprintf tries
+// the most common of these cases with the format parsed once.
 package fmt
 
 import (
@@ -20,6 +21,9 @@ import (
 
 // Sprintf formats according to a format specifier and returns the resulting string.
 func Sprintf(format string, a ...any) string {
+	if s, ok := jsSprintf(format, a); ok {
+		return s
+	}
 	if s, ok := fastSprintf(format, a); ok {
 		return s
 	}
@@ -215,6 +219,11 @@ func fastFloat(v float64, size int, verb byte, prec int) string {
 	}
 	return strconv.FormatFloat(v, verb, prec, size) // "+Inf" too, as fmt prints it
 }
+
+// jsSprintf is Sprintf(format, a...) for the verbs %v %d %s %t %x %X %f
+// %F of strings, booleans, integers and float64s, with a format parsed
+// once (runtime/src/fmt.ts); ok is false for anything else.
+func jsSprintf(format string, a []any) (s string, ok bool)
 
 // indexPercent is the index of the first % in s from index from on, or -1.
 func indexPercent(s string, from int) int

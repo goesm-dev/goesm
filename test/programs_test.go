@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/goesm-dev/goesm/internal/build"
 )
 
 // TestPrograms runs every command under testdata/programs natively and as a
@@ -40,6 +42,15 @@ func TestPrograms(t *testing.T) {
 			}
 			want := runProgram(t, bin)
 			bundle := buildPkg(t, dir, "./"+name)
+			// A program with a split file also runs as one module per
+			// package, where the runtime and its natives are separate
+			// modules too.
+			if _, err := os.Stat(filepath.Join(dir, name, "split")); err == nil {
+				got := runProgram(t, "node", buildSplit(t, dir, name))
+				if got != want {
+					t.Errorf("split build: got %+v, native Go %+v", got, want)
+				}
+			}
 			for _, rt := range runtimes {
 				// A program with a node-only file says why it cannot run
 				// under the other runtimes.
@@ -59,6 +70,23 @@ func TestPrograms(t *testing.T) {
 			}
 		})
 	}
+}
+
+// buildSplit builds program name with -split and returns its module.
+func buildSplit(t *testing.T, dir, name string) string {
+	t.Helper()
+	out := t.TempDir()
+	res, err := build.Build(build.Options{Dir: dir, Patterns: []string{"./" + name}, OutDir: out, Split: true})
+	if err != nil {
+		t.Fatalf("goesm build -split %s: %v", name, err)
+	}
+	for _, o := range res.Outputs {
+		if strings.HasSuffix(o, string(filepath.Separator)+name+".js") {
+			return o
+		}
+	}
+	t.Fatalf("no JS module for %s in %v", name, res.Outputs)
+	return ""
 }
 
 type programResult struct {
