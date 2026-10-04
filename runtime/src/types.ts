@@ -60,6 +60,9 @@ export class Type {
   variadic = false;
   // Method set of this type (for named T: value receiver methods; for *T: all).
   methods = new Map<string, MethodImpl>();
+  // The same methods' functions by key, for calls through interfaces: a
+  // property access is cached at each call site (see icall in the lowering).
+  mt: Record<string, (recv: any, ...args: any[]) => any> = {};
   // Constructs the zero value.
   zero: () => any = () => null;
   // JS class for struct types (named or not).
@@ -314,6 +317,7 @@ export function addMethods(t: Type, methods: Record<string, [(recv: any, ...args
   for (const k of Object.keys(methods)) {
     const [fn, type] = methods[k];
     t.methods.set(k, { fn, type });
+    t.mt[k] = fn;
   }
 }
 

@@ -124,7 +124,7 @@ On V8 (Chrome, Node, Deno) BigInt is the fastest exact representation in three o
 
 ### Type metadata
 
-Every named type has a runtime descriptor (`$rt.named(pkgPath, name)`) with its underlying type, fields (name, pkgPath, tag, embedded) and value / pointer method sets (method names and signature descriptors). Composite types (`[]T`, `map[K]V`, `func(...)`, `struct{...}`, `interface{...}`) are memoized by structure, so **descriptor identity is Go type identity**. Interface checks use these method tables and never rely on TypeScript structural typing. Unexported methods are qualified with their pkgPath.
+Every named type has a runtime descriptor (`$rt.named(pkgPath, name)`) with its underlying type, fields (name, pkgPath, tag, embedded) and value / pointer method sets (method names and signature descriptors). Composite types (`[]T`, `map[K]V`, `func(...)`, `struct{...}`, `interface{...}`) are memoized by structure, so **descriptor identity is Go type identity**. Interface checks use these method tables and never rely on TypeScript structural typing. Unexported methods are qualified with their pkgPath. A call through an interface reads the method straight off the dynamic type's table (`x.t.mt["M"](x.v, ...)`), so each call site has its own inline cache for the few types flowing through it.
 
 ### Generics: type erasure + runtime type dictionaries
 
