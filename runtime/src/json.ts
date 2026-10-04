@@ -2,21 +2,19 @@
 // encoding/json patch): values of booleans, numbers, strings, structs
 // with plain json tags, slices, arrays, maps with string keys, pointers and
 // interfaces, none of whose types has methods (so no Marshaler,
-// TextMarshaler and the like is involved), are encoded and decoded here in
-// one pass over the value or the JSON text. Anything else (methods,
+// TextMarshaler and the like is involved), are encoded and decoded here:
+// encoded by JSON.stringify of their JS form (or by enc where that would
+// differ from Go), decoded in one pass over the JSON text. Anything else (methods,
 // embedded fields, other tag options, float32, invalid UTF-8, unusual
 // escapes, errors of any kind, decoding into non-nil maps, slices,
 // pointers or interfaces, which Go merges into) makes these return without
 // result and without having changed anything, and Go's own code (json v2
 // with v1 options) does the work and produces its exact output or error.
 
-import { Iface } from "./iface.ts";
-import { GoMap, mapRange, mapSet, makeMap } from "./map.ts";
-import { sliceLit } from "./slice.ts";
-import { bytesToString, stringToBytes } from "./string.ts";
-import { Kind, Type, mapOf, ptrTo, sliceOf, types } from "./types.ts";
-import { Cell } from "./ptr.ts";
-import type { S } from "./slice.ts";
+// Like natives.ts, which imports it, this uses the runtime only through its
+// public module, so that split builds share one runtime.
+import { Cell, GoMap, Iface, Kind, Slice, Type, bytesToString, makeMap, mapOf, ptrTo, sliceLit, sliceOf, stringToBytes, types } from "./index.ts";
+import type { S } from "./index.ts";
 
 // Abort is thrown to give up on the fast path.
 const Abort = { abort: true };
@@ -27,6 +25,10 @@ function abort(): never {
 
 interface FieldInfo {
   name: string; // the JSON name
+  indexLike: boolean; // a name JS objects order first
+  jsName: string; // the name as a JS string
+  key: string; // the encoded name and colon
+  bit: number; // 1 << index, 0 past 30 fields
   prop: string;
   type: Type;
   omitEmpty: boolean;
@@ -42,6 +44,42 @@ function plain(t: Type): boolean {
     p = t.methods.size === 0 && (t.kind === Kind.Interface || t.kind === Kind.Pointer || ptrTo(t).methods.size === 0);
     plainCache.set(t, p);
   }
+  return p;
+}
+
+const deepCache = new Map<Type, boolean>();
+
+// deepPlain reports whether values of type t can take the fast path: t
+// and the types it contains are plain, of supported kinds and, for
+// structs, with supported fields. Interfaces' dynamic types are checked
+// as they are met.
+function deepPlain(t: Type): boolean {
+  let p = deepCache.get(t);
+  if (p !== undefined) return p;
+  deepCache.set(t, true); // while recursive types are checked
+  p = !t.named || plain(t);
+  if (p) {
+    switch (t.kind) {
+      case Kind.Bool: case Kind.String: case Kind.Float64: case Kind.Interface:
+      case Kind.Int: case Kind.Int8: case Kind.Int16: case Kind.Int32: case Kind.Int64:
+      case Kind.Uint: case Kind.Uint8: case Kind.Uint16: case Kind.Uint32: case Kind.Uint64: case Kind.Uintptr:
+        break;
+      case Kind.Struct: {
+        const fs = structFields(t);
+        p = fs !== null && fs.every((f) => deepPlain(f.type));
+        break;
+      }
+      case Kind.Map:
+        p = t.key!.kind === Kind.String && deepPlain(t.key!) && deepPlain(t.elem!);
+        break;
+      case Kind.Slice: case Kind.Array: case Kind.Pointer:
+        p = deepPlain(t.elem!);
+        break;
+      default:
+        p = false;
+    }
+  }
+  deepCache.set(t, p);
   return p;
 }
 
@@ -76,7 +114,7 @@ function structFields(t: Type): FieldInfo[] | null {
     }
     if (seen.has(name.toLowerCase())) { fs = null; break; } // conflicts and case-insensitive matches
     seen.add(name.toLowerCase());
-    fs.push({ name, prop: f.prop, type: f.type, omitEmpty });
+    fs.push({ name, indexLike: indexLike.test(name), jsName: jsString(name), key: '"' + name + '":', bit: fs.length < 30 ? 1 << fs.length : 0, prop: f.prop, type: f.type, omitEmpty });
   }
   fieldCache.set(t, fs);
   return fs;
@@ -141,12 +179,6 @@ function utf8Len(s: string, i: number): number {
   return 0;
 }
 
-function encFloat(v: number): string {
-  if (!Number.isFinite(v)) abort(); // an UnsupportedValueError
-  if (v === 0) return Object.is(v, -0) ? "-0" : "0";
-  return String(v); // ES6 number formatting, which jsonwire.AppendFloat reproduces
-}
-
 function isEmpty(t: Type, v: any): boolean {
   switch (t.kind) {
     case Kind.Bool: return v === false;
@@ -161,8 +193,121 @@ function isEmpty(t: Type, v: any): boolean {
   return v === 0;
 }
 
+// NoJS is thrown when JSON.stringify of the JS form of a value would not
+// encode it as Go does (-0, integers past 2^53, object keys that JS orders
+// as indices); enc then encodes it.
+const NoJS = { nojs: true };
+const indexLike = /^(?:\d+|__proto__)$/;
+const utf8Dec = new TextDecoder();
+const utf8Enc = new TextEncoder();
+
+// toJS returns the JS value whose JSON.stringify is the encoding of v,
+// before HTML escaping.
+function toJS(t: Type, v: any, depth: number): any {
+  switch (t.kind) {
+    case Kind.Bool:
+    case Kind.Int8: case Kind.Int16: case Kind.Int32:
+    case Kind.Uint8: case Kind.Uint16: case Kind.Uint32:
+      return v;
+    case Kind.Int: case Kind.Uint: case Kind.Uintptr:
+      if (!Number.isSafeInteger(v)) throw NoJS;
+      return v;
+    case Kind.Int64: case Kind.Uint64: {
+      const n = Number(v);
+      if (!Number.isSafeInteger(n)) throw NoJS;
+      return n;
+    }
+    case Kind.Float64:
+      if (!Number.isFinite(v)) abort(); // an UnsupportedValueError
+      if (v === 0 && 1 / v < 0) throw NoJS;
+      return v;
+    case Kind.String:
+      return jsString(v);
+    case Kind.Pointer:
+      if (v === null) return null;
+      if (depth > 100) abort(); // possibly a cycle
+      return toJS(t.elem!, t.elem!.kind === Kind.Struct || t.elem!.kind === Kind.Array ? v : v.v, depth + 1);
+    case Kind.Interface:
+      if (v === null) return null;
+      if (depth > 100 || !deepPlain(v.t)) abort();
+      return toJS(v.t, v.v, depth + 1);
+    case Kind.Struct: {
+      const fs = structFields(t)!, o: any = { ...template(t, fs) };
+      for (let i = 0; i < fs.length; i++) {
+        const f = fs[i], x = v[f.prop];
+        if (f.omitEmpty && isEmpty(f.type, x)) continue;
+        if (f.indexLike) throw NoJS;
+        o[f.jsName] = toJS(f.type, x, depth);
+      }
+      return o;
+    }
+    case Kind.Slice: {
+      if (v === null) return null;
+      const e = t.elem!;
+      if (e.kind === Kind.Uint8) return btoa(bytesToString(v));
+      if (depth > 100) abort();
+      const a = [], arr = v.$array, o = v.$offset;
+      for (let i = 0; i < v.$length; i++) a.push(toJS(e, arr[o + i], depth + 1));
+      return a;
+    }
+    case Kind.Array: {
+      const e = t.elem!;
+      if (e.kind === Kind.Uint8) abort();
+      const a = [];
+      for (let i = 0; i < v.length; i++) a.push(toJS(e, v[i], depth));
+      return a;
+    }
+    case Kind.Map: {
+      if (v === null) return null;
+      if (depth > 100) abort();
+      const m = v as GoMap<string, any>, o: any = {};
+      const ks: string[] = Array.from(m.entries.keys()); // direct: string keys
+      if (ks.length > 1) ks.sort(); // in Go's order, which JS keeps for keys that are not indices
+      for (let i = 0; i < ks.length; i++) {
+        const k = ks[i];
+        if (indexLike.test(k)) throw NoJS;
+        o[jsString(k)] = toJS(t.elem!, m.entries.get(k), depth + 1);
+      }
+      return o;
+    }
+  }
+  return abort();
+}
+
+const templates = new Map<Type, object>();
+
+// template returns an object with the JSON fields of struct type t in
+// order, if none is omitempty: copies of it share a hidden class and are
+// filled in without adding properties.
+function template(t: Type, fs: FieldInfo[]): object {
+  let o = templates.get(t);
+  if (o === undefined) {
+    const p: any = {};
+    if (!fs.some((f) => f.omitEmpty)) for (const f of fs) p[f.jsName] = null;
+    templates.set(t, (o = p));
+  }
+  return o!;
+}
+
+// jsString converts a Go string to the JS string of its characters.
+function jsString(s: string): string {
+  if (!nonASCII.test(s)) return s;
+  for (let i = 0; i < s.length; ) {
+    if (s.charCodeAt(i) < 0x80) i++;
+    else {
+      const n = utf8Len(s, i);
+      if (n === 0) abort(); // Go writes U+FFFD
+      i += n;
+    }
+  }
+  return utf8Dec.decode(stringToBytes(s).$array as unknown as Uint8Array);
+}
+
+const htmlChars = /[<>&\u2028\u2029]/;
+const htmlCharsAll = /[<>&\u2028\u2029]/g;
+const htmlEscape = (c: string) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0");
+
 function enc(t: Type, v: any, depth: number): string {
-  if (t.named && !plain(t)) abort();
   switch (t.kind) {
     case Kind.Bool:
       return v ? "true" : "false";
@@ -170,25 +315,26 @@ function enc(t: Type, v: any, depth: number): string {
     case Kind.Uint: case Kind.Uint8: case Kind.Uint16: case Kind.Uint32: case Kind.Uint64: case Kind.Uintptr:
       return typeof v === "number" && !Number.isSafeInteger(v) ? BigInt(v).toString() : String(v);
     case Kind.Float64:
-      return encFloat(v);
+      if (!Number.isFinite(v)) abort();
+      if (v === 0) return Object.is(v, -0) ? "-0" : "0";
+      return String(v); // ES6 number formatting, which jsonwire.AppendFloat reproduces
     case Kind.String:
       return quote(v);
     case Kind.Pointer:
       if (v === null) return "null";
-      if (depth > 100) abort(); // possibly a cycle
+      if (depth > 100) abort();
       return enc(t.elem!, t.elem!.kind === Kind.Struct || t.elem!.kind === Kind.Array ? v : v.v, depth + 1);
     case Kind.Interface:
       if (v === null) return "null";
-      if (depth > 100) abort();
+      if (depth > 100 || !deepPlain(v.t)) abort();
       return enc(v.t, v.v, depth + 1);
     case Kind.Struct: {
-      const fs = structFields(t);
-      if (fs === null) abort();
+      const fs = structFields(t)!;
       let r = "{", sep = "";
-      for (const f of fs) {
-        const x = v[f.prop];
+      for (let i = 0; i < fs.length; i++) {
+        const f = fs[i], x = v[f.prop];
         if (f.omitEmpty && isEmpty(f.type, x)) continue;
-        r += sep + '"' + f.name + '":' + enc(f.type, x, depth + 1);
+        r += sep + f.key + enc(f.type, x, depth);
         sep = ",";
       }
       return r + "}";
@@ -196,10 +342,7 @@ function enc(t: Type, v: any, depth: number): string {
     case Kind.Slice: {
       if (v === null) return "null";
       const e = t.elem!;
-      if (e.kind === Kind.Uint8) {
-        if (e.named) abort();
-        return '"' + btoa(bytesToString(v)) + '"';
-      }
+      if (e.kind === Kind.Uint8) return '"' + btoa(bytesToString(v)) + '"';
       if (depth > 100) abort();
       let r = "[";
       for (let i = 0; i < v.$length; i++) r += (i > 0 ? "," : "") + enc(e, v.$array[v.$offset + i], depth + 1);
@@ -209,20 +352,17 @@ function enc(t: Type, v: any, depth: number): string {
       const e = t.elem!;
       if (e.kind === Kind.Uint8) abort();
       let r = "[";
-      for (let i = 0; i < v.length; i++) r += (i > 0 ? "," : "") + enc(e, v[i], depth + 1);
+      for (let i = 0; i < v.length; i++) r += (i > 0 ? "," : "") + enc(e, v[i], depth);
       return r + "]";
     }
     case Kind.Map: {
       if (v === null) return "null";
-      if (t.key!.kind !== Kind.String || !plain(t.key!) || depth > 100) abort();
-      const ks: string[] = [], vs = new Map<string, any>();
-      for (const [k, x] of mapRange(v as GoMap<string, any>)) {
-        ks.push(k);
-        vs.set(k, x);
-      }
-      ks.sort();
+      if (depth > 100) abort();
+      const m = v as GoMap<string, any>;
+      const ks: string[] = Array.from(m.entries.keys()); // direct: string keys
+      if (ks.length > 1) ks.sort();
       let r = "{";
-      for (let i = 0; i < ks.length; i++) r += (i > 0 ? "," : "") + quote(ks[i]) + ":" + enc(t.elem!, vs.get(ks[i]), depth + 1);
+      for (let i = 0; i < ks.length; i++) r += (i > 0 ? "," : "") + quote(ks[i]) + ":" + enc(t.elem!, m.entries.get(ks[i]), depth + 1);
       return r + "}";
     }
   }
@@ -232,8 +372,19 @@ function enc(t: Type, v: any, depth: number): string {
 // jsonMarshal is json.Marshal(x), or null for Go's code to do it.
 export function jsonMarshal(x: Iface | null): S<number> {
   if (x === null) return stringToBytes("null");
+  if (!deepPlain(x.t)) return null;
   try {
-    return stringToBytes(enc(x.t, x.v, 0));
+    let js: any;
+    try {
+      js = toJS(x.t, x.v, 0);
+    } catch (e) {
+      if (e !== NoJS) throw e;
+      return stringToBytes(enc(x.t, x.v, 0));
+    }
+    let out = JSON.stringify(js);
+    if (htmlChars.test(out)) out = out.replace(htmlCharsAll, htmlEscape);
+    const b = utf8Enc.encode(out);
+    return new Slice(b as any, 0, b.length, b.length);
   } catch (e) {
     if (e === Abort) return null;
     throw e;
@@ -249,7 +400,13 @@ class Decoder {
     this.s = s;
   }
 
+  // ws skips white space and returns the next character.
   ws(): number {
+    const c = this.s.charCodeAt(this.i);
+    return c > 0x20 ? c : this.skipWS();
+  }
+
+  skipWS(): number {
     const s = this.s;
     let i = this.i, c = s.charCodeAt(i);
     while (c === 0x20 || c === 0x0a || c === 0x0d || c === 0x09) c = s.charCodeAt(++i);
@@ -395,115 +552,22 @@ class Decoder {
     this.num();
   }
 
-  // value decodes a JSON value of type t merged into the current value cur
-  // and returns the result (cur itself, changed in place, for a struct).
-  value(t: Type, cur: any, depth: number): any {
-    if (depth > 100 || (t.named && !plain(t))) abort();
-    const c = this.ws();
-    if (c === 0x6e && this.literal("null")) {
-      switch (t.kind) {
-        case Kind.Pointer: case Kind.Interface: case Kind.Slice: case Kind.Map: return null;
-      }
-      return cur; // null leaves other values as they are
-    }
-    switch (t.kind) {
-      case Kind.Bool:
-        if (this.literal("true")) return true;
-        if (this.literal("false")) return false;
-        return abort();
-      case Kind.String:
-        return this.str();
-      case Kind.Float64: {
-        if (c === 0x22) abort();
-        const f = Number(this.num());
-        if (!Number.isFinite(f)) abort();
-        return f;
-      }
-      case Kind.Int: case Kind.Int8: case Kind.Int16: case Kind.Int32: case Kind.Int64:
-      case Kind.Uint: case Kind.Uint8: case Kind.Uint16: case Kind.Uint32: case Kind.Uint64: case Kind.Uintptr:
-        return this.int(t);
-      case Kind.Struct: {
-        const fs = structFields(t);
-        if (fs === null || c !== 0x7b) abort();
-        this.i++;
-        if (this.ws() === 0x7d) { this.i++; return cur; }
-        const done = new Set<FieldInfo>();
-        for (;;) {
-          const k = this.str();
-          this.expect(0x3a);
-          let f: FieldInfo | undefined;
-          for (const g of fs) if (g.name === k) { f = g; break; }
-          if (f === undefined) {
-            const lk = k.toLowerCase();
-            if (nonASCII.test(k)) abort(); // Unicode case folding
-            for (const g of fs) if (g.name.toLowerCase() === lk) { f = g; break; }
-          }
-          if (f === undefined) this.skip(depth + 1);
-          else {
-            if (done.has(f)) abort(); // a repeated name merges into the first value
-            done.add(f);
-            const x = this.value(f.type, cur[f.prop], depth + 1);
-            if (f.type.kind !== Kind.Struct) cur[f.prop] = x;
-          }
-          const d = this.ws();
-          this.i++;
-          if (d === 0x7d) return cur;
-          if (d !== 0x2c) abort();
-        }
-      }
-      case Kind.Slice: {
-        if (cur !== null) abort(); // Go reuses its elements
-        const e = t.elem!;
-        if (e.kind === Kind.Uint8) abort();
-        if (c !== 0x5b) abort();
-        this.i++;
-        const a: any[] = [];
-        if (this.ws() === 0x5d) { this.i++; return sliceLit(a); }
-        for (;;) {
-          a.push(this.fresh(e, depth + 1));
-          const d = this.ws();
-          this.i++;
-          if (d === 0x5d) return sliceLit(a);
-          if (d !== 0x2c) abort();
-        }
-      }
-      case Kind.Map: {
-        if (cur !== null || t.key!.kind !== Kind.String || !plain(t.key!) || c !== 0x7b) abort();
-        this.i++;
-        const m = makeMap(t.key!);
-        if (this.ws() === 0x7d) { this.i++; return m; }
-        for (;;) {
-          const k = this.str();
-          this.expect(0x3a);
-          if (m.entries.has(k)) abort(); // Go merges into the first value
-          mapSet(m, k, this.fresh(t.elem!, depth + 1));
-          const d = this.ws();
-          this.i++;
-          if (d === 0x7d) return m;
-          if (d !== 0x2c) abort();
-        }
-      }
-      case Kind.Pointer: {
-        if (cur !== null) abort(); // Go decodes into the pointee
-        const e = t.elem!;
-        const x = this.fresh(e, depth + 1);
-        return e.kind === Kind.Struct || e.kind === Kind.Array ? x : new Cell(x);
-      }
-      case Kind.Interface:
-        if (cur !== null || t.imethods.length > 0) abort();
-        return this.any(t, depth);
-    }
-    return abort();
-  }
-
-  // fresh decodes a value of type t into a new zero value.
-  fresh(t: Type, depth: number): any {
-    if (t.kind === Kind.Array) abort();
-    return this.value(t, t.zero(), depth);
-  }
-
   int(t: Type): any {
-    if (this.ws() === 0x22) abort();
+    const s = this.s, c0 = this.ws();
+    if (t.kind !== Kind.Int64 && t.kind !== Kind.Uint64) {
+      // Up to 15 digits, which a float64 holds exactly.
+      let i = this.i, neg = false;
+      if (c0 === 0x2d) { neg = true; i++; }
+      const start = i;
+      let n = 0, c = s.charCodeAt(i);
+      if (c === 0x30) c = s.charCodeAt(++i);
+      else while (c >= 0x30 && c <= 0x39 && i - start < 15) { n = n * 10 + (c - 0x30); c = s.charCodeAt(++i); }
+      if (i > start && !(c >= 0x30 && c <= 0x39) && c !== 0x2e && c !== 0x65 && c !== 0x45) {
+        this.i = i;
+        return this.inRange(t, neg ? -n : n);
+      }
+    }
+    if (c0 === 0x22) abort();
     const lit = this.num();
     if (!/^-?\d+$/.test(lit)) abort(); // a fraction or exponent: Go's error
     if (t.kind === Kind.Int64 || t.kind === Kind.Uint64) {
@@ -513,6 +577,10 @@ class Decoder {
     }
     const n = Number(lit);
     if (!Number.isSafeInteger(n)) abort();
+    return this.inRange(t, n);
+  }
+
+  inRange(t: Type, n: number): number {
     let lo = -(2 ** 53), hi = 2 ** 53;
     switch (t.kind) {
       case Kind.Int8: lo = -128; hi = 127; break;
@@ -543,7 +611,7 @@ class Decoder {
           const k = this.str();
           this.expect(0x3a);
           if (m.entries.has(k)) abort();
-          mapSet(m, k, this.any(t, depth + 1));
+          m.entries.set(k, this.any(t, depth + 1));
           const d = this.ws();
           this.i++;
           if (d === 0x7d) return new Iface(mt, m);
@@ -580,18 +648,187 @@ function utf8(r: number): string {
   return String.fromCharCode(0xf0 | (r >> 18), 0x80 | ((r >> 12) & 0x3f), 0x80 | ((r >> 6) & 0x3f), 0x80 | (r & 0x3f));
 }
 
+// A Dec decodes a JSON value of one type merged into the current value
+// cur and returns the result (cur itself, changed in place, for a struct).
+// depth counts the enclosing values, as a guard against deep nesting.
+type Dec = (d: Decoder, cur: any, depth: number) => any;
+
+const decCache = new Map<Type, Dec>();
+
+// decoderOf returns the decoder for values of a deepPlain type t.
+function decoderOf(t: Type): Dec {
+  let f = decCache.get(t);
+  if (f === undefined) {
+    let real: Dec | null = null;
+    decCache.set(t, (d, cur, depth) => real!(d, cur, depth)); // while recursive types are built
+    real = makeDecoder(t);
+    decCache.set(t, real);
+    f = real;
+  }
+  return f;
+}
+
+// isNull consumes null if the input has it here.
+const isNull = (d: Decoder, c: number) => c === 0x6e && d.literal("null");
+
+const decBool: Dec = (d, cur) => {
+  const c = d.ws();
+  if (c === 0x74 && d.literal("true")) return true;
+  if (c === 0x66 && d.literal("false")) return false;
+  if (isNull(d, c)) return cur; // null leaves the value as it is
+  return abort();
+};
+
+const decString: Dec = (d, cur) => {
+  const c = d.ws();
+  if (c === 0x22) return d.str();
+  if (isNull(d, c)) return cur;
+  return abort();
+};
+
+const decFloat: Dec = (d, cur) => {
+  const c = d.ws();
+  if (isNull(d, c)) return cur;
+  if (c === 0x22) abort();
+  const f = Number(d.num());
+  if (!Number.isFinite(f)) abort();
+  return f;
+};
+
+function makeDecoder(t: Type): Dec {
+  switch (t.kind) {
+    case Kind.Bool:
+      return decBool;
+    case Kind.String:
+      return decString;
+    case Kind.Float64:
+      return decFloat;
+    case Kind.Int: case Kind.Int8: case Kind.Int16: case Kind.Int32: case Kind.Int64:
+    case Kind.Uint: case Kind.Uint8: case Kind.Uint16: case Kind.Uint32: case Kind.Uint64: case Kind.Uintptr:
+      return (d, cur) => (isNull(d, d.ws()) ? cur : d.int(t));
+    case Kind.Struct: {
+      const fs = structFields(t)!, decs = fs.map((f) => decoderOf(f.type));
+      return (d, cur, depth) => {
+        if (depth > 100) abort();
+        const c = d.ws();
+        if (c !== 0x7b) return isNull(d, c) ? cur : abort();
+        d.i++;
+        if (d.ws() === 0x7d) { d.i++; return cur; }
+        let done = 0, next = 0;
+        for (;;) {
+          // Fields usually come in their declared order, so the next one's
+          // encoded name is tried first; field names need no escapes.
+          let j = -1;
+          if (next < fs.length && d.s.startsWith(fs[next].key, d.i)) {
+            j = next;
+            d.i += fs[j].key.length;
+          } else {
+            const k = d.str();
+            d.expect(0x3a);
+            j = fs.findIndex((g) => g.name === k);
+            if (j < 0) {
+              const lk = k.toLowerCase();
+              if (nonASCII.test(k)) abort(); // Unicode case folding
+              j = fs.findIndex((g) => g.name.toLowerCase() === lk);
+            }
+          }
+          if (j < 0) d.skip(depth + 1);
+          else {
+            const f = fs[j];
+            // A repeated name merges into the first value.
+            if (f.bit === 0 || (done & f.bit) !== 0) abort();
+            done |= f.bit;
+            next = j + 1;
+            const x = decs[j](d, cur[f.prop], depth + 1);
+            if (f.type.kind !== Kind.Struct) cur[f.prop] = x;
+          }
+          const e = d.ws();
+          d.i++;
+          if (e === 0x7d) return cur;
+          if (e !== 0x2c) abort();
+        }
+      };
+    }
+    case Kind.Slice: {
+      const e = t.elem!;
+      if (e.kind === Kind.Uint8 || e.kind === Kind.Array) return abort;
+      const ed = decoderOf(e), ez = e.zero;
+      return (d, cur, depth) => {
+        if (depth > 100) abort();
+        const c = d.ws();
+        if (isNull(d, c)) return null;
+        if (cur !== null || c !== 0x5b) abort(); // Go reuses a slice's elements
+        d.i++;
+        const a: any[] = [];
+        if (d.ws() === 0x5d) { d.i++; return sliceLit(a); }
+        for (;;) {
+          a.push(ed(d, ez(), depth + 1));
+          const c = d.ws();
+          d.i++;
+          if (c === 0x5d) return sliceLit(a);
+          if (c !== 0x2c) abort();
+        }
+      };
+    }
+    case Kind.Map: {
+      const e = t.elem!;
+      if (e.kind === Kind.Array) return abort;
+      const ed = decoderOf(e), ez = e.zero, kt = t.key!;
+      return (d, cur, depth) => {
+        if (depth > 100) abort();
+        const c = d.ws();
+        if (isNull(d, c)) return null;
+        if (cur !== null || c !== 0x7b) abort(); // Go merges into a map
+        d.i++;
+        const m = makeMap(kt);
+        if (d.ws() === 0x7d) { d.i++; return m; }
+        for (;;) {
+          const k = d.str();
+          d.expect(0x3a);
+          if (m.entries.has(k)) abort(); // Go merges into the first value
+          m.entries.set(k, ed(d, ez(), depth + 1)); // direct: string keys
+          const c = d.ws();
+          d.i++;
+          if (c === 0x7d) return m;
+          if (c !== 0x2c) abort();
+        }
+      };
+    }
+    case Kind.Pointer: {
+      const e = t.elem!;
+      if (e.kind === Kind.Array) return abort;
+      const ed = decoderOf(e), ez = e.zero, agg = e.kind === Kind.Struct;
+      return (d, cur, depth) => {
+        if (depth > 100) abort();
+        if (isNull(d, d.ws())) return null;
+        if (cur !== null) abort(); // Go decodes into the pointee
+        const x = ed(d, ez(), depth + 1);
+        return agg ? x : new Cell(x);
+      };
+    }
+    case Kind.Interface:
+      if (t.imethods.length > 0) return abort;
+      return (d, cur, depth) => {
+        if (isNull(d, d.ws())) return null;
+        if (cur !== null) abort(); // Go decodes into the dynamic value
+        return d.any(t, depth);
+      };
+  }
+  return abort;
+}
+
 // jsonUnmarshal is json.Unmarshal(data, x) when it succeeds: it reports
 // false, having changed nothing, for Go's code to do it.
 export function jsonUnmarshal(data: S<number>, x: Iface | null): boolean {
   if (x === null || x.t.kind !== Kind.Pointer || x.v === null) return false;
   const e = x.t.elem!, p = x.v;
   const agg = e.kind === Kind.Struct || e.kind === Kind.Array;
-  if (e.kind === Kind.Array) return false;
+  if (e.kind === Kind.Array || !deepPlain(e)) return false;
   try {
     const d = new Decoder(bytesToString(data));
     // A struct is decoded into a copy, which replaces it once all is well.
     const cur = agg ? p.$clone(e) : p.v;
-    const v = d.value(e, cur, 0);
+    const v = decoderOf(e)(d, cur, 0);
     d.ws();
     if (d.i < d.s.length) return false; // trailing data: Go's syntax error
     if (agg) p.$set(v, e);

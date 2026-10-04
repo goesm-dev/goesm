@@ -26,6 +26,7 @@ import {
   toPanic, typeArgsName,
 } from "./index.ts";
 import type { S } from "./index.ts";
+import { fmtFixed, fmtShortest, mayTie, roundToEven, sprintf, tieScale } from "./fmt.ts";
 import { jsonMarshal, jsonUnmarshal } from "./json.ts";
 
 // ---- runtime ----
@@ -225,43 +226,12 @@ export function native$fmt$fmtUint(v: number, verb: number, prec: number): strin
   const s = Number.isSafeInteger(v) ? v.toString(base) : BigInt.asUintN(64, BigInt(v)).toString(base);
   return verb === 88 ? s.toUpperCase() : s;
 }
-// fmtFixed is strconv.FormatFloat(v, 'f', prec, 64) for the values
-// ftoaDigits formats with toFixed, and "" for the others.
-export function native$fmt$fmtFixed(v: number, prec: number): string {
-  const x = Math.abs(v);
-  if (v === 0 || !(x < 1e21) || prec > 100) return "";
-  let t = x.toFixed(prec);
-  if (tieScale(x) === prec) t = roundToEven(t);
-  return v < 0 ? "-" + t : t;
-}
-// fmtShortest is strconv.FormatFloat(v, 'g', -1, 64), fmt's %v of a
-// float64: the shortest digits that read back as v (toExponential's), in
-// %e form if the exponent is below -4 or at least max(digits, 6)... as
-// strconv's fmtEFG decides.
-export function native$fmt$fmtShortest(v: number): string {
-  if (v === 0) return Object.is(v, -0) ? "-0" : "0";
-  if (v !== v) return "NaN";
-  if (v === Infinity) return "+Inf";
-  if (v === -Infinity) return "-Inf";
-  const t = Math.abs(v).toExponential();
-  const e = t.indexOf("e");
-  const exp = +t.slice(e + 1);
-  const d = t.charAt(0) + t.slice(2, e); // the digits
-  const nd = d.length, dp = exp + 1;
-  let eprec = 6;
-  if (eprec > nd && nd >= dp) eprec = nd;
-  let r: string;
-  if (exp < -4 || exp >= eprec) {
-    const ae = Math.abs(exp);
-    r = d.charAt(0) + (nd > 1 ? "." + d.slice(1) : "") + (exp < 0 ? "e-" : "e+") + (ae < 10 ? "0" + ae : ae);
-  } else if (dp <= 0) {
-    r = "0." + "0".repeat(-dp) + d;
-  } else if (dp >= nd) {
-    r = d + "0".repeat(dp - nd);
-  } else {
-    r = d.slice(0, dp) + "." + d.slice(dp);
-  }
-  return v < 0 ? "-" + r : r;
+// fmt's fast paths (see the fmt patch and fmt.ts).
+export const native$fmt$fmtFixed = fmtFixed;
+export const native$fmt$fmtShortest = fmtShortest;
+export function native$fmt$jsSprintf(format: string, a: S<Iface | null>): [string, boolean] {
+  const s = sprintf(format, a);
+  return s === null ? ["", false] : [s, true];
 }
 
 // strings.Split with a separator and strings.Join (see the strings patch).
@@ -309,7 +279,7 @@ export function native$internal$strconv$ftoaDigits(
   } else if (fmt === 102) { // 'f'
     if (prec > 100 || x >= 1e21) return [0, 0, false];
     t = x.toFixed(prec);
-    if (tieScale(x) === prec) t = roundToEven(t);
+    if (mayTie(x, prec) && tieScale(x) === prec) t = roundToEven(t);
     const p = t.indexOf(".");
     dp = p < 0 ? t.length : p;
   } else {
@@ -332,31 +302,6 @@ export function native$internal$strconv$ftoaDigits(
   }
   while (nd > 0 && a[o + nd - 1] === 48) nd--;
   return nd === 0 ? [0, 0, true] : [dp, nd, true];
-}
-
-// tieScale returns the s for which x·10^s lies exactly halfway between two
-// integers, or NaN if there is none. With x = m·2^e for an odd m, that is
-// when 2·m·2^e·10^s is an odd integer: e+s+1 = 0, and 5^-s divides m if
-// s < 0.
-function tieScale(x: number): number {
-  scratch.setFloat64(0, x);
-  const hi = scratch.getUint32(0), lo = scratch.getUint32(4);
-  const be = (hi >>> 20) & 0x7ff;
-  let m = (hi & 0xfffff) * 2 ** 32 + lo + (be === 0 ? 0 : 2 ** 52);
-  let e = (be === 0 ? 1 : be) - 1075;
-  const tz = lo !== 0 ? 31 - Math.clz32(lo & -lo) : 32 + 31 - Math.clz32(m / 2 ** 32 & -(m / 2 ** 32));
-  m /= 2 ** tz;
-  e += tz;
-  const s = -e - 1;
-  return s >= 0 || (s >= -22 && m % 5 ** -s === 0) ? s : NaN;
-}
-
-// roundToEven turns the digits t of a tie that the engine rounded up (its
-// last digit is odd then, unless the rounding carried) into the ones
-// rounded to even.
-function roundToEven(t: string): string {
-  const c = t.charCodeAt(t.length - 1);
-  return (c & 1) === 1 ? t.slice(0, -1) + String.fromCharCode(c - 1) : t;
 }
 
 // ---- math/bits (64-bit) ----
