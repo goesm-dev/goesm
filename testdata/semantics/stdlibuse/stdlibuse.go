@@ -243,3 +243,47 @@ func SortKinds() []any {
 	slices.Sort(empty)
 	return []any{ints, strs, string(bs), i64, u64, i8, arr, mine, fs, empty == nil, slices.IsSorted(strs)}
 }
+
+// BuilderSplitJoin exercises strings.Builder (patched to grow a string) and
+// Split / Join (the engine's split and join).
+func BuilderSplitJoin() []any {
+	var b strings.Builder
+	b.WriteString("héllo")
+	b.WriteByte(0xff)
+	b.WriteByte(',')
+	n1, _ := b.WriteRune('世')
+	n2, _ := b.WriteRune(-1)
+	n3, _ := b.WriteRune(0xd800)
+	b.Write([]byte{'x', 0x80})
+	s1 := b.String()
+	l1 := b.Len()
+	var g strings.Builder
+	g.Grow(100)
+	capOK := g.Cap() >= 100
+	g.WriteString("ab")
+	b.Reset()
+	empty := b.String()
+	b.WriteString("again")
+	copyPanic := func() (msg string) {
+		defer func() { msg, _ = recover().(string) }()
+		var a strings.Builder
+		a.WriteString("x")
+		c := a
+		c.WriteString("y")
+		return ""
+	}()
+	growPanic := func() (msg string) {
+		defer func() { msg, _ = recover().(string) }()
+		var a strings.Builder
+		a.Grow(-1)
+		return ""
+	}()
+	parts := strings.Split("a,b,,c,", ",")
+	sub := parts[1:3]
+	return []any{
+		s1, l1, n1, n2, n3, capOK, g.String(), g.Len(), empty, b.String(), copyPanic, growPanic,
+		parts, len(parts), cap(parts), strings.Split("", ","), strings.Split("abc", ""), strings.Split("a\xffb\xffc", "\xff"),
+		strings.Split("aaa", "aa"), strings.SplitN("a,b,c", ",", 2), strings.SplitAfter("a,b", ","),
+		strings.Join(parts, "-"), strings.Join(sub, "+"), strings.Join(nil, ","), strings.Join([]string{"é"}, ","), strings.Join([]string{"", ""}, ""),
+	}
+}

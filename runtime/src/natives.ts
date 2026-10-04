@@ -196,6 +196,22 @@ export function native$slices$sortBuiltin(i: Iface): boolean {
   return true;
 }
 
+// strings.Split with a separator and strings.Join (see the strings patch).
+export function native$strings$splitAll(s: string, sep: string): S<string> {
+  return sliceLit(s.split(sep));
+}
+export function native$strings$joinAll(elems: S<string>, sep: string): string {
+  if (elems === null || elems.$length === 0) return "";
+  const a = elems.$array as string[];
+  if (elems.$offset === 0 && elems.$length === a.length) return a.join(sep);
+  return a.slice(elems.$offset, elems.$offset + elems.$length).join(sep);
+}
+
+// strings.Builder's WriteByte (see the strings patch).
+export function native$strings$byteString(c: number): string {
+  return String.fromCharCode(c);
+}
+
 export function native$internal$strconv$itoa(i: number): string {
   return Number.isSafeInteger(i) ? String(i) : BigInt.asIntN(64, BigInt(i)).toString();
 }
