@@ -50,7 +50,7 @@
 - **分離**: 各実装はそれぞれ別のプロセス（Node.js、Bun）またはページ（Chromium）で、順番に実行します。
 - **呼び出し方**: goesm の出力は Go の関数をそのまま export する ES モジュールなので、ハーネスは `kernels` を import して `Fib(30)` を直接呼びます。GopherJS、Go wasm、TinyGo はパッケージではなくプログラムをビルドするので、[jsmain](jsmain) が `syscall/js`（`js.FuncOf`）でカーネルを `globalThis.goBench` に公開します。これらのプログラムを JS から呼ぶときの一般的な方法です。`syscall/js` のコールバックはブロックできないので、これらでは Channels は Promise を返し、専用の goroutine で動きます。goesm では Channels 自体が async 関数になります。
 - **呼び出し系カーネル**: 各実装で最も速い呼び方を使います。goesm は export をそのまま呼び、文字列はランタイムの `fromJSString` / `toJSString` で変換します（Go の文字列はバイト列です）。Go と TinyGo の wasm では `syscall/js` の呼び出しに数マイクロ秒（Go）から約 1 ミリ秒（TinyGo）かかるので、[jsmain/export_wasm.go](jsmain/export_wasm.go) が Add、Upper、Handle を素の WebAssembly 関数として export し（Go は `//go:wasmexport`、TinyGo は `//export`。TinyGo の `//go:wasmexport` は `main` がブロックしている間 1 回あたり約 0.2 ms かかります）、文字列は `TextEncoder.encodeInto` と `TextDecoder` で UTF-8 として線形メモリ経由で渡します。GopherJS は `syscall/js` を通しますが、GopherJS ではそれがそのまま JS の呼び出しです。
-- **起動時間**: 出力の読み込み（ファイルの読み込みまたは fetch、コンパイル、パッケージ初期化と `main` の実行）を始めてから、最初の関数が呼べるようになるまでの時間です。
+- **起動時間**: 出力の読み込み（ファイルの読み込みまたは fetch、コンパイル、パッケージ初期化と `main` の実行）を始めてから、最初の関数が呼べるようになるまでの時間です。goesm の出力ディレクトリには、ES モジュールのパッケージとして配布するときと同じく `"type": "module"` の `package.json` を置きます。これがないと Node.js はモジュール形式を判定するためにもう一度パースします（ここでは約 30 ms）。
 - **サイズ**: ページが読み込む必要のあるファイルのサイズです。goesm はバンドルしたモジュール、GopherJS はスクリプト、Go と TinyGo は `.wasm` と `wasm_exec.js` です。カーネルが使う標準ライブラリ（`fmt`、`encoding/json`、`sort`、`strconv`、`strings`、`sync`、`math`）を含みます。
 
 ### 公平性について
