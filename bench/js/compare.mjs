@@ -14,7 +14,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { cpus, platform, release } from "node:os";
-import { dirname, extname, join, normalize } from "node:path";
+import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 import { DEFAULT_OPTS } from "./harness.mjs";
@@ -156,7 +156,8 @@ async function runPage(browser, origin, impl) {
   page.on("console", (m) => log("    [console]", m.text()));
   const q = new URLSearchParams({ impl, ...opts });
   for (const k of suite) q.append("kernel", k.name);
-  await page.goto(`${origin}/js/browser.html?${q}`);
+  // "commit": the page's module awaits the whole run, which holds back "load".
+  await page.goto(`${origin}/js/browser.html?${q}`, { waitUntil: "commit" });
   await page.waitForFunction(() => globalThis.benchResults, null, { timeout: 0, polling: 500 });
   const { results, error } = await page.evaluate(() => globalThis.benchResults);
   await page.close();
@@ -205,6 +206,15 @@ const data = {
   runs: {},
 };
 
+// save writes the results so far, so that a failure late in the run keeps
+// what was measured.
+function save() {
+  const file = resolve(benchDir, args.o);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+  writeFileSync(file.replace(/\.json$/, ".md"), markdown(data));
+}
+
 for (const runtime of runtimes) {
   data.runs[runtime] = {};
   if (runtime === "chromium") {
@@ -213,6 +223,7 @@ for (const runtime of runtimes) {
       for (const impl of impls) {
         log(`chromium ${impl}`);
         data.runs.chromium[impl] = await runPage(browser, origin, impl);
+        save();
       }
     });
   } else {
@@ -220,12 +231,10 @@ for (const runtime of runtimes) {
     for (const impl of impls) {
       log(`${runtime} ${impl}`);
       data.runs[runtime][impl] = await runProcess(runtime, impl);
+      save();
     }
   }
 }
 
-const file = join(benchDir, args.o);
-mkdirSync(dirname(file), { recursive: true });
-writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
-writeFileSync(file.replace(/\.json$/, ".md"), markdown(data));
+save();
 log(`wrote ${args.o} and ${args.o.replace(/\.json$/, ".md")}`);
