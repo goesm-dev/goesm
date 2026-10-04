@@ -1,7 +1,8 @@
 // Assorted language corners: indexing and addressing through type
 // parameters, type switches on a type parameter, promoted fields in
 // composite literals, multi-valued arguments to builtins, assignment order
-// with failing assignments, reflect map iteration and bounds errors.
+// with failing assignments, reflect map iteration, bounds errors and
+// recover only in the deferred function itself.
 package main
 
 import (
@@ -70,7 +71,51 @@ func catch(f func()) (msg string) {
 	return
 }
 
+func callRecover() any { return recover() }
+
+func viaHelper() { fmt.Println("helper recovered:", callRecover()) }
+
+func direct() { fmt.Println("direct recovered:", recover()) }
+
+func recursive(n int) {
+	if n == 0 {
+		recursive(1)
+		fmt.Println("outer recovered:", recover())
+		return
+	}
+	fmt.Println("inner recovered:", recover())
+}
+
+func recovers(f func()) {
+	defer func() { fmt.Println("left over:", recover()) }()
+	f()
+}
+
 func main() {
+	recovers(func() {
+		defer direct()
+		defer viaHelper()
+		panic("a")
+	})
+	recovers(func() {
+		defer recursive(0)
+		panic("b")
+	})
+	recovers(func() {
+		defer func() {
+			defer recover() // recovers: called by the deferred closure
+		}()
+		panic("c")
+	})
+	recovers(func() {
+		defer recover() // does not recover: not called by a deferred function
+		panic("d")
+	})
+	recovers(func() {
+		defer func() { func() { fmt.Println("nested literal:", recover()) }() }()
+		panic("e")
+	})
+
 	fmt.Println(setIdx([]int{1, 2, 3}), setIdx([3]int{}))
 	fmt.Println(fill[named]([]string{"a", "b"}), fill[counter]([]string{"abc"}))
 	fmt.Println(kind[float64](1.5), kind[float64](1), kind[any](2), kind[fmt.Stringer](3))

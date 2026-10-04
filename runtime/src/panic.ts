@@ -129,9 +129,13 @@ export function toPanic(e: unknown): GoPanic {
 }
 
 // The defer frame whose deferred call is currently executing (synchronously).
-// recover() consults it. See ARCHITECTURE.md for the known gap: Go only lets
-// recover() work when called directly by the deferred function; the PoC
-// accepts any call made synchronously during that deferred call.
+// recover() consults it. Go lets recover() work only when called directly by
+// the deferred function: each deferred call carries a token naming the
+// function it calls when the lowering knows it statically, and a function
+// that calls recover() asks recoverFrame on entry whether it is that call
+// (the first entry of the function with that token: a recursive call is
+// not), which gives it the frame recover() recovers. A deferred call without a token (a function value, an interface
+// method) accepts any recover() made synchronously during it.
 let current: Defers | null = null;
 
 // Goexit is thrown by runtime.Goexit: deferred calls run, recover() does
@@ -140,20 +144,27 @@ export class Goexit {}
 
 export class Defers {
   private list: Array<() => any> = [];
+  private toks: Array<string | undefined> = [];
+  // tok is the token of the deferred call that is running; claimed is set
+  // once its function has been entered.
+  tok: string | undefined = undefined;
+  claimed = false;
   panicking: GoPanic | null = null;
   exiting: Goexit | null = null;
   // halt is os.Exit's unwinding where the host cannot stop the program: no
   // deferred call runs and nothing recovers it.
   halt: ProgramExit | null = null;
 
-  defer(fn: () => any): void {
+  defer(fn: () => any, tok?: string): void {
     this.list.push(fn);
+    this.toks.push(tok);
   }
 
   fail(e: unknown): void {
     if (e instanceof ProgramExit) {
       this.halt = e;
       this.list.length = 0;
+      this.toks.length = 0;
     } else if (this.halt) return;
     else if (e instanceof Goexit) this.exiting = e;
     else this.panicking = toPanic(e);
@@ -162,6 +173,8 @@ export class Defers {
   run(): void {
     while (this.list.length > 0) {
       const fn = this.list.pop()!;
+      this.tok = this.toks.pop();
+      this.claimed = false;
       const prev = current;
       current = this;
       try {
@@ -180,6 +193,8 @@ export class Defers {
   async runAsync(): Promise<void> {
     while (this.list.length > 0) {
       const fn = this.list.pop()!;
+      this.tok = this.toks.pop();
+      this.claimed = false;
       const prev = current;
       current = this;
       let r: any;
@@ -204,8 +219,18 @@ export class Defers {
   }
 }
 
-export function recover(): Iface | null {
+export function recoverFrame(tok: string): Defers | null {
   const f = current;
+  if (f === null || f.tok === undefined) return f;
+  if (f.claimed || f.tok !== tok) return null;
+  f.claimed = true;
+  return f;
+}
+
+// recover implements the builtin; f is the calling function's recoverFrame
+// result: the frame whose deferred call it is, if it is one. (A deferred
+// recover() is called by the function that defers it.)
+export function recover(f: Defers | null): Iface | null {
   if (f === null || f.panicking === null) return null;
   const v = f.panicking.value;
   f.panicking = null;
