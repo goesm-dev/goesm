@@ -148,6 +148,14 @@ export function hashKey(t: Type, v: any): any {
   return v;
 }
 
+// ifaceKeyString returns a string that is equal for equal interface values
+// (hash/maphash.Comparable); it panics for unhashable dynamic types.
+export function ifaceKeyString(x: Iface | null): string {
+  if (x === null) return "nil";
+  if (!comparable(x.t)) runtimePanic(`hash of unhashable type ${x.t.str}`);
+  return `<${x.t.id}>` + serialize(x.t, x.v);
+}
+
 const zerobaseKey = Symbol("zerobase");
 
 function serialize(t: Type, v: any): string {

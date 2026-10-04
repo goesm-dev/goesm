@@ -213,7 +213,13 @@ func (p *Program) heldSections() []mutexCall {
 		for _, f := range pkg.Syntax {
 			inList := map[*ast.CallExpr]bool{} // Lock statements of statement lists
 			callees := map[ast.Expr]bool{}
+			var stack []ast.Node // the enclosing nodes of n
 			ast.Inspect(f, func(n ast.Node) bool {
+				if n == nil {
+					stack = stack[:len(stack)-1]
+					return true
+				}
+				stack = append(stack, n)
 				var list []ast.Stmt
 				switch n := n.(type) {
 				case *ast.CallExpr:
@@ -264,11 +270,21 @@ func (p *Program) heldSections() []mutexCall {
 							break
 						}
 					}
-					if !unlocked || p.bypasses(info, list[i+1:end], mc.expr, false, false) {
+					section := list[i+1 : end]
+					if !unlocked {
+						// Locked in an if (or block) and unlocked by a
+						// later statement of an enclosing list, as in
+						// if c { mu.Lock() }; ...; if c { mu.Unlock() }.
+						if rest, ok := p.unlockedLater(info, stack, mc.expr); ok {
+							section = append(append([]ast.Stmt(nil), section...), rest...)
+							unlocked = true
+						}
+					}
+					if !unlocked || p.bypasses(info, section, mc.expr, false, false) {
 						out = append(out, mc) // still locked on return
 						continue
 					}
-					for _, t := range list[i+1 : end] {
+					for _, t := range section {
 						if _, ok := p.blocksAt(info, t); ok {
 							out = append(out, mc)
 							break
@@ -620,4 +636,82 @@ func (p *Program) blocksAt(info *types.Info, n ast.Node) (token.Pos, bool) {
 		return !at.IsValid()
 	})
 	return at, at.IsValid()
+}
+
+// unlockedLater finds, for a Lock statement in the statement list of
+// stack's last node that the list does not unlock, a later statement of an
+// enclosing statement list that unlocks the same expression: the list must
+// be a block or an if or else branch (not a loop body or case), directly or
+// through other such statements. It returns the statements of the
+// enclosing lists that run between, up to and including that statement.
+func (p *Program) unlockedLater(info *types.Info, stack []ast.Node, expr string) ([]ast.Stmt, bool) {
+	var between []ast.Stmt
+	k := len(stack) - 1 // the node owning the list
+	if _, ok := stack[k].(*ast.BlockStmt); !ok {
+		return nil, false
+	}
+	for k > 0 {
+		// Climb from the block through if statements (else if chains) and
+		// plain blocks to the statement in an enclosing list.
+		child := stack[k]
+		parent := stack[k-1]
+		switch parent := parent.(type) {
+		case *ast.IfStmt:
+			if child != ast.Node(parent.Body) && child != parent.Else {
+				return nil, false // in the condition
+			}
+			k--
+			continue
+		case *ast.BlockStmt:
+		case *ast.CaseClause, *ast.CommClause:
+		default:
+			return nil, false
+		}
+		var list []ast.Stmt
+		switch parent := parent.(type) {
+		case *ast.BlockStmt:
+			list = parent.List
+		case *ast.CaseClause:
+			list = parent.Body
+		case *ast.CommClause:
+			list = parent.Body
+		}
+		idx := -1
+		for i, st := range list {
+			if ast.Node(st) == child {
+				idx = i
+			}
+		}
+		if idx < 0 {
+			return nil, false
+		}
+		for _, st := range list[idx+1:] {
+			between = append(between, st)
+			if containsUnlock(info, st, expr) {
+				return between, true
+			}
+		}
+		if _, ok := parent.(*ast.BlockStmt); !ok {
+			return nil, false
+		}
+		k--
+	}
+	return nil, false
+}
+
+// containsUnlock reports whether s unlocks expr (outside function literals).
+func containsUnlock(info *types.Info, s ast.Stmt, expr string) bool {
+	found := false
+	ast.Inspect(s, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.CallExpr:
+			if mc, ok := mutexMethod(info, n); ok && isUnlock(mc.method) && mc.expr == expr {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
 }
