@@ -71,12 +71,6 @@ export function newBytes(n: number): Uint8Array {
   return a;
 }
 
-// byteBool is an element of a []bool that a Uint8Array backs (see byteBools
-// in the lowering) as a boolean.
-export function byteBool(b: number): boolean {
-  return b !== 0;
-}
-
 // isBytes reports whether a is a Uint8Array backing a []byte.
 const isBytes = (a: unknown): a is Uint8Array => a instanceof Uint8Array;
 

@@ -14,7 +14,7 @@ import (
 // leaves it: it is only assigned make([]bool, ...) or nil, indexed (but not
 // addressed), passed to len or cap, and ranged over without a value. Its
 // slices are then made with $rt.zeroByte, and every load is converted back
-// to a boolean ($rt.byteBool); stores of true and false become 1 and 0.
+// to a boolean (!!x); stores of true and false become 1 and 0.
 // It returns the variables and their make calls.
 func byteBools(info *types.Info, body *ast.BlockStmt) (map[*types.Var]bool, map[*ast.CallExpr]bool) {
 	if body == nil {

@@ -6,6 +6,7 @@
     "no-constant-condition": "off",
     "oxc/const-comparisons": "off",
     "no-unused-expressions": "off",
-    "unicorn/no-new-array": "off"
+    "unicorn/no-new-array": "off",
+    "no-extra-boolean-cast": "off"
   }
 }
