@@ -161,8 +161,12 @@ func (pe *pkgEmitter) typeDesc(t types.Type, tp tpScope) string {
 	expr := pe.buildDesc(t, tp)
 	name := pe.fresh("t")
 	pe.typeConsts.Set(t, name)
+	if !promotedMethods(t) {
+		pe.consts.ln("const %s = /* @__PURE__ */ (() => %s)();", name, expr)
+		return name
+	}
 	pe.consts.ln("const %s = %s;", name, expr)
-	if promotedMethods(t) {
+	{
 		// After the const, so method signatures may refer to t itself.
 		entries := pe.methodEntries(t, nil, tp)
 		pe.consts.ln("$rt.addMethods(%s, {%s});", name, strings.Join(entries, ", "))
