@@ -199,12 +199,13 @@ export function startupTable(data, lang = "en") {
 export function sizeTable(data, lang = "en") {
   const t = T[lang];
   const impls = data.impls.filter((i) => data.sizes[i.id]);
-  const rows = [`| | ${t.files} | ${t.raw} | gzip -9 | brotli -11 |`, "| --- | --- | ---: | ---: | ---: |"];
-  const b = bolder(impls, impls.map((i) => data.sizes[i.id].brotli));
-  impls.forEach((i, j) => {
-    const s = data.sizes[i.id];
-    rows.push(`| ${implLabel(i, lang)} | ${s.files.map((f) => `\`${f.split("/").pop()}\``).join(" + ")} | ${kb(s.raw)} | ${kb(s.gzip)} | ${b(j, kb(s.brotli))} |`);
-  });
+  const sz = impls.map((i) => data.sizes[i.id]);
+  const rows = [`| | ${impls.map((i) => implLabel(i, lang)).join(" | ")} |`, `| --- | ${impls.map(() => "---:").join(" | ")} |`];
+  rows.push(`| ${t.files} | ${sz.map((s) => s.files.map((f) => `\`${f.split("/").pop()}\``).join(" + ")).join(" | ")} |`);
+  for (const [label, key] of [[t.raw, "raw"], ["gzip -9", "gzip"], ["brotli -11", "brotli"]]) {
+    const b = bolder(impls, sz.map((s) => s[key]));
+    rows.push(`| ${label} | ${sz.map((s, j) => b(j, kb(s[key]))).join(" | ")} |`);
+  }
   return rows.join("\n");
 }
 

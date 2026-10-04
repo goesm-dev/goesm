@@ -44,8 +44,11 @@ export function barChart({ title, subtitle, groups, impls, ref, unit = "" }) {
   const values = groups.flatMap((g) => g.bars.map((b) => b.value)).filter((v) => v > 0);
   if (ref) values.push(ref.value);
   if (values.length === 0) values.push(1);
-  let lo = 10 ** Math.floor(Math.log10(Math.min(...values)));
-  let hi = 10 ** Math.ceil(Math.log10(Math.max(...values)));
+  // The axis runs between 1-2-5 steps around the values, with room on the
+  // right for the longest bar's label.
+  const steps = ticks(Math.min(...values) / 10, Math.max(...values) * 20);
+  const lo = steps.filter((v) => v <= Math.min(...values) * 0.9).pop();
+  let hi = steps.find((v) => v >= Math.max(...values) * 1.3);
   if (hi / lo < 10) hi = lo * 10;
   const x = (v) => left + (plotW * Math.log10(v / lo)) / Math.log10(hi / lo);
   const groupH = (g) => g.bars.length * (barH + barGap) - barGap;

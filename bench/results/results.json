@@ -12,7 +12,9 @@
     "go": "go version go1.27.1 linux/amd64",
     "gopherjs": "GopherJS 1.21.0+go1.21.13",
     "tinygo": "tinygo version 0.42.0 linux/amd64 (using go version go1.27.1 and LLVM version 22.1.4)",
-    "node": "Node.js v26.10.0"
+    "node": "Node.js v26.10.0",
+    "bun": "Bun 1.4.2",
+    "chromium": "Chromium 141.0.7390.37"
   },
   "suite": [
     {
@@ -605,6 +607,1939 @@
           }
         },
         "startup": 125.96254099999999
+      },
+      "gopherjs": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 9.393946999999969,
+            "min": 9.038055999999983,
+            "first": 19.17985499999999,
+            "samples": 92
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 85.12509249999994,
+            "min": 74.1407220000001,
+            "first": 97.67809299999999,
+            "samples": 12
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 14.742438500000162,
+            "min": 14.323029000000133,
+            "first": 16.236300999999912,
+            "samples": 64
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 911.3542025000006,
+            "min": 888.4128390000005,
+            "first": 990.2539109999998,
+            "samples": 10
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 25.045204999998532,
+            "min": 23.71712699999989,
+            "first": 32.55753100000038,
+            "samples": 31
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 318.933795500001,
+            "min": 310.12993599999754,
+            "first": 319.6826110000002,
+            "samples": 10
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 76.38258199999837,
+            "min": 69.42024500000116,
+            "first": 71.10896499999944,
+            "samples": 13
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 42.652775500000644,
+            "min": 40.50830000000133,
+            "first": 51.804927999997744,
+            "samples": 22
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 41.23900350000076,
+            "min": 32.64946200000122,
+            "first": 51.90719199999876,
+            "samples": 22
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 140.37735600000087,
+            "min": 132.24578100000144,
+            "first": 131.4443109999993,
+            "samples": 10
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 584.2427825000013,
+            "min": 448.5934879999986,
+            "first": 612.7256239999988,
+            "samples": 10
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 195.49449699999968,
+            "min": 173.0796130000017,
+            "first": 212.58770700000605,
+            "samples": 10
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 580.3810410000006,
+            "min": 537.5099130000017,
+            "first": 779.6262290000013,
+            "samples": 10
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 1528.4531029999998,
+            "min": 1434.9536339999977,
+            "first": 1429.402095000005,
+            "samples": 7
+          },
+          "Channels": {
+            "name": "Channels",
+            "result": 999999937,
+            "median": 364.9855084999981,
+            "min": 353.470524999997,
+            "first": 475.1673540000047,
+            "samples": 10
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 394.6596140000038,
+            "min": 384.3634979999915,
+            "first": 392.55370499999844,
+            "samples": 10
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 1480.0592380000016,
+            "min": 1390.7403570000024,
+            "first": 1364.6750730000058,
+            "samples": 7
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 3855.5239230000007,
+            "min": 3671.7170239999978,
+            "first": 3826.320219000001,
+            "samples": 3
+          }
+        },
+        "startup": 89.783288
+      },
+      "gowasm": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 14.097045000000094,
+            "min": 13.911839999999984,
+            "first": 17.602385999999996,
+            "samples": 61
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 13.729867000000013,
+            "min": 12.967975000000024,
+            "first": 24.226812999999993,
+            "samples": 73
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 15.436817999999676,
+            "min": 15.306442000000061,
+            "first": 27.012559999999667,
+            "samples": 65
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 11.570440999999846,
+            "min": 11.198842999999215,
+            "first": 13.061494999999923,
+            "samples": 85
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 24.55210299999999,
+            "min": 23.700955999999678,
+            "first": 31.472665999999663,
+            "samples": 40
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 24.986416499999905,
+            "min": 23.893173999999817,
+            "first": 27.96594499999992,
+            "samples": 40
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 270.18620499999906,
+            "min": 260.14908300000025,
+            "first": 310.42961299999934,
+            "samples": 10
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 97.15332299999864,
+            "min": 93.43450900000062,
+            "first": 129.9750129999993,
+            "samples": 11
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 84.68213899999955,
+            "min": 74.63052799999969,
+            "first": 87.0340269999997,
+            "samples": 12
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 32.86170000000129,
+            "min": 30.88127600000007,
+            "first": 37.28427300000112,
+            "samples": 29
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 33.70636200000081,
+            "min": 32.48945099999764,
+            "first": 44.96665699999903,
+            "samples": 30
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 114.97867649999898,
+            "min": 109.63846199999898,
+            "first": 124.71152500000244,
+            "samples": 10
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 29.129264500001227,
+            "min": 27.976693000000523,
+            "first": 88.98040499999843,
+            "samples": 34
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 66.42602499999703,
+            "min": 61.61435399999755,
+            "first": 78.74301600000035,
+            "samples": 15
+          },
+          "Channels": {
+            "name": "Channels",
+            "result": 999999937,
+            "median": 291.0662295000002,
+            "min": 268.19550399999935,
+            "first": 281.99888400000054,
+            "samples": 10
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 0.617804999999862,
+            "min": 0.5897379999987606,
+            "first": 2.2632080000003043,
+            "samples": 1000
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 103.38678450000225,
+            "min": 100.42714400000114,
+            "first": 108.69182300000102,
+            "samples": 10
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 169.73203549999926,
+            "min": 162.982344,
+            "first": 186.01516800000172,
+            "samples": 10
+          }
+        },
+        "startup": 51.28511400000001
+      },
+      "tinygo": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 3.998132999999882,
+            "min": 3.8265429999999014,
+            "first": 5.765554000000002,
+            "samples": 202
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 10.389647999999852,
+            "min": 9.22777300000007,
+            "first": 33.78328699999997,
+            "samples": 79
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 14.70404399999984,
+            "min": 14.119038000000273,
+            "first": 18.419331000000057,
+            "samples": 60
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 8.497819999999592,
+            "min": 7.6444540000002235,
+            "first": 42.6929710000004,
+            "samples": 95
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 10.948927000000367,
+            "min": 10.29328600000008,
+            "first": 15.03018499999962,
+            "samples": 77
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 10.585739499999818,
+            "min": 10.382260999999744,
+            "first": 14.451293000000078,
+            "samples": 74
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 113.0409195000002,
+            "min": 105.18385200000012,
+            "first": 121.42754700000023,
+            "samples": 10
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 29.373358999999255,
+            "min": 27.96668800000043,
+            "first": 33.67137999999977,
+            "samples": 25
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 117.63070249999964,
+            "min": 108.82152599999972,
+            "first": 112.71372299999894,
+            "samples": 10
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 71.74076849999983,
+            "min": 70.89795299999969,
+            "first": 84.58876099999907,
+            "samples": 10
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 13.322276999999303,
+            "min": 11.595176000002539,
+            "first": 15.4265919999998,
+            "samples": 16
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 38.91894499999762,
+            "min": 37.42496500000561,
+            "first": 53.45507099999668,
+            "samples": 9
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 28.731050000002142,
+            "min": 28.543986999997287,
+            "first": 57.396951000002446,
+            "samples": 7
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 42.41627449999942,
+            "min": 41.26374799999758,
+            "first": 63.06900199998927,
+            "samples": 10
+          },
+          "Channels": {
+            "name": "Channels",
+            "result": 999999937,
+            "median": 30.32857800000056,
+            "min": 29.14802100000088,
+            "first": 38.087125999998534,
+            "samples": 4
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 0.2063159999961499,
+            "min": 0.20594899999559857,
+            "first": 1.8582440000027418,
+            "samples": 1000
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 88.30109700001776,
+            "min": 87.1933710000012,
+            "first": 108.17027299999609,
+            "samples": 11
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 173.21231750001607,
+            "min": 164.6962829999975,
+            "first": 199.41832799999975,
+            "samples": 10
+          }
+        },
+        "startup": 21.335562999999997
+      }
+    },
+    "bun": {
+      "js": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 6.08303449999994,
+            "min": 5.9534869999999955,
+            "first": 8.766816,
+            "samples": 156
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 13.446762000000035,
+            "min": 12.357217000000219,
+            "first": 15.988751999999977,
+            "samples": 74
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 15.41989300000023,
+            "min": 15.184048999999959,
+            "first": 17.60751500000015,
+            "samples": 63
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 13.183484500000304,
+            "min": 12.978126999999404,
+            "first": 20.905407000000196,
+            "samples": 76
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 14.087419499999669,
+            "min": 13.200984000000062,
+            "first": 15.826775999999882,
+            "samples": 70
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 867.3544300000003,
+            "min": 801.4089329999988,
+            "first": 964.9844309999999,
+            "samples": 10
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 101.8068289999992,
+            "min": 66.30743900000016,
+            "first": 96.01587300000028,
+            "samples": 10
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 14.910267999999633,
+            "min": 12.724401999999827,
+            "first": 23.183257000000594,
+            "samples": 53
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 33.514382000001206,
+            "min": 23.173759000001155,
+            "first": 48.77055399999881,
+            "samples": 29
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 16.69823500000166,
+            "min": 16.16147500000079,
+            "first": 19.508338999999978,
+            "samples": 58
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 21.822360999998637,
+            "min": 15.322761999999784,
+            "first": 28.843369000001985,
+            "samples": 45
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 29.83610899999985,
+            "min": 23.003820999998425,
+            "first": 45.98729199999798,
+            "samples": 33
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 4.511407500000132,
+            "min": 2.0761209999982384,
+            "first": 5.824445999998716,
+            "samples": 206
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 22.537803500001246,
+            "min": 20.034992000000784,
+            "first": 21.210057999996934,
+            "samples": 44
+          },
+          "Channels": {
+            "name": "Channels",
+            "missing": true
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 0.05887100000109058,
+            "min": 0.05885199999829638,
+            "first": 0.9449789999998757,
+            "samples": 1000
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 7.137745500000165,
+            "min": 6.3685069999992265,
+            "first": 13.27536500000133,
+            "samples": 136
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 15.971176500001093,
+            "min": 14.167411000002176,
+            "first": 17.327355000001262,
+            "samples": 60
+          }
+        },
+        "startup": 2.2874180000000006
+      },
+      "goesm": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 6.4387890000000425,
+            "min": 6.243576999999959,
+            "first": 7.691082000000023,
+            "samples": 149
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 32.35170500000004,
+            "min": 23.415050000000065,
+            "first": 43.57154400000013,
+            "samples": 33
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 15.572309999999561,
+            "min": 15.237427000000025,
+            "first": 17.927824999999757,
+            "samples": 63
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 13.823430000000371,
+            "min": 13.545152000000598,
+            "first": 29.598547000000508,
+            "samples": 65
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 15.638734999999997,
+            "min": 14.27091400000063,
+            "first": 33.08127299999978,
+            "samples": 62
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 639.252477,
+            "min": 606.689359,
+            "first": 655.04187,
+            "samples": 10
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 60.667670000000726,
+            "min": 49.44633000000067,
+            "first": 53.23173300000053,
+            "samples": 17
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 55.09524650000276,
+            "min": 52.88673600000038,
+            "first": 98.01290700000027,
+            "samples": 18
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 46.43966100000034,
+            "min": 28.354309999998804,
+            "first": 81.94522100000177,
+            "samples": 21
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 26.453659500000867,
+            "min": 24.668118999998114,
+            "first": 41.67552799999976,
+            "samples": 38
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 181.70300750000024,
+            "min": 163.6479020000006,
+            "first": 204.046194999999,
+            "samples": 10
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 161.5925040000002,
+            "min": 151.82270400000198,
+            "first": 234.42149099999733,
+            "samples": 10
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 185.9699285000006,
+            "min": 174.26426999999967,
+            "first": 329.16939699999784,
+            "samples": 10
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 283.6928799999987,
+            "min": 267.8792280000016,
+            "first": 368.78560500000094,
+            "samples": 10
+          },
+          "Channels": {
+            "name": "Channels",
+            "result": 999999937,
+            "median": 68.56706599999598,
+            "min": 67.18118700000196,
+            "first": 78.31183000000237,
+            "samples": 15
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 0.05886100000498118,
+            "min": 0.05885499999567401,
+            "first": 1.0878930000035325,
+            "samples": 1000
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 220.81862499999988,
+            "min": 195.11221600000135,
+            "first": 285.9075689999954,
+            "samples": 10
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 996.8583065000021,
+            "min": 966.1662569999971,
+            "first": 1267.4232210000046,
+            "samples": 10
+          }
+        },
+        "startup": 235.221962
+      },
+      "gopherjs": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 6.033091999999897,
+            "min": 5.886631999999963,
+            "first": 7.906791999999996,
+            "samples": 155
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 35.04032050000001,
+            "min": 33.031531000000086,
+            "first": 62.61605000000009,
+            "samples": 28
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 14.413738000000194,
+            "min": 14.174657999999908,
+            "first": 16.842405000000326,
+            "samples": 69
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 399.44228999999996,
+            "min": 369.44704999999885,
+            "first": 380.64841999999953,
+            "samples": 10
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 16.46029649999946,
+            "min": 16.03385100000014,
+            "first": 87.21156899999914,
+            "samples": 60
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 1202.951688000001,
+            "min": 1116.8689489999997,
+            "first": 1161.8399980000013,
+            "samples": 9
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 71.47068149999905,
+            "min": 61.150493000001006,
+            "first": 66.67815300000075,
+            "samples": 14
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 76.53422599999976,
+            "min": 73.64472499999829,
+            "first": 98.38132299999779,
+            "samples": 13
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 35.54306400000132,
+            "min": 20.322301000000152,
+            "first": 56.81454499999745,
+            "samples": 29
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 82.64294299999892,
+            "min": 79.97643400000015,
+            "first": 126.47701999999845,
+            "samples": 12
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 285.974546999998,
+            "min": 259.79402200000186,
+            "first": 310.2452080000003,
+            "samples": 10
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 172.15614949999872,
+            "min": 166.3079460000008,
+            "first": 239.48632799999905,
+            "samples": 10
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 482.820949500001,
+            "min": 457.2780960000018,
+            "first": 677.6808430000019,
+            "samples": 10
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 1185.7184879999986,
+            "min": 1144.791474000005,
+            "first": 1338.957242999997,
+            "samples": 9
+          },
+          "Channels": {
+            "name": "Channels",
+            "result": 999999937,
+            "median": 158.4179690000019,
+            "min": 149.98070700000244,
+            "first": 192.29923199999757,
+            "samples": 10
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 280.9028529999996,
+            "min": 269.9955440000049,
+            "first": 287.4956969999985,
+            "samples": 10
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 992.6670175000036,
+            "min": 912.3794669999916,
+            "first": 1002.2823410000055,
+            "samples": 10
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 3479.1791539999977,
+            "min": 3337.6537929999904,
+            "first": 3759.525815000001,
+            "samples": 3
+          }
+        },
+        "startup": 229.747466
+      },
+      "gowasm": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 14.537585000000036,
+            "min": 14.084836999999993,
+            "first": 15.797061000000006,
+            "samples": 63
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 11.865164999999934,
+            "min": 10.683523999999807,
+            "first": 14.66492100000005,
+            "samples": 84
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 15.023033000000396,
+            "min": 14.835309999999936,
+            "first": 17.816440000000057,
+            "samples": 65
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 11.25342499999988,
+            "min": 10.567721000000347,
+            "first": 13.085073000000193,
+            "samples": 85
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 23.74190099999987,
+            "min": 23.498021999999764,
+            "first": 21.919095000000198,
+            "samples": 42
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 19.38603000000012,
+            "min": 19.08567900000071,
+            "first": 24.29417199999989,
+            "samples": 52
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 242.3580379999994,
+            "min": 221.0278559999988,
+            "first": 227.99546099999952,
+            "samples": 10
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 68.43501449999985,
+            "min": 67.26881700000013,
+            "first": 86.52742299999954,
+            "samples": 14
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 58.113837999999305,
+            "min": 51.16797000000042,
+            "first": 80.92070599999897,
+            "samples": 17
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 23.92541799999981,
+            "min": 23.352106000000276,
+            "first": 30.03981500000009,
+            "samples": 42
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 29.97178949999943,
+            "min": 28.256532999999763,
+            "first": 41.49284400000033,
+            "samples": 32
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 104.01141449999886,
+            "min": 102.37259499999709,
+            "first": 117.44661199999973,
+            "samples": 10
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 26.046777999999904,
+            "min": 25.55720199999996,
+            "first": 91.01824199999828,
+            "samples": 39
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 61.537780999999086,
+            "min": 57.94120699999985,
+            "first": 80.51718699999765,
+            "samples": 17
+          },
+          "Channels": {
+            "name": "Channels",
+            "result": 999999937,
+            "median": 242.06841050000185,
+            "min": 236.71221399999922,
+            "first": 345.32606400000077,
+            "samples": 10
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 0.4949364999993122,
+            "min": 0.4723940000003495,
+            "first": 2.2038939999983995,
+            "samples": 1000
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 105.57349749999958,
+            "min": 95.03509999999733,
+            "first": 100.709224000002,
+            "samples": 10
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 172.80587000000014,
+            "min": 167.04409600000145,
+            "first": 194.14629500000228,
+            "samples": 10
+          }
+        },
+        "startup": 51.124172
+      },
+      "tinygo": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 4.783343000000002,
+            "min": 4.653819999999996,
+            "first": 7.225749,
+            "samples": 186
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 11.445878000000107,
+            "min": 10.456146999999874,
+            "first": 23.59548400000017,
+            "samples": 78
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 14.335160000000087,
+            "min": 14.069954999999936,
+            "first": 15.649404000000231,
+            "samples": 61
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 7.776430000000346,
+            "min": 7.207429999999476,
+            "first": 11.549038999999993,
+            "samples": 100
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 10.723794499999713,
+            "min": 10.241702999999688,
+            "first": 17.49712499999987,
+            "samples": 74
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 10.89126699999997,
+            "min": 10.441428000000087,
+            "first": 14.704592999999477,
+            "samples": 70
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 136.36623399999917,
+            "min": 108.78081600000041,
+            "first": 127.12546199999997,
+            "samples": 10
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 37.38288399999874,
+            "min": 35.72598099999959,
+            "first": 40.427911999999196,
+            "samples": 21
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 111.36299549999967,
+            "min": 107.87740499999927,
+            "first": 1037.1971350000003,
+            "samples": 10
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 73.05986199999461,
+            "min": 69.06079199999658,
+            "first": 72.97042499999952,
+            "samples": 3
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 14.147688500001095,
+            "min": 13.40231700000004,
+            "first": 18.662474999997357,
+            "samples": 16
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 49.49480950000725,
+            "min": 44.8189560000028,
+            "first": 64.00267000000167,
+            "samples": 10
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 40.46149099999457,
+            "min": 34.21510199998738,
+            "first": 96.21033199998783,
+            "samples": 11
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 54.57570499999565,
+            "min": 53.02838299999712,
+            "first": 79.35035900000366,
+            "samples": 11
+          },
+          "Channels": {
+            "name": "Channels",
+            "result": 999999937,
+            "median": 25.703966500004753,
+            "min": 25.57733100000769,
+            "first": 32.471716000000015,
+            "samples": 4
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 0.2541719999862835,
+            "min": 0.23539700004039332,
+            "first": 1.5862959999940358,
+            "samples": 1000
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 96.54118599998765,
+            "min": 84.5717130000121,
+            "first": 119.1954530000221,
+            "samples": 11
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 235.46383700001752,
+            "min": 225.44321300002048,
+            "first": 243.57494700001553,
+            "samples": 10
+          }
+        },
+        "startup": 20.175732000000004
+      }
+    },
+    "chromium": {
+      "js": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 10.330000000074506,
+            "min": 10.03000000026077,
+            "first": 14.830000000074506,
+            "samples": 95
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 12.134999999776483,
+            "min": 11.625,
+            "first": 17.059999999590218,
+            "samples": 81
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 14.625,
+            "min": 14.34499999973923,
+            "first": 16.65500000026077,
+            "samples": 67
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 11.725000000558794,
+            "min": 10.625,
+            "first": 17.774999999441206,
+            "samples": 75
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 11.684999999590218,
+            "min": 11.254999999888241,
+            "first": 15.865000000223517,
+            "samples": 81
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 33.705000000074506,
+            "min": 32.12000000011176,
+            "first": 46.12000000011176,
+            "samples": 27
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 35.14999999990687,
+            "min": 32.69500000029802,
+            "first": 41.29000000003725,
+            "samples": 28
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 9.550000000279397,
+            "min": 9.080000000074506,
+            "first": 44.869999999180436,
+            "samples": 104
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 19.684999999590218,
+            "min": 18.665000000037253,
+            "first": 25.615000000223517,
+            "samples": 49
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 27.515000000596046,
+            "min": 26.050000000745058,
+            "first": 38.60999999940395,
+            "samples": 37
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 12.657500000204891,
+            "min": 10.6949999993667,
+            "first": 14.934999999590218,
+            "samples": 74
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 50.22500000055879,
+            "min": 48.37999999988824,
+            "first": 53.65999999921769,
+            "samples": 19
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 3.084999999962747,
+            "min": 2.9699999997392297,
+            "first": 5.1749999998137355,
+            "samples": 313
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 8.520000000018626,
+            "min": 8.229999999515712,
+            "first": 9.400000000372529,
+            "samples": 116
+          },
+          "Channels": {
+            "name": "Channels",
+            "missing": true
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 0.06000000052154064,
+            "min": 0.054999999701976776,
+            "first": 0.8700000001117587,
+            "samples": 1000
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 5.170000000856817,
+            "min": 4.910000000149012,
+            "first": 10.174999999813735,
+            "samples": 189
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 11.917499999981374,
+            "min": 11.515000000596046,
+            "first": 13.984999999403954,
+            "samples": 82
+          }
+        },
+        "startup": 4.104999999515712
+      },
+      "goesm": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 10.59749999968335,
+            "min": 10.065000000409782,
+            "first": 10.870000000111759,
+            "samples": 88
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 31.165000000037253,
+            "min": 29.47499999962747,
+            "first": 40.30999999959022,
+            "samples": 31
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 14.524999999906868,
+            "min": 14.315000000409782,
+            "first": 15.660000000149012,
+            "samples": 66
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 29.350000000558794,
+            "min": 28.97499999962747,
+            "first": 22.885000000707805,
+            "samples": 33
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 15.947500000707805,
+            "min": 15.56000000052154,
+            "first": 35.739999999292195,
+            "samples": 60
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 46.46500000078231,
+            "min": 43.94000000040978,
+            "first": 51.16000000014901,
+            "samples": 21
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 38.90000000037253,
+            "min": 37.88499999977648,
+            "first": 40.07000000029802,
+            "samples": 26
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 48.80499999970198,
+            "min": 47.47499999962747,
+            "first": 60.47499999962747,
+            "samples": 21
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 26.915000000037253,
+            "min": 25.674999999813735,
+            "first": 40.06000000052154,
+            "samples": 33
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 26.742500000167638,
+            "min": 25.96999999973923,
+            "first": 41.02500000037253,
+            "samples": 36
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 91.62000000011176,
+            "min": 81.84499999973923,
+            "first": 110.23499999940395,
+            "samples": 11
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 153.93500000005588,
+            "min": 139.875,
+            "first": 178.035000000149,
+            "samples": 10
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 121.74250000016764,
+            "min": 111.24500000011176,
+            "first": 293.50499999988824,
+            "samples": 10
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 193.08749999990687,
+            "min": 190.56499999947846,
+            "first": 300.375,
+            "samples": 10
+          },
+          "Channels": {
+            "name": "Channels",
+            "result": 999999937,
+            "median": 105.2324999999255,
+            "min": 99.31000000052154,
+            "first": 108.72499999962747,
+            "samples": 10
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 0.06499999947845936,
+            "min": 0.054999999701976776,
+            "first": 1.0899999998509884,
+            "samples": 1000
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 130.0924999997951,
+            "min": 123.79000000003725,
+            "first": 161.00999999977648,
+            "samples": 10
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 699.0674999994226,
+            "min": 655.8349999999627,
+            "first": 825.9199999999255,
+            "samples": 10
+          }
+        },
+        "startup": 89.3999999994412
+      },
+      "gopherjs": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 9.645000000018626,
+            "min": 9.389999999664724,
+            "first": 10.379999999888241,
+            "samples": 86
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 64.98499999940395,
+            "min": 62.87000000011176,
+            "first": 88.2949999999255,
+            "samples": 16
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 14.859999999403954,
+            "min": 14.385000000707805,
+            "first": 15.980000000447035,
+            "samples": 65
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 703.4274999997579,
+            "min": 669.4000000003725,
+            "first": 711.429999999702,
+            "samples": 10
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 29.65000000037253,
+            "min": 28.209999999962747,
+            "first": 35.99500000011176,
+            "samples": 33
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 276.8424999997951,
+            "min": 268.7400000002235,
+            "first": 287.93999999947846,
+            "samples": 10
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 59.419999999925494,
+            "min": 51.875,
+            "first": 71.80499999970198,
+            "samples": 17
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 30.584999999962747,
+            "min": 29.74500000011176,
+            "first": 47.58499999996275,
+            "samples": 33
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 30.53250000020489,
+            "min": 27.00499999988824,
+            "first": 29.830000000074506,
+            "samples": 28
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 77.08499999996275,
+            "min": 69.83999999985099,
+            "first": 87.15999999921769,
+            "samples": 13
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 444.6150000002235,
+            "min": 400.820000000298,
+            "first": 436.58499999996275,
+            "samples": 10
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 151.347500000149,
+            "min": 127.23000000044703,
+            "first": 237.00499999988824,
+            "samples": 10
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 505.445000000298,
+            "min": 491.45999999996275,
+            "first": 709.660000000149,
+            "samples": 10
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 1182.0400000000373,
+            "min": 1137.2199999997392,
+            "first": 1178.1650000000373,
+            "samples": 9
+          },
+          "Channels": {
+            "name": "Channels",
+            "result": 999999937,
+            "median": 278.7400000002235,
+            "min": 273.70999999996275,
+            "first": 292.0200000004843,
+            "samples": 10
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 333.070000000298,
+            "min": 330.12000000011176,
+            "first": 339.375,
+            "samples": 10
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 1326.0200000000186,
+            "min": 1258.6000000005588,
+            "first": 1392.8100000005215,
+            "samples": 8
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 3390.3899999996647,
+            "min": 3212.8799999998882,
+            "first": 3323.1800000006333,
+            "samples": 3
+          }
+        },
+        "startup": 92.30499999970198
+      },
+      "gowasm": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 13.792499999981374,
+            "min": 13.419999999925494,
+            "first": 14.799999999813735,
+            "samples": 70
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 14.065000000409782,
+            "min": 12.970000000670552,
+            "first": 26.929999999701977,
+            "samples": 67
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 15.729999999981374,
+            "min": 15.415000000037253,
+            "first": 26.165000000037253,
+            "samples": 62
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 11.532500000204891,
+            "min": 11.1949999993667,
+            "first": 12.899999999441206,
+            "samples": 80
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 24.46000000042841,
+            "min": 23.81000000052154,
+            "first": 32.97999999951571,
+            "samples": 40
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 24.290000000037253,
+            "min": 23.75,
+            "first": 28.365000000223517,
+            "samples": 41
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 266.7974999998696,
+            "min": 254.2150000007823,
+            "first": 267.7849999992177,
+            "samples": 10
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 98.70000000018626,
+            "min": 94.5449999999255,
+            "first": 126.82500000018626,
+            "samples": 11
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 73.8000000002794,
+            "min": 62.65500000026077,
+            "first": 89.03000000026077,
+            "samples": 14
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 31.014999999664724,
+            "min": 30.15500000026077,
+            "first": 36.46999999973923,
+            "samples": 31
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 33.66000000014901,
+            "min": 32.32000000029802,
+            "first": 65.19000000040978,
+            "samples": 29
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 116.8625000002794,
+            "min": 113.63499999977648,
+            "first": 128.16500000003725,
+            "samples": 10
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 29.419999999925494,
+            "min": 27.915000000037253,
+            "first": 134.1800000006333,
+            "samples": 34
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 67.11249999981374,
+            "min": 63.21499999985099,
+            "first": 91.02000000048429,
+            "samples": 14
+          },
+          "Channels": {
+            "name": "Channels",
+            "result": 999999937,
+            "median": 359.1999999997206,
+            "min": 341.5249999994412,
+            "first": 374.58499999996275,
+            "samples": 10
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 0.8049999997019768,
+            "min": 0.7749999994412065,
+            "first": 2.919999999925494,
+            "samples": 1000
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 172.8350000004284,
+            "min": 155.65000000037253,
+            "first": 182.2749999994412,
+            "samples": 10
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 175.61499999975786,
+            "min": 168.7050000000745,
+            "first": 204.61000000033528,
+            "samples": 10
+          }
+        },
+        "startup": 68.24000000022352
+      },
+      "tinygo": {
+        "kernels": {
+          "Fib": {
+            "name": "Fib",
+            "result": 832040,
+            "median": 3.875,
+            "min": 3.7999999998137355,
+            "first": 5.464999999850988,
+            "samples": 221
+          },
+          "Sieve": {
+            "name": "Sieve",
+            "result": 148933,
+            "median": 11.205000000074506,
+            "min": 9.494999999180436,
+            "first": 27.615000000223517,
+            "samples": 75
+          },
+          "Mandelbrot": {
+            "name": "Mandelbrot",
+            "result": 63572,
+            "median": 14.262500000186265,
+            "min": 13.959999999962747,
+            "first": 18.934999999590218,
+            "samples": 62
+          },
+          "NBody": {
+            "name": "NBody",
+            "result": 169079859,
+            "median": 8.402499999850988,
+            "min": 7.834999999962747,
+            "first": 19.770000000484288,
+            "samples": 88
+          },
+          "FNV32": {
+            "name": "FNV32",
+            "result": 1199414498,
+            "median": 10.770000000484288,
+            "min": 10.285000000149012,
+            "first": 14.974999999627471,
+            "samples": 71
+          },
+          "FNV64": {
+            "name": "FNV64",
+            "result": 713958045,
+            "median": 10.855000000447035,
+            "min": 10.3199999993667,
+            "first": 14.790000000037253,
+            "samples": 68
+          },
+          "BinaryTrees": {
+            "name": "BinaryTrees",
+            "result": 3123888,
+            "median": 107.54249999998137,
+            "min": 103.60500000044703,
+            "first": 180.53000000026077,
+            "samples": 10
+          },
+          "Interfaces": {
+            "name": "Interfaces",
+            "result": 152426481,
+            "median": 29.419999999925494,
+            "min": 29.080000000074506,
+            "first": 88.13499999977648,
+            "samples": 27
+          },
+          "MapInt": {
+            "name": "MapInt",
+            "result": 25593856,
+            "median": 132.3800000003539,
+            "min": 119.06500000040978,
+            "first": 473.7399999992922,
+            "samples": 10
+          },
+          "MapString": {
+            "name": "MapString",
+            "result": 5771000,
+            "median": 82.81499999994412,
+            "min": 77.29000000003725,
+            "first": 92.92499999981374,
+            "samples": 12
+          },
+          "Strings": {
+            "name": "Strings",
+            "result": 857778,
+            "median": 13.167500000447035,
+            "min": 12.899999999441206,
+            "first": 35.78499999921769,
+            "samples": 16
+          },
+          "Sort": {
+            "name": "Sort",
+            "result": 49313,
+            "median": 38.59249999979511,
+            "min": 37.56000000052154,
+            "first": 57.77499999944121,
+            "samples": 8
+          },
+          "JSON": {
+            "name": "JSON",
+            "result": 282891,
+            "median": 28.645000000484288,
+            "min": 27.21499999985099,
+            "first": 84.05999999959022,
+            "samples": 9
+          },
+          "Sprintf": {
+            "name": "Sprintf",
+            "result": 1494476,
+            "median": 59.31000000005588,
+            "min": 46.34999999962747,
+            "first": 74.8300000000745,
+            "samples": 10
+          },
+          "Channels": {
+            "name": "Channels",
+            "result": 999999937,
+            "median": 37.86500000022352,
+            "min": 29.075000000186265,
+            "first": 40.44000000040978,
+            "samples": 4
+          },
+          "Add": {
+            "name": "Add",
+            "result": 11952,
+            "median": 0.30500000016763806,
+            "min": 0.2850000001490116,
+            "first": 2.0350000001490116,
+            "samples": 1000
+          },
+          "Upper": {
+            "name": "Upper",
+            "result": 370853891,
+            "median": 147.61500000022352,
+            "min": 131.95000000018626,
+            "first": 187.78000000026077,
+            "samples": 10
+          },
+          "Handle": {
+            "name": "Handle",
+            "result": 246107465,
+            "median": 207.90500000026077,
+            "min": 184.67499999981374,
+            "first": 205.785000000149,
+            "samples": 3
+          }
+        },
+        "startup": 24.865000000223517
       }
     }
   }
