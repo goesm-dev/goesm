@@ -148,7 +148,7 @@ The output is ES modules with a `.js` extension. Under Node.js, load them from a
 
 <!-- bench:start -->
 - Intel(R) Xeon(R) Processor @ 2.80GHz (4 threads), linux 6.18.44-fc-v64
-- goesm 4c26158, go version go1.27.1 linux/amd64
+- goesm 7be619e, go version go1.27.1 linux/amd64
 - GopherJS 1.21.0+go1.21.13
 - tinygo version 0.42.0 linux/amd64 (using go version go1.27.1 and LLVM version 22.1.4)
 - Node.js v26.10.0, Bun 1.4.2, Chromium 141.0.7390.37
@@ -162,66 +162,66 @@ Slowdown vs native Go (geometric mean of the per-kernel time ratios; lower is be
 
 | Runtime | Hand-written JS | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Node.js v26.10.0 | 0.9× | 3.5× | 11.3× | 3.0× | **1.7×** |
-| Bun 1.4.2 | 1.2× | 4.4× | 9.5× | 2.9× | **1.9×** |
-| Chromium 141.0.7390.37 | 0.9× | 3.2× | 9.2× | 3.1× | **1.8×** |
+| Node.js v26.10.0 | 1.0× | 3.0× | 11.4× | 3.0× | **1.7×** |
+| Bun 1.4.2 | 1.2× | 3.8× | 9.5× | 2.7× | **2.0×** |
+| Chromium 141.0.7390.37 | 0.9× | 2.6× | 9.1× | 3.4× | **1.8×** |
 
 Total ms to run every kernel once (the sum of the medians, the calling kernels' whole loops included; * leaves out kernels the implementation lacks; lower is better):
 
 | Runtime | Hand-written JS | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Node.js v26.10.0 | 311* | 1853 | 11198 | 1458 | **855** |
-| Bun 1.4.2 | 949* | 3309 | 10377 | 1415 | **998** |
-| Chromium 141.0.7390.37 | 284* | 1726 | 9552 | 1618 | **968** |
+| Node.js v26.10.0 | 329* | 1534 | 11622 | 1475 | **833** |
+| Bun 1.4.2 | 961* | 2806 | 9998 | 1289 | **1036** |
+| Chromium 141.0.7390.37 | 282* | 1288 | 9153 | 1684 | **947** |
 
 Median ms per call under Node.js v26.10.0 (lower is better):
 
 | Kernel | Exercises | Native Go | Hand-written JS | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Fib | recursive calls, int arithmetic | 4.68 | 9.92 | 10.1 | 9.42 | 14.9 | **4.02** |
-| Sieve | []bool, tight loops | 8.63 | 10.9 | 38.4 | 78.8 | 14.0 | **10.3** |
-| Mandelbrot | float64 loops | 15.3 | 16.2 | 16.1 | 15.7 | 16.2 | **14.8** |
-| NBody | float64 struct fields via pointers | 8.49 | 10.7 | 34.9 | 967 | 12.2 | **8.56** |
-| FNV32 | uint32 multiply and xor | 11.2 | 11.4 | 13.4 | 28.7 | 24.9 | **11.0** |
-| FNV64 | uint64 multiply and xor | 11.1 | 46.5 | 45.6 | 337 | 25.2 | **10.6** |
-| BinaryTrees | allocation, GC | 66.1 | 48.1 | **56.0** | 76.6 | 262 | 127 |
-| Interfaces | interface method calls | 22.6 | 12.3 | 49.8 | 41.7 | 99.4 | **29.6** |
-| MapInt | map[int]int insert, lookup, delete | 31.2 | 27.3 | 60.1 | **48.7** | 101 | 114 |
-| MapString | map[string]int counting | 9.45 | 23.6 | **31.1** | 150 | 34.1 | 77.1 |
-| Strings | strings.Builder, strconv, Split, Join | 10.2 | 12.0 | 85.2 | 633 | 34.3 | **13.7** |
-| Sort | sort.Ints, sort.Strings | 33.7 | 51.1 | 162 | 204 | 120 | **39.1** |
-| JSON | encoding/json Marshal + Unmarshal | 9.63 | 2.80 | 111 | 674 | 30.9 | **30.9** |
-| Sprintf | fmt.Sprintf | 17.2 | 7.02 | 215 | 1604 | 71.5 | **43.2** |
-| Channels | goroutines, unbuffered channels | 94.4 | — | 110 | 362 | 301 | **29.3** |
-| Add (ns/call) | calls from JS: two numbers in, one out | — | 0.59 | **0.59** | 3671 | 6.13 | 2.09 |
-| Upper (ns/call) | calls from JS: strings.ToUpper, a string in and out | 157 | 58.6 | 1289 | 15500 | 1104 | **898** |
-| Handle (ns/call) | calls from JS: a JSON request handler, a string in and out | 4391 | 1588 | 68563 | 405035 | **18635** | 20166 |
-| **Total ms, every kernel once** | | 413* | 311* | 1853 | 11198 | 1458 | **855** |
-| **Geometric mean vs native Go** | | 1× | 0.9× | 3.5× | 11.3× | 3.0× | **1.7×** |
+| Fib | recursive calls, int arithmetic | 4.66 | 10.1 | 9.33 | 9.60 | 14.4 | **3.98** |
+| Sieve | []bool, tight loops | 8.21 | 11.1 | 45.4 | 77.4 | 14.3 | **10.9** |
+| Mandelbrot | float64 loops | 15.4 | 16.1 | 16.1 | 16.0 | 15.7 | **14.2** |
+| NBody | float64 struct fields via pointers | 8.81 | 10.5 | 16.2 | 1074 | 11.6 | **9.20** |
+| FNV32 | uint32 multiply and xor | 10.9 | 11.1 | 13.3 | 26.8 | 25.3 | **11.1** |
+| FNV64 | uint64 multiply and xor | 11.2 | 47.9 | 45.6 | 335 | 25.3 | **10.8** |
+| BinaryTrees | allocation, GC | 66.7 | 55.1 | **54.4** | 72.8 | 280 | 108 |
+| Interfaces | interface method calls | 21.0 | 13.2 | 35.7 | 45.2 | 105 | **30.7** |
+| MapInt | map[int]int insert, lookup, delete | 30.5 | 24.5 | 49.4 | **46.1** | 107 | 145 |
+| MapString | map[string]int counting | 9.60 | 24.1 | **26.6** | 135 | 32.4 | 80.3 |
+| Strings | strings.Builder, strconv, Split, Join | 10.3 | 18.3 | 46.2 | 611 | 35.5 | **13.5** |
+| Sort | sort.Ints, sort.Strings | 34.4 | 51.5 | 108 | 192 | 126 | **39.8** |
+| JSON | encoding/json Marshal + Unmarshal | 9.63 | 2.92 | 101 | 656 | 29.0 | **28.1** |
+| Sprintf | fmt.Sprintf | 16.9 | 10.4 | 160 | 1657 | 70.1 | **46.2** |
+| Channels | goroutines, unbuffered channels | 91.0 | — | 113 | 394 | 284 | **31.1** |
+| Add (ns/call) | calls from JS: two numbers in, one out | — | 0.59 | **0.59** | 3772 | 6.30 | 2.10 |
+| Upper (ns/call) | calls from JS: strings.ToUpper, a string in and out | 149 | 58.2 | 1358 | 15573 | 1201 | **896** |
+| Handle (ns/call) | calls from JS: a JSON request handler, a string in and out | 4051 | 1613 | 55864 | 434067 | 17849 | **16108** |
+| **Total ms, every kernel once** | | 405* | 329* | 1534 | 11622 | 1475 | **833** |
+| **Geometric mean vs native Go** | | 1× | 1.0× | 3.0× | 11.4× | 3.0× | **1.7×** |
 
 Startup (ms from starting to load the output to the first callable function):
 
 | Runtime | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | ---: | ---: | ---: | ---: |
-| Node.js | 98.7 | 111 | 48.6 | **23.2** |
-| Bun | 154 | 97.6 | 53.3 | **19.0** |
-| Chromium | 103 | 76.6 | 96.6 | **28.6** |
+| Node.js | 132 | 90.6 | 55.0 | **17.9** |
+| Bun | 252 | 297 | 63.2 | **23.1** |
+| Chromium | 86.8 | 79.3 | 69.5 | **31.6** |
 
 Output size (all kernels and the standard library they use):
 
 | | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | ---: | ---: | ---: | ---: |
 | Files | `kernels.js` | `bench.js` | `bench.wasm` + `wasm_exec.js` | `bench.wasm` + `wasm_exec.js` |
-| Raw | 1193 KiB | 1153 KiB | 4393 KiB | **1104 KiB** |
-| gzip -9 | 307 KiB | **228 KiB** | 1211 KiB | 406 KiB |
-| brotli -11 | 236 KiB | **169 KiB** | 894 KiB | 299 KiB |
+| Raw | 1194 KiB | 1153 KiB | 4393 KiB | **1104 KiB** |
+| gzip -9 | 309 KiB | **228 KiB** | 1211 KiB | 406 KiB |
+| brotli -11 | 238 KiB | **169 KiB** | 894 KiB | 299 KiB |
 <!-- bench:end -->
 
 What these numbers say about goesm today:
 
-- **Total time: TinyGo is fastest, then Go wasm, then goesm, with GopherJS far behind.** Running every kernel once takes goesm 1.7–3.3 s, Go wasm 1.4–1.6 s, TinyGo 0.9–1.0 s and GopherJS 9.6–11.2 s. In geometric mean against native Go that is 3.2–4.4× for goesm (4.2–4.6× before the first optimization round), 2.9–3.1× for Go wasm, 1.7–1.9× for TinyGo and 9.2–11.3× for GopherJS.
-- **Crossing from JavaScript is free for numbers under goesm, but strings and `encoding/json` still cost more than in wasm.** A goesm function is a JS function, so `Add` costs what it costs in hand-written JS (0.6–0.7 ns); through plain wasm exports TinyGo takes 2–3 ns and Go wasm 5–8 ns (microseconds through `syscall/js`), and GopherJS 3–4 µs. With a string in and out (`Upper`), goesm and wasm are all around 1–2 µs per call (goesm 2.9 µs under Bun; hand-written JS: 0.05–0.07 µs). The JSON request handler takes goesm 63–69 µs per call under Node.js and Chromium (107 µs under Bun) against 18–27 µs in wasm: goesm's `encoding/json`, which works through reflection, is its slowest part.
-- **Where goesm stands out and where it lags.** It is the fastest at allocation-heavy BinaryTrees on every runtime and matches hand-written JS on Fib, Mandelbrot, FNV32 and FNV64. It is furthest from native Go on Strings, Sprintf and JSON (8–13× under Node.js), standard-library code on byte strings, reflection and interfaces. Its output starts in 99–154 ms against 19–97 ms for wasm, and is 236 KiB with brotli against 169 KiB for GopherJS, 299 KiB for TinyGo and 894 KiB for Go wasm.
+- **Total time: TinyGo is fastest; goesm and Go wasm are close, and GopherJS is far behind.** Running every kernel once takes goesm 1.3–2.8 s, Go wasm 1.3–1.7 s, TinyGo 0.8–1.0 s and GopherJS 9.2–11.6 s. Under Chromium goesm (1.3 s) is ahead of Go wasm (1.7 s), under Node.js they are even (1.5 s), and under Bun goesm is behind (2.8 s, more than a fifth of it FNV64's BigInt arithmetic, which is slow in Bun's engine). In geometric mean against native Go that is 2.6–3.8× for goesm (4.2–4.6× before optimization started), 2.7–3.4× for Go wasm, 1.7–2.0× for TinyGo and 9.1–11.4× for GopherJS.
+- **Crossing from JavaScript is free for numbers under goesm, but strings and `encoding/json` still cost more than in wasm.** A goesm function is a JS function, so `Add` costs what it costs in hand-written JS (0.6–0.7 ns); through plain wasm exports TinyGo takes 2–3 ns and Go wasm 5–8 ns (microseconds through `syscall/js`), and GopherJS 3–4 µs. With a string in and out (`Upper`), goesm takes 1.1–1.4 µs per call under Chromium and Node.js (3.0 µs under Bun) and wasm 0.9–1.7 µs (hand-written JS: 0.05–0.07 µs). The JSON request handler takes goesm 48–56 µs per call under Chromium and Node.js (93 µs under Bun) against 16–23 µs in wasm: goesm's `encoding/json`, which works through reflection, is its slowest part.
+- **Where goesm stands out and where it lags.** It is the fastest at allocation-heavy BinaryTrees on every runtime, at Interfaces under Bun and Chromium and at the map kernels on some runtimes, and matches hand-written JS on Fib, Mandelbrot, FNV32 and FNV64. It is furthest from native Go on Sprintf and JSON (about 10× under Node.js), standard-library code on byte strings and reflection, and on Sieve, whose `[]bool` is a JS array of booleans. Its output starts in 87–252 ms against 18–70 ms for wasm, and is 238 KiB with brotli against 169 KiB for GopherJS, 299 KiB for TinyGo and 894 KiB for Go wasm.
 - **The gap is in goesm's lowering, not in JavaScript.** Hand-written JS is within about 1× of native Go under Node.js and Chromium, so what separates goesm from it is code goesm generates and its runtime, which is where optimization continues.
 
 ## How it works
