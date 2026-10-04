@@ -96,9 +96,12 @@ type Type interface {
 	common() *rtype
 }
 
-// rtype is a runtime type descriptor; Go code never looks inside it.
+// rtype is a runtime type descriptor; Go code never looks inside it. It is
+// not zero-size, so distinct descriptors are distinct pointers (goesm, like
+// gc, makes all pointers to zero-size values equal).
 type rtype struct {
 	_ [0]func()
+	_ uintptr
 }
 
 func (t *rtype) common() *rtype   { return t }
