@@ -224,7 +224,6 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 * backward `goto`; blocking operations, select, defer or goto inside a range-over-func body (reported as diagnostics); taking the address of type-parameter-typed variables; local types depending on type parameters; conversion from a slice to an array pointer (`(*[N]T)(s)`)
 * deadlock detection while the host still has pending work (timers, I/O), goroutine preemption, goroutine-local recover state
 * a JS calling ABI (automatic Go ⇔ JS value conversion)
-* Go-style output for a panic during package initialization (it is reported as an uncaught JS exception)
 * shared loop variables in range loops for files with `go` < 1.22
 
 **Known differences from native Go** (`TestKnownGaps` asserts that the first three still differ, via `Uint64Wrap`, `Int64Precision`, `AppendCap`, `StrconvParseInt64` and `FormatFloatShortest`; the rest are not deterministic enough to pin and are documented only):

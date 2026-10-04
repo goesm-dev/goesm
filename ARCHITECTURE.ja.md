@@ -224,7 +224,6 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * 後方への `goto`、range-over-func の body 内での blocking 操作 / select / defer / goto (診断として報告)、型 parameter 型の変数の address、型 parameter に依存する local type、slice から配列 pointer への変換 (`(*[N]T)(s)`)
 * host に未完了の処理 (timer、I/O) が残っている間の deadlock 検出、goroutine の preemption、goroutine-local な recover 状態
 * JS からの呼び出し ABI (Go の値 ⇔ JS 値の自動変換)
-* package 初期化中の panic の Go 形式の出力 (捕捉されない JS 例外として報告される)
 * `go 1.22` 未満の file における共有 loop 変数の range 意味論
 
 **native Go との既知の差分** (最初の 3 項目は `TestKnownGaps` の `Uint64Wrap`・`Int64Precision`・`AppendCap`・`StrconvParseInt64`・`FormatFloatShortest` で差分が存在することを固定。残りは決定的に比較できないため文書のみ):
