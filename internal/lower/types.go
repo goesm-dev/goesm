@@ -330,6 +330,9 @@ func (pe *pkgEmitter) structClass(t types.Type) string {
 func (pe *pkgEmitter) copyExpr(s string, t types.Type, tp tpScope) string {
 	t = types.Unalias(t)
 	if _, ok := t.(*types.TypeParam); ok {
+		if basicTypeParam(t) {
+			return s
+		}
 		return "$rt.copy(" + pe.typeDesc(t, tp) + ", " + s + ")"
 	}
 	switch t.Underlying().(type) {

@@ -43,8 +43,21 @@ export function makeSlice<T = any>(len: number, cap: number | undefined, zero: (
   cap = cap ?? len;
   if (!(cap >= len && cap <= maxSliceLen)) runtimePanic("makeslice: cap out of range");
   const arr = new Array<T>(cap);
-  for (let i = 0; i < cap; i++) arr[i] = zero();
+  fillZero(arr, 0, cap, zero);
   return new Slice(arr, 0, len, cap);
+}
+
+// fillZero sets arr[from:to] to zero values. A primitive zero value is
+// shared (Array.prototype.fill); an aggregate one is a new object per slot.
+function fillZero<T>(arr: T[], from: number, to: number, zero: () => T): void {
+  if (from >= to) return;
+  const z = zero();
+  if (typeof z !== "object" || z === null) {
+    arr.fill(z, from, to);
+    return;
+  }
+  arr[from] = z;
+  for (let i = from + 1; i < to; i++) arr[i] = zero();
 }
 
 export function len(s: S<any>): number {
@@ -191,9 +204,68 @@ export function append<T = any>(s: S<T>, vals: T[], zero: () => T, et?: Type): S
     arr[i] = agg ? copy(et!, v) : v;
   }
   for (let i = 0; i < vals.length; i++) arr[n + i] = vals[i];
-  for (let i = newLen; i < newCap; i++) arr[i] = zero();
+  fillZero(arr, newLen, newCap, zero);
   return new Slice(arr, 0, newLen, newCap);
 }
+
+// grown returns the backing array of append(s, ...) for a length of newLen
+// that exceeds s's capacity, holding s's elements; et as in append.
+function grown<T>(s: S<T>, newLen: number, zero: () => T, et?: Type): Slice<T> {
+  if (newLen > maxSliceLen) runtimePanic("growslice: len out of range");
+  const n = s === null ? 0 : s.$length;
+  const newCap = Math.min(grow(s === null ? 0 : s.$capacity, newLen), maxSliceLen);
+  const arr = new Array<T>(newCap);
+  const agg = et !== undefined && isAggregate(et);
+  for (let i = 0; i < n; i++) {
+    const v = s!.$array[s!.$offset + i];
+    arr[i] = agg ? copy(et!, v) : v;
+  }
+  fillZero(arr, newLen, newCap, zero);
+  return new Slice(arr, 0, newLen, newCap);
+}
+
+// append1 is append(s, v) for a non-aggregate v (the common case), without
+// the array of values append takes.
+export function append1<T = any>(s: S<T>, v: T, zero: () => T): Slice<T> {
+  if (s !== null && s.$length < s.$capacity) {
+    s.$array[s.$offset + s.$length] = v;
+    return new Slice(s.$array, s.$offset, s.$length + 1, s.$capacity);
+  }
+  const r = grown(s, (s === null ? 0 : s.$length) + 1, zero);
+  r.$array[r.$length - 1] = v;
+  return r;
+}
+
+// appendSlice is append(dst, src...) for a slice src of non-aggregates. When
+// src shares dst's backing array, the elements are read before any is
+// written (append(a[:1], a[:2]...)).
+export function appendSlice<T = any>(dst: S<T>, src: S<T>, zero: () => T): S<T> {
+  if (src === null || src.$length === 0) return dst;
+  if (dst !== null && dst.$array === src.$array) return append(dst, toArray(src), zero);
+  const n = dst === null ? 0 : dst.$length;
+  const m = src.$length;
+  let r: Slice<T>;
+  if (dst !== null && n + m <= dst.$capacity) r = new Slice(dst.$array, dst.$offset, n + m, dst.$capacity);
+  else r = grown(dst, n + m, zero);
+  const a = r.$array, o = r.$offset + n, sa = src.$array, so = src.$offset;
+  for (let i = 0; i < m; i++) a[o + i] = sa[so + i];
+  return r;
+}
+
+// appendString is append(b, s...) for a []byte b and a string s.
+export function appendString(b: S<number>, s: string): S<number> {
+  const m = s.length;
+  if (m === 0) return b;
+  const n = b === null ? 0 : b.$length;
+  let r: Slice<number>;
+  if (b !== null && n + m <= b.$capacity) r = new Slice(b.$array, b.$offset, n + m, b.$capacity);
+  else r = grown(b, n + m, zeroByte);
+  const a = r.$array, o = r.$offset + n;
+  for (let i = 0; i < m; i++) a[o + i] = s.charCodeAt(i);
+  return r;
+}
+
+const zeroByte = () => 0;
 
 // sliceToArray implements the conversion [n]T(s), which needs len(s) >= n.
 export function sliceToArray<T = any>(s: S<T>, n: number): T[] {

@@ -30,6 +30,7 @@ export function box(t: Type, v: any): Iface | null {
 // copy returns a Go copy of v of type t. Used where the static type is a type
 // parameter so the lowering cannot know whether v is an aggregate.
 export function copy(t: Type, v: any): any {
+  if (typeof v !== "object" || v === null) return v; // not an aggregate
   if (t.kind === Kind.Struct) return v.$clone(t);
   if (t.kind === Kind.Array) {
     const e = t.elem!;
@@ -114,6 +115,9 @@ function comparable(t: Type): boolean {
 }
 
 export function equal(t: Type, a: any, b: any): boolean {
+  // Numbers (NaN included), BigInts, strings and booleans compare as in Go.
+  const ta = typeof a;
+  if (ta === "number" || ta === "string" || ta === "boolean" || ta === "bigint") return a === b;
   switch (t.kind) {
     case Kind.Struct:
       for (const f of t.fields) {

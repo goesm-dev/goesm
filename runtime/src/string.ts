@@ -54,8 +54,19 @@ export function decodeRune(s: string, i: number): [number, number] {
 
 export function bytesToString(b: S<number>): string {
   if (b === null) return "";
+  const n = b.$length, a = b.$array, o = b.$offset;
+  if (n <= 16) {
+    let s = "";
+    for (let i = 0; i < n; i++) s += String.fromCharCode(a[o + i]);
+    return s;
+  }
+  // String.fromCharCode over chunks: one flat string instead of a rope of
+  // one-character concatenations. The chunks stay below engines' argument
+  // count limits.
   let s = "";
-  for (let i = 0; i < b.$length; i++) s += String.fromCharCode(b.$array[b.$offset + i]);
+  for (let i = 0; i < n; i += 8192) {
+    s += String.fromCharCode.apply(null, a.slice(o + i, o + Math.min(i + 8192, n)));
+  }
   return s;
 }
 
