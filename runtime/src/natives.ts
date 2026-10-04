@@ -157,6 +157,45 @@ export function native$strings$lowerASCII(s: string): string {
   return s.toLowerCase();
 }
 
+// slices.Sort of integers and strings (see the slices patch). A Go string's
+// code units are its bytes, so the default sort's order is Go's; integers
+// are sorted as numbers in a typed array.
+export function native$slices$sortBuiltin(i: Iface): boolean {
+  const t = i.t.elem!, x: S<any> = i.v;
+  let tmp: { sort(): unknown; [i: number]: any };
+  const n = x === null ? 0 : x.$length;
+  switch (t.kind) {
+    case Kind.String:
+      if (n < 2) return true;
+      tmp = (x!.$array as any[]).slice(x!.$offset, x!.$offset + n);
+      break;
+    case Kind.Int: case Kind.Int8: case Kind.Int16: case Kind.Int32:
+    case Kind.Uint: case Kind.Uint8: case Kind.Uint16: case Kind.Uint32: case Kind.Uintptr:
+      if (n < 2) return true;
+      if (x!.$array instanceof Uint8Array) {
+        x!.$array.subarray(x!.$offset, x!.$offset + n).sort();
+        return true;
+      }
+      tmp = new Float64Array(n);
+      break;
+    case Kind.Int64:
+      if (n < 2) return true;
+      tmp = new BigInt64Array(n);
+      break;
+    case Kind.Uint64:
+      if (n < 2) return true;
+      tmp = new BigUint64Array(n);
+      break;
+    default:
+      return false;
+  }
+  const a = x!.$array, off = x!.$offset;
+  if (t.kind !== Kind.String) for (let i = 0; i < n; i++) tmp[i] = a[off + i];
+  tmp.sort();
+  for (let i = 0; i < n; i++) a[off + i] = tmp[i];
+  return true;
+}
+
 export function native$internal$strconv$itoa(i: number): string {
   return Number.isSafeInteger(i) ? String(i) : BigInt.asIntN(64, BigInt(i)).toString();
 }
