@@ -114,7 +114,7 @@ func (fe *funcEmitter) expr(e ast.Expr) string {
 		if isAggregate(t) {
 			return fe.mark(e) + "$rt.deref(" + p + ")"
 		}
-		return fe.mark(e) + "$rt.deref(" + p + ").v"
+		return fe.mark(e) + nilChecked(p) + ".v"
 	case *ast.UnaryExpr:
 		return fe.unary(e)
 	case *ast.BinaryExpr:
@@ -232,6 +232,19 @@ func (fe *funcEmitter) convertCopy(s string, from, to types.Type) string {
 
 // fieldBase resolves a field selector (including promoted fields) to the JS
 // object holding the field and the property name.
+// nilChecked is pointer p as the object of a property access (p!.f, p!.v,
+// p![i]). The access itself checks for nil: JS throws a TypeError reading or
+// writing a property of null, which recover sees as Go's nil dereference
+// runtime error (toPanic), as do exported functions called from JS
+// (exportWrapper). An explicit check ($rt.deref) would cost V8 its fast
+// property access: NBody's loops run at half speed with one.
+func nilChecked(p string) string {
+	if simpleRef.MatchString(stripMarks(p)) {
+		return p + "!"
+	}
+	return "(" + p + ")!"
+}
+
 func (fe *funcEmitter) fieldBase(e *ast.SelectorExpr) (string, string) {
 	sel := fe.info.Selections[e]
 	obj := fe.expr(e.X)
@@ -240,9 +253,7 @@ func (fe *funcEmitter) fieldBase(e *ast.SelectorExpr) (string, string) {
 	for i, idx := range path {
 		base, isPtr := derefType(t)
 		if isPtr {
-			// A nil pointer (also an embedded one) is a Go panic, not a
-			// TypeError.
-			obj = "$rt.deref(" + obj + ")"
+			obj = nilChecked(obj) // also an embedded pointer
 		}
 		st := base.Underlying().(*types.Struct)
 		prop := fieldProp(st, idx)
@@ -478,7 +489,7 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 	case *types.Array:
 		return fmt.Sprintf("%s%s[%s]", m, fe.expr(e.X), fe.arrayIndex(e))
 	case *types.Pointer: // *array: the array object, nil-checked
-		return fmt.Sprintf("%s$rt.deref(%s)[%s]", m, fe.expr(e.X), fe.arrayIndex(e))
+		return fmt.Sprintf("%s%s[%s]", m, nilChecked(fe.expr(e.X)), fe.arrayIndex(e))
 	case *types.Interface:
 		// Type parameter without a core type, e.g. ~string | ~[]byte: the
 		// representation is chosen at run time.

@@ -452,7 +452,9 @@ func (fe *funcEmitter) funcLit(lit *ast.FuncLit) string {
 	return fmt.Sprintf("%s%s(%s): %s => {\n%s%s}", fe.mark(lit), prefix, strings.Join(params, ", "), ret, w.String(), strings.Repeat("  ", fe.w.indent))
 }
 
-var simpleRef = regexp.MustCompile(`^[\w$]+(\.[\w$]+)*$`)
+// simpleRef matches a variable or a chain of property accesses, which may
+// go through pointers (p!.f, see nilChecked).
+var simpleRef = regexp.MustCompile(`^[\w$]+!?(\.[\w$]+!?)*$`)
 
 // jsLiteral matches numeric and string literals, which never change.
 var jsLiteral = regexp.MustCompile(`^(\(?-?[0-9][0-9a-fA-Fxob._e+-]*\)?|"([^"\\]|\\.)*")$`)

@@ -45,10 +45,30 @@ export function makeSlice<T = any>(len: number, cap: number | undefined, zero: (
   if (!(len >= 0 && len <= maxSliceLen) || !Number.isInteger(len)) runtimePanic("makeslice: len out of range");
   cap = cap ?? len;
   if (!(cap >= len && cap <= maxSliceLen)) runtimePanic("makeslice: cap out of range");
-  if (zero === (zeroByte as any)) return new Slice(new Uint8Array(cap) as any, 0, len, cap);
+  if (zero === (zeroByte as any)) return new Slice(newBytes(cap) as any, 0, len, cap);
   const arr = new Array<T>(cap);
   fillZero(arr, 0, cap, zero);
   return new Slice(arr, 0, len, cap);
+}
+
+// newBytes returns n zero bytes. V8 keeps the store of a Uint8Array of at
+// most 64 bytes on the JS heap but allocates a larger one outside it, which
+// costs 1-3 µs however small; so, like Node's Buffer pool, mid-sized arrays
+// are views into a shared slab (16 KiB, at least four arrays), each range
+// handed out once and so still zero. A view keeps its whole slab alive.
+const slabSize = 16384;
+let slab: ArrayBuffer | undefined;
+let slabOff = slabSize;
+
+export function newBytes(n: number): Uint8Array {
+  if (n <= 64 || n > slabSize >>> 2) return new Uint8Array(n);
+  if (slabOff + n > slabSize) {
+    slab = new ArrayBuffer(slabSize);
+    slabOff = 0;
+  }
+  const a = new Uint8Array(slab!, slabOff, n);
+  slabOff = (slabOff + n + 7) & ~7;
+  return a;
 }
 
 // isBytes reports whether a is a Uint8Array backing a []byte.
@@ -215,7 +235,7 @@ function grown<T>(s: S<T>, newLen: number, zero: () => T, et?: Type): Slice<T> {
   const n = s === null ? 0 : s.$length;
   const newCap = Math.min(grow(s === null ? 0 : s.$capacity, newLen), maxSliceLen);
   if (zero === (zeroByte as any)) {
-    const b = new Uint8Array(newCap);
+    const b = newBytes(newCap);
     if (n > 0) copyInto(b, 0, s!.$array, s!.$offset, n);
     return new Slice(b as any, 0, newLen, newCap);
   }

@@ -23,7 +23,7 @@ import {
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
   sliceElemRef, sliceLit, sliceToArrayPtr, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt, topString,
-  typeArgsName,
+  toPanic, typeArgsName,
 } from "./index.ts";
 import type { S } from "./index.ts";
 
@@ -1126,9 +1126,14 @@ export function native$syscall$js$copyBytesToJS(dst: any, src: S<number>): [numb
 export function native$syscall$js$makeFunc(fn: (self: any, args: S<any>) => any): any {
   return function (this: any, ...args: any[]): any {
     const a = args.map(toRef);
-    const r = fn(toRef(this), new Slice(a, 0, a.length, a.length));
+    let r;
+    try {
+      r = fn(toRef(this), new Slice(a, 0, a.length, a.length));
+    } catch (e) {
+      throw toPanic(e); // a nil dereference is a TypeError until here
+    }
     // A Go function that blocks was lowered to an async function.
-    return r instanceof Promise ? r.then(fromRef) : fromRef(r);
+    return r instanceof Promise ? r.then(fromRef, (e) => { throw toPanic(e); }) : fromRef(r);
   };
 }
 

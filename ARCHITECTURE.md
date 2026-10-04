@@ -97,7 +97,7 @@ The weakness in 2 is covered by spilling to temporaries in the lowering where ev
 | string | JS string with one code unit per byte | `len`, indexing, slicing, comparison and invalid UTF-8 match Go; converted at the JS boundary with `toJSString` / `fromJSString` |
 | struct | instance of a generated class (`$clone` / `$set`) | value copies are inserted by the lowering; the object identity is the address |
 | array | JS array | copied explicitly, like structs |
-| slice | `Slice{$array,$offset,$length,$capacity}`, nil is `null`; `$array` is a JS array, or a `Uint8Array` for a `[]byte` made by `make`, `append` or `[]byte(s)` (slices of Go arrays and literals keep JS arrays) | append / re-slice aliasing as in Go |
+| slice | `Slice{$array,$offset,$length,$capacity}`, nil is `null`; `$array` is a JS array, or a `Uint8Array` for a `[]byte` made by `make`, `append` or `[]byte(s)` (slices of Go arrays and literals keep JS arrays); one of 65 bytes to 4 KiB is a view into a shared 16 KiB slab, since V8 allocates the store of a larger `Uint8Array` outside its heap at 1-3 µs each | append / re-slice aliasing as in Go |
 | map | `GoMap` (JS `Map` + hash keys with Go equality), nil is `null` | struct / interface / NaN keys, nil-map panics |
 | pointer | `*struct` / `*array` is the object itself; otherwise an object with a `.v` accessor (`Cell` / `FieldPtr` / `IndexPtr`) | `&x == &x` and `&s.f == &s.f` guaranteed by caching |
 | interface | `Iface{t: type descriptor, v: value}`, nil is `null` | keeps the dynamic type: `MyInt(1)` ≠ `int(1)`, an interface holding a nil `*T` is non-nil |
@@ -147,7 +147,7 @@ function F() {
 }
 ```
 
-* A panic throws a `GoPanic` (a JS Error). The panic value is kept as an interface value; runtime errors have types implementing `runtime.Error` (`Error()` / `RuntimeError()`). A JS `TypeError` (touching null) becomes the nil pointer dereference runtime error.
+* A panic throws a `GoPanic` (a JS Error). The panic value is kept as an interface value; runtime errors have types implementing `runtime.Error` (`Error()` / `RuntimeError()`). A JS `TypeError` (touching null) becomes the nil pointer dereference runtime error. Field and element accesses through pointers (`p.f`, `*p`, `p[i]` on `*[N]T`) rely on that instead of an explicit nil check, which costs V8 its fast property access; the entry package's exported functions and methods, and Go functions called back from JS, are wrapped so that JS still sees a `GoPanic`.
 * The function value and arguments of a deferred call are evaluated at the defer statement and captured in a closure.
 * recover() recovers only in the deferred function itself. Each deferred call records which function it calls when that is known statically (a function, a method of a concrete type, a function literal, the `recover` builtin), and a function that calls recover() asks on entry whether it is that call (`const $rf = $rt.recoverFrame("main.F")`; a recursive call is not). The answer is the frame whose panic recover() then recovers, so it also works after an await. A deferred `recover()` is called by the function that defers it.
 * From JS, an unrecovered panic is a `GoPanic` exception; with `--enable-source-maps` its stack points at `.go` lines (tested).
