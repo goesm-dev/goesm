@@ -158,10 +158,13 @@ var conformanceDirs = []string{".", "ken", "chan", "interface", "typeparam", "fi
 
 // conformanceDriver imports the bundle (running package initialisation and
 // main) and exits like a Go program: as soon as main returns, without
-// waiting for other goroutines; with status 2 on an unrecovered panic.
+// waiting for other goroutines; with status 2 on an unrecovered panic. The
+// driver is removed from process.argv, so os.Args is just the program.
 const conformanceDriver = `import { pathToFileURL } from "node:url";
+const bundle = process.argv[2];
+process.argv.splice(1, 1);
 try {
-  await import(pathToFileURL(process.argv[2]).href);
+  await import(pathToFileURL(bundle).href);
 } catch (e) {
   const msg = e && e.message !== undefined ? String(e.message) : String(e);
   process.stderr.write((msg.startsWith("panic: ") ? msg : "panic: " + msg) + "\n");
