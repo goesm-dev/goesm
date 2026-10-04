@@ -70,7 +70,8 @@ cd bench
 mise install                   # Go, Node.js, Bun and TinyGo
 npm ci                         # playwright-core, for the Chromium runs
 mise exec -- sh build.sh       # builds everything into out/
-mise exec -- node js/compare.mjs            # results/results.{json,md}
+mise exec -- node js/compare.mjs            # results/results.{json,md}, results/charts/*.svg
+node js/report.mjs results/results.json -readme   # copy the summary and charts into ../README(.ja).md
 ```
 
 `compare.mjs` takes `-runtimes node,bun,chromium`, `-impls goesm,gopherjs,gowasm,tinygo,js`, `-kernels Fib,Sieve` and `-quick` (shorter warm-up and fewer samples). Chromium is found the way Playwright finds it (`PLAYWRIGHT_BROWSERS_PATH`, or `npx playwright-core install chromium`); `CHROMIUM_PATH` overrides it. One implementation can also be run by itself (`node js/run.mjs goesm`, `bun js/run.mjs tinygo Fib`), or in any browser by serving `bench/` and opening `js/browser.html?impl=goesm`.

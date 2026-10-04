@@ -70,7 +70,8 @@ cd bench
 mise install                   # Go、Node.js、Bun、TinyGo
 npm ci                         # Chromium の計測に使う playwright-core
 mise exec -- sh build.sh       # すべてを out/ にビルド
-mise exec -- node js/compare.mjs            # results/results.{json,md}
+mise exec -- node js/compare.mjs            # results/results.{json,md}、results/charts/*.svg
+node js/report.mjs results/results.json -readme   # 要約とグラフを ../README(.ja).md にコピー
 ```
 
 `compare.mjs` には `-runtimes node,bun,chromium`、`-impls goesm,gopherjs,gowasm,tinygo,js`、`-kernels Fib,Sieve`、`-quick`（ウォームアップと計測回数を減らす）を指定できます。Chromium は Playwright と同じ方法で探します（`PLAYWRIGHT_BROWSERS_PATH`、または `npx playwright-core install chromium`）。`CHROMIUM_PATH` で上書きできます。1 つの実装だけを実行することもでき（`node js/run.mjs goesm`、`bun js/run.mjs tinygo Fib`）、`bench/` を配信して `js/browser.html?impl=goesm` を開けば任意のブラウザでも動きます。
