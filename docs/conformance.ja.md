@@ -42,18 +42,18 @@ GOTOOLCHAIN=go1.27.0 GOESM_CONFORMANCE=1 GOESM_GOROOT_TEST=/tmp/go/test \
 
 ## 結果
 
-Go 1.27.0 の `test/` ディレクトリ、Node.js 22、2026-10-04 時点の main（このスイートに対する 2 回目の修正のあと）での結果です。
+Go 1.27.0 の `test/` ディレクトリ、Node.js 22、2026-10-04 時点の main（このスイートに対する 3 回目の修正のあと）での結果です。
 
 | ディレクトリ | 通過率 | skip |
 |---|---|---|
-| `test/` | 86.8% (118/136) | 9 |
+| `test/` | 87.5% (119/136) | 9 |
 | `chan/` | 100.0% (17/17) | 0 |
-| `fixedbugs/` | 92.4% (569/616) | 30 |
+| `fixedbugs/` | 92.7% (571/616) | 30 |
 | `interface/` | 100.0% (11/11) | 0 |
 | `ken/` | 100.0% (40/40) | 0 |
-| `typeparam/` | 98.6% (139/141) | 0 |
-| **合計** | **93.0% (894/961)** | 39 |
-| import のないテスト | 98.8% (506/512) | |
+| `typeparam/` | 99.3% (140/141) | 0 |
+| **合計** | **93.4% (898/961)** | 39 |
+| import のないテスト | 99.2% (508/512) | |
 
 `GOESM_CONFORMANCE_NATIVE=1` で確認すると、native の `go run` は対象テストのすべてで `.out` を再現します。例外は go コマンドを呼び出す（`os/exec`）11 本で、これはどのみち goesm ではビルドできません。
 
@@ -61,9 +61,9 @@ Go 1.27.0 の `test/` ディレクトリ、Node.js 22、2026-10-04 時点の mai
 
 | パッケージ | 通過率 |
 |---|---|
-| `fmt` | 90.4% (189/209) |
+| `fmt` | 91.4% (191/209) |
 | `runtime` | 69.1% (76/110) |
-| `reflect` | 79.4% (54/68) |
+| `reflect` | 80.9% (55/68) |
 | `os` | 87.9% (51/58) |
 | `unsafe` | 67.3% (37/55) |
 | `strings` | 66.7% (28/42) |
@@ -72,14 +72,14 @@ Go 1.27.0 の `test/` ディレクトリ、Node.js 22、2026-10-04 時点の mai
 | `strconv` | 87.5% (14/16) |
 | `sync` | 100.0% (15/15) |
 
-この表は毎回の実行結果にも出力されます。失敗した 67 本は次のように分類できます。
+この表は毎回の実行結果にも出力されます。失敗した 63 本は次のように分類できます。
 
 | 分類 | テスト |
 |---|---|
 | アドレス空間がない: field offset 以外の `unsafe` のポインタ演算、`uintptr` からポインタへの変換、`unsafe.Pointer` を介したメモリの読み替え | `cmp`、`strcopy`、`unsafebuiltins` など 19 本（goesm がビルド時か実行時に報告） |
 | `runtime.Caller`、スタックトレース、PC テーブル | `inline_literal`、`devirtualization_nil_panics`、`fixedbugs/bug347`、`issue4562`、`issue5856`、`issue7690`、`issue14646`、`issue18149`、`issue21879`、`issue22083`、`issue22662`、`issue27201`、`issue29504`、`issue33724`、`issue56990`、`issue58300`、`issue58300b`、`issue79762` |
 | GC の観測（finalizer、`MemStats`、liveness） | `init1`、`stackobj`、`stackobj3`、`fixedbugs/issue15281`、`issue27518b`、`issue32477`、`issue46725`、`issue54343` |
-| 未実装 | `range4` と `fixedbugs/issue71675`（range-over-func 本体の `defer`）、`fixedbugs/issue72063` と `typeparam/nested`（型パラメータに依存するローカル型）、`fixedbugs/issue30606`、`issue30606b`、`issue49110`（`reflect.StructOf`）、`fixedbugs/issue73748a`、`issue73748b`（`runtime/trace`） |
+| 未実装 | `fixedbugs/issue30606`、`issue30606b`、`issue49110`（`reflect.StructOf`）、`fixedbugs/issue73748a`、`issue73748b`（`runtime/trace`） |
 | メソッドを包む関数値を通した `recover`（既知の差異） | `fixedbugs/issue73917`、`issue73920`。`recover` と `recover1` は再帰呼び出しや reflect で作った deferred 呼び出しも検査する |
 | 64 ビットの `int`（JS の number で、2^53 未満で正確） | `divmod`（タイムアウト）、`fixedbugs/issue30116u` |
 | アドレスとメモリレイアウト | `nilptr`、`fixedbugs/bug260`、`bug348`、`issue29190`（JS の配列の上限より長い、サイズ 0 の要素のスライス） |
