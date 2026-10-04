@@ -2,8 +2,8 @@
 // (syntax from go/parser, semantics from go/types, both run by the go
 // toolchain via go/packages) and emits one TypeScript module per Go package.
 // Go-specific semantics that JavaScript lacks are expressed as calls into
-// @goesm/runtime. The generated TypeScript is an IR for esbuild; it is never
-// type-checked and TypeScript's type system makes no Go typing decisions.
+// @goesm/runtime. Go's type checker makes every typing decision; the
+// TypeScript types only describe the result (CI checks them with tsc).
 package lower
 
 import (
@@ -14,6 +14,9 @@ import (
 	"sort"
 
 	"golang.org/x/tools/go/packages"
+	"golang.org/x/tools/go/types/typeutil"
+
+	"github.com/goesm-dev/goesm/internal/natives"
 )
 
 // Diagnostic is a lowering diagnostic at an original .go position. These are
@@ -40,6 +43,9 @@ type Program struct {
 	// *ast.FuncLit) that may block and are therefore lowered to async
 	// functions.
 	async map[any]bool
+	// syncOnly are blocking-looking functions lowered as synchronous
+	// (natives.Sync, and the function literals inside them).
+	syncOnly map[any]bool
 	// boxed are variables that need a Cell because their address is taken
 	// (or, for package variables, because another package assigns them).
 	boxed map[*types.Var]bool
@@ -53,6 +59,27 @@ type Program struct {
 	// values (T.M, (*T).M, I.M), by method name: calling such a value
 	// passes the receiver as the first argument.
 	methodExprs map[string][]*types.Signature
+	// ifaceVals are the interface (and type parameter) methods used as
+	// method values (x.M with x an interface): calling such a value calls
+	// the method of x's dynamic type.
+	ifaceVals []ifaceCall
+	// ifaceImpls are the methods of the types stored in interface values,
+	// by name (see findIfaceTypes).
+	ifaceImpls map[string][]ifaceImpl
+	implCache  map[[2]any]bool
+	msets      typeutil.MethodSetCache
+	// lockCalls are the program's sync.Mutex, RWMutex and Locker Lock and
+	// RLock calls; waitLocks those lowered to a waiting variant, and
+	// escMutexes the mutexes whose address escapes (lockcheck.go).
+	lockCalls  []mutexCall
+	waitLocks  map[*ast.CallExpr]*types.Func
+	escMutexes map[types.Object]bool
+	// lockVals are the Lock and RLock method values and method expression
+	// values; waitLockVals those bound to a waiting variant.
+	lockVals     []lockVal
+	waitLockVals map[*ast.SelectorExpr]*types.Func
+	// goexits are the functions that may call runtime.Goexit.
+	goexits map[any]bool
 
 	Diags []Diagnostic
 	// Warns are standard library functions that were replaced by stubs
@@ -68,12 +95,18 @@ func (p *Program) errorf(pos token.Pos, format string, args ...any) {
 // set of standard library packages.
 func NewProgram(fset *token.FileSet, pkgs []*packages.Package, std map[*packages.Package]bool) *Program {
 	p := &Program{
-		Fset:    fset,
-		Pkgs:    pkgs,
-		std:     std,
-		byTypes: map[*types.Package]*packages.Package{},
-		async:   map[any]bool{},
-		boxed:   map[*types.Var]bool{},
+		Fset:     fset,
+		Pkgs:     pkgs,
+		std:      std,
+		byTypes:  map[*types.Package]*packages.Package{},
+		async:    map[any]bool{},
+		syncOnly: map[any]bool{},
+		boxed:    map[*types.Var]bool{},
+
+		ifaceImpls:   map[string][]ifaceImpl{},
+		implCache:    map[[2]any]bool{},
+		waitLocks:    map[*ast.CallExpr]*types.Func{},
+		waitLockVals: map[*ast.SelectorExpr]*types.Func{},
 	}
 	for _, pkg := range pkgs {
 		p.byTypes[pkg.Types] = pkg
@@ -162,17 +195,20 @@ func (p *Program) analyzeAddrs() {
 // Blocking analysis. A Go function is lowered to an async JS function iff it
 // may block: it performs a channel operation or select, calls (or defers) a
 // function that may block, or makes a dynamic call (function value or
-// interface method) that may reach one. Dynamic calls are resolved
-// conservatively by signature / method name over the whole program.
+// interface method) that may reach one. Function values are resolved
+// conservatively by signature over the whole program, interface methods by
+// the types stored in interface values (see findIfaceTypes).
 type unit struct {
-	key       any // *types.Func or *ast.FuncLit
-	sig       *types.Signature
-	isMethod  bool
-	name      string
-	blocking  bool
-	callees   []any
-	dynSigs   []*types.Signature
-	ifaceMeth []string
+	key        any // *types.Func or *ast.FuncLit
+	sig        *types.Signature
+	isMethod   bool
+	name       string
+	blocking   bool
+	callees    []any
+	dynSigs    []*types.Signature
+	ifaceCalls []ifaceCall
+	lockCalls  []*ast.CallExpr // sync Lock and RLock calls (lockcheck.go)
+	goexit     bool            // calls runtime.Goexit
 }
 
 func (p *Program) analyzeBlocking() {
@@ -187,10 +223,19 @@ func (p *Program) analyzeBlocking() {
 						return false
 					}
 					fn := info.Defs[n.Name].(*types.Func)
-					units = append(units, p.scanUnit(info, fn, fn.Signature(), n.Recv != nil, fn.Name(), n.Body))
+					if natives.Sync(fn.FullName()) && p.std[pkg] {
+						p.syncOnly[fn] = true
+						ast.Inspect(n.Body, func(m ast.Node) bool {
+							if lit, ok := m.(*ast.FuncLit); ok {
+								p.syncOnly[lit] = true
+							}
+							return true
+						})
+					}
+					units = append(units, p.scanUnit(pkg, fn, fn.Signature(), n.Recv != nil, fn.Name(), n.Body))
 				case *ast.FuncLit:
 					sig, _ := info.TypeOf(n).(*types.Signature)
-					units = append(units, p.scanUnit(info, n, sig, false, "", n.Body))
+					units = append(units, p.scanUnit(pkg, n, sig, false, "", n.Body))
 				}
 				return true
 			})
@@ -198,13 +243,21 @@ func (p *Program) analyzeBlocking() {
 	}
 	p.units = units
 	p.funcValues, p.methodExprs = p.findFuncValues()
+	p.findIfaceTypes()
+	p.propagateBlocking()
+	for p.findWaitLocks() {
+		p.propagateBlocking()
+	}
+}
+
+func (p *Program) propagateBlocking() {
 	for changed := true; changed; {
 		changed = false
-		for _, u := range units {
+		for _, u := range p.units {
 			if p.async[u.key] {
 				continue
 			}
-			if p.unitBlocks(u, units) {
+			if p.unitBlocks(u, p.units) {
 				p.async[u.key] = true
 				changed = true
 			}
@@ -244,8 +297,18 @@ func (p *Program) findFuncValues() (map[any]bool, map[string][]*types.Signature)
 							if sig != nil {
 								exprs[n.Sel.Name] = append(exprs[n.Sel.Name], sig)
 							}
+							p.addLockVal(pkg, n, nil)
 						} else if fn, ok := info.Uses[n.Sel].(*types.Func); ok {
 							vals[fn.Origin()] = true
+							if sel != nil && sel.Kind() == types.MethodVal {
+								p.addLockVal(pkg, n, n.X)
+								if recv := fn.Signature().Recv().Type(); isIface(recv) {
+									if tp, ok := types.Unalias(sel.Recv()).(*types.TypeParam); ok {
+										recv = tp
+									}
+									p.ifaceVals = append(p.ifaceVals, ifaceCall{recv, fn})
+								}
+							}
 						}
 						callees[n.Sel] = true // the Sel ident is visited next
 					}
@@ -263,7 +326,14 @@ func (p *Program) findFuncValues() (map[any]bool, map[string][]*types.Signature)
 	return vals, exprs
 }
 
+// SyncOnly reports whether a function (*types.Func) or literal is lowered as
+// synchronous although it contains channel operations (see natives.Sync).
+func (p *Program) SyncOnly(key any) bool { return p.syncOnly[key] }
+
 func (p *Program) unitBlocks(u *unit, units []*unit) bool {
+	if p.syncOnly[u.key] {
+		return false
+	}
 	if u.blocking {
 		return true
 	}
@@ -291,17 +361,33 @@ func (p *Program) unitBlocks(u *unit, units []*unit) bool {
 			}
 		}
 	}
-	for _, m := range u.ifaceMeth {
-		for _, o := range units {
-			if p.async[o.key] && o.isMethod && o.name == m {
+	for _, s := range u.dynSigs {
+		for _, lv := range p.lockVals {
+			if p.waitLockVals[lv.sel] != nil && sigMatch(s, lv.sig) {
 				return true
 			}
+		}
+		for _, c := range p.ifaceVals {
+			if sigMatch(s, c.fn.Signature()) && p.ifaceCallBlocks(c.recv, c.fn, map[types.Type]bool{}) {
+				return true
+			}
+		}
+	}
+	for _, c := range u.lockCalls {
+		if p.waitLocks[c] != nil {
+			return true
+		}
+	}
+	for _, c := range u.ifaceCalls {
+		if p.ifaceCallBlocks(c.recv, c.fn, map[types.Type]bool{}) {
+			return true
 		}
 	}
 	return false
 }
 
-func (p *Program) scanUnit(info *types.Info, key any, sig *types.Signature, isMethod bool, name string, body *ast.BlockStmt) *unit {
+func (p *Program) scanUnit(pkg *packages.Package, key any, sig *types.Signature, isMethod bool, name string, body *ast.BlockStmt) *unit {
+	info := pkg.TypesInfo
 	u := &unit{key: key, sig: sig, isMethod: isMethod, name: name}
 	var inGo map[*ast.CallExpr]bool
 	ast.Inspect(body, func(n ast.Node) bool {
@@ -340,14 +426,32 @@ func (p *Program) scanUnit(info *types.Info, key any, sig *types.Signature, isMe
 			// A `go` call's callee runs on its own goroutine; its arguments
 			// are still evaluated here and are visited as children.
 			p.classifyCall(info, n, u, inGo[n])
+			if fn, ok := info.Uses[identOf(unparen(n.Fun))].(*types.Func); ok && isGoexit(fn) && !inGo[n] {
+				u.goexit = true
+			}
+			if mc, ok := mutexMethod(info, n); ok && mc.slow != nil && !isSyncPkg(pkg) {
+				p.lockCalls = append(p.lockCalls, mc)
+				if !inGo[n] {
+					u.lockCalls = append(u.lockCalls, n)
+				}
+			}
 		}
 		return true
 	})
 	return u
 }
 
+// isSyncPkg reports whether pkg is the sync package, whose own locking
+// (rlocker, Cond.Wait, lockerSlow) is written for goesm's locks and left out
+// of lockcheck.go's analysis.
+func isSyncPkg(pkg *packages.Package) bool { return pkg.PkgPath == "sync" }
+
 func (p *Program) classifyCall(info *types.Info, call *ast.CallExpr, u *unit, isGo bool) {
 	if isGo {
+		return
+	}
+	if p.waitLocks[call] != nil {
+		u.blocking = true
 		return
 	}
 	p.classifyFunc(info, call.Fun, u)
@@ -384,18 +488,13 @@ func (p *Program) classifyFunc(info *types.Info, fun ast.Expr, u *unit) {
 	case *ast.SelectorExpr:
 		if sel, ok := info.Selections[f]; ok {
 			switch sel.Kind() {
-			case types.MethodVal:
+			case types.MethodVal, types.MethodExpr:
 				fn := sel.Obj().(*types.Func)
-				if isIface(fn.Signature().Recv().Type()) {
-					u.ifaceMeth = append(u.ifaceMeth, fn.Name())
-				} else {
-					u.callees = append(u.callees, fn.Origin())
-				}
-				return
-			case types.MethodExpr:
-				fn := sel.Obj().(*types.Func)
-				if isIface(fn.Signature().Recv().Type()) {
-					u.ifaceMeth = append(u.ifaceMeth, fn.Name())
+				if recv := fn.Signature().Recv().Type(); isIface(recv) {
+					if tp, ok := types.Unalias(sel.Recv()).(*types.TypeParam); ok {
+						recv = tp
+					}
+					u.ifaceCalls = append(u.ifaceCalls, ifaceCall{recv, fn})
 				} else {
 					u.callees = append(u.callees, fn.Origin())
 				}

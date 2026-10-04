@@ -1,0 +1,2 @@
+Bun keeps spinning on a top-level await that never settles (an init that
+blocks forever), so this program runs under Node only.

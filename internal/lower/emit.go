@@ -27,6 +27,7 @@ import (
 const (
 	RuntimeFile = "@goesm/runtime/index.ts"
 	NativesFile = "@goesm/runtime/natives.ts"
+	ProgramFile = "@goesm/runtime/program.ts"
 )
 
 // ModuleFile is the path of the module of a Go package below the root.
@@ -108,6 +109,8 @@ type pkgEmitter struct {
 	// cannot lower yet become stubs that panic when called (a warning, not
 	// an error: most programs never reach them).
 	std bool
+	// runsMain: the module is a program's main package and runs main.
+	runsMain bool
 	// usesNatives: the module imports the runtime's natives ($natives).
 	usesNatives bool
 
@@ -319,12 +322,9 @@ func (pe *pkgEmitter) emit() *Module {
 		pe.vars.ln("%s;", call)
 	}
 	if pe.isEntry && pkg.Name == "main" {
-		if m, ok := scope.Lookup("main").(*types.Func); ok {
-			call := "main()"
-			if pe.prog.IsAsync(m) {
-				call = "await " + call
-			}
-			pe.vars.ln("%s;", call)
+		if _, ok := scope.Lookup("main").(*types.Func); ok {
+			pe.vars.ln("$rt.runMain(main);")
+			pe.runsMain = true
 		}
 	}
 
@@ -350,6 +350,10 @@ func (pe *pkgEmitter) emit() *Module {
 	out.ln("import * as $rt from %s;", jsString(relSpecifier(pkg.PkgPath, RuntimeFile)))
 	if pe.usesNatives {
 		out.ln("import * as $natives from %s;", jsString(relSpecifier(pkg.PkgPath, NativesFile)))
+	}
+	if pe.runsMain {
+		// Before the dependencies: their initialization may panic.
+		out.ln("import %s;", jsString(relSpecifier(pkg.PkgPath, ProgramFile)))
 	}
 	// Evaluate every dependency, not only referenced ones: a blank import, or
 	// one used only through folded constants, must still run its variable

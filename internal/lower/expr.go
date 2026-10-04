@@ -199,6 +199,15 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 		obj, prop := fe.fieldBase(e)
 		return fe.mark(e) + obj + "." + prop
 	case types.MethodVal:
+		if slow, locker := fe.pe.prog.WaitLockVal(e); locker {
+			// l.Lock bound to the waiting variant (lockcheck.go).
+			fn := sel.Obj().(*types.Func)
+			l := fe.convert(fe.expr(e.X), fe.info.TypeOf(e.X), fn.Signature().Recv().Type())
+			return fmt.Sprintf("%s((r: any) => () => %s(null, r))($rt.deref(%s))", fe.mark(e), fe.pe.methodFuncName(slow), l)
+		} else if slow != nil {
+			_, recv, _ := fe.methodTarget(e, sel)
+			return fmt.Sprintf("%s((r: any) => () => %s(r))(%s)", fe.mark(e), fe.pe.methodFuncName(slow), recv)
+		}
 		fn, recv, iface := fe.methodTarget(e, sel)
 		r := fe.tmp()
 		if iface { // a nil interface panics when the method value is taken
@@ -213,6 +222,11 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 		fn = "(" + strings.Replace(fn, "(", " as any)(", 1)
 		return fmt.Sprintf("((%s: any) => (...a: any[]) => %s%s, ...a))(%s)", r, fn, r, recv)
 	case types.MethodExpr:
+		if slow, locker := fe.pe.prog.WaitLockVal(e); locker {
+			return fmt.Sprintf("((r: any) => %s(null, r))", fe.pe.methodFuncName(slow))
+		} else if slow != nil {
+			return fmt.Sprintf("((r: any) => %s(r))", fe.pe.methodFuncName(slow))
+		}
 		fn := sel.Obj().(*types.Func)
 		recvT := sel.Recv()
 		if isTypeParam(recvT) { // T.M for a type parameter: dispatch on the type argument
@@ -765,7 +779,7 @@ func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
 	case token.AND:
 		return fe.addrOf(e.X)
 	case token.ARROW:
-		return fmt.Sprintf("%s(await $rt.recv(%s))[0]", fe.mark(e), fe.expr(e.X))
+		return fe.mark(e) + fe.recvExpr(fe.expr(e.X)) + "[0]"
 	case token.NOT:
 		return "!" + fe.expr(e.X)
 	case token.ADD:
@@ -820,12 +834,27 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 	var callee string
 	switch f := fun.(type) {
 	case *ast.SelectorExpr:
+		if sel, ok := fe.info.Selections[f]; ok && sel.Kind() == types.MethodExpr {
+			if slow, locker := fe.pe.prog.WaitLock(e); slow != nil { // (*sync.Mutex).Lock(&mu)
+				if locker {
+					return fe.awaitIf(e, fe.mark(e)+fe.pe.methodFuncName(slow)+"(null, "+args+")")
+				}
+				return fe.awaitIf(e, fe.mark(e)+fe.pe.methodFuncName(slow)+"("+args+")")
+			}
+		}
 		if sel, ok := fe.info.Selections[f]; ok && sel.Kind() == types.MethodVal {
 			if bound, ok := fe.override[f]; ok { // a method value evaluated earlier (defer)
 				return fe.awaitIf(e, fe.mark(e)+"("+bound+" as any)("+args+")")
 			}
 			prefix, recv, iface := fe.methodTarget(f, sel)
 			fn := sel.Obj().(*types.Func)
+			if slow, locker := fe.pe.prog.WaitLock(e); locker {
+				// A type parameter constrained by Locker is boxed as one.
+				l := fe.convert(fe.expr(f.X), fe.info.TypeOf(f.X), fn.Signature().Recv().Type())
+				return fe.awaitIf(e, fe.mark(e)+fe.pe.methodFuncName(slow)+"(null, "+l+")")
+			} else if slow != nil {
+				prefix = fe.pe.methodFuncName(slow) + "("
+			}
 			if iface {
 				callee = fmt.Sprintf("$rt.icall(%s, %s", recv, jsString(methodKey(fn)))
 				if args != "" {
@@ -944,7 +973,8 @@ func (fe *funcEmitter) args(e *ast.CallExpr, sig *types.Signature) string {
 				rest := parts[n-1:]
 				parts = append(fixed, "$rt.sliceLit<"+variadicElemTS+">(["+strings.Join(rest, ", ")+"])")
 			}
-			return fmt.Sprintf("...((%s: any) => [%s])(%s)", t, strings.Join(parts, ", "), fe.expr(e.Args[0]))
+			anys := strings.TrimSuffix(strings.Repeat("any, ", len(parts)), ", ")
+			return fmt.Sprintf("...((%s: any): [%s] => [%s])(%s)", t, anys, strings.Join(parts, ", "), fe.expr(e.Args[0]))
 		}
 	}
 	for i, a := range e.Args {
@@ -1162,47 +1192,19 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 	case "recover":
 		return m + "$rt.recover()"
 	case "print", "println":
-		// Floats are formatted here: at run time a JS number does not say
-		// whether it was a Go float.
-		printArg := func(v string, t types.Type) string {
-			if _, isTP := types.Unalias(t).(*types.TypeParam); isTP {
-				return v // the format depends on the type argument
-			}
-			if b, ok := under(t).(*types.Basic); ok && b.Info()&types.IsFloat != 0 {
-				bits := 64
-				if b.Kind() == types.Float32 {
-					bits = 32
-				}
-				return fmt.Sprintf("$rt.fmtFloat(%s, %d)", v, bits)
-			}
-			if b, ok := under(t).(*types.Basic); ok && b.Info()&types.IsComplex != 0 {
-				bits := 64
-				if b.Kind() == types.Complex64 {
-					bits = 32
-				}
-				return fmt.Sprintf("$rt.fmtComplex(%s, %d)", v, bits)
-			}
-			switch under(t).(type) {
-			case *types.Slice:
-				return "$rt.fmtSlice(" + v + ")"
-			case *types.Interface:
-				return "$rt.fmtIface(" + v + ")"
-			}
-			return v
-		}
 		if len(e.Args) == 1 {
 			if tt, ok := fe.info.TypeOf(e.Args[0]).(*types.Tuple); ok { // println(f())
 				t := fe.tmp()
 				var parts []string
 				for i := 0; i < tt.Len(); i++ {
-					parts = append(parts, printArg(fmt.Sprintf("%s[%d]", t, i), tt.At(i).Type()))
+					parts = append(parts, fe.printArg(tt.At(i).Type(), fmt.Sprintf("%s[%d]", t, i)))
 				}
 				return fmt.Sprintf("%s$rt.%s(...((%s: any) => [%s])(%s))", m, name, t, strings.Join(parts, ", "), arg(0))
 			}
 		}
 		var vals []string
 		for i, a := range e.Args {
-			vals = append(vals, printArg(arg(i), fe.info.TypeOf(a)))
+			vals = append(vals, fe.printArg(fe.info.TypeOf(a), arg(i)))
 		}
 		return m + "$rt." + name + "(" + strings.Join(vals, ", ") + ")"
 	case "close":
@@ -1339,4 +1341,38 @@ func (fe *funcEmitter) unsafeCall(e *ast.CallExpr, name string) string {
 	}
 	fe.errorf(e.Pos(), "unsafe.%s is not supported in this form (goesm has no address space)", name)
 	return "undefined"
+}
+
+// printArg formats an operand of the print builtins as the Go runtime does
+// where JS's String() differs.
+func (fe *funcEmitter) printArg(t types.Type, v string) string {
+	if _, ok := types.Unalias(t).(*types.TypeParam); ok {
+		return "$rt.printTyped(" + fe.desc(t) + ", " + v + ")" // the format depends on the type argument
+	}
+	t = types.Default(t)
+	if b, ok := t.(*types.Basic); ok && b.Kind() == types.UntypedNil {
+		return `"nil"`
+	}
+	switch u := under(t).(type) {
+	case *types.Basic:
+		switch {
+		case u.Kind() == types.Float32:
+			return "$rt.printFloat(" + v + ", 32)"
+		case u.Info()&types.IsFloat != 0:
+			return "$rt.printFloat(" + v + ")"
+		case u.Kind() == types.Complex64:
+			return "$rt.printComplex(" + v + ", 32)"
+		case u.Info()&types.IsComplex != 0:
+			return "$rt.printComplex(" + v + ")"
+		case u.Kind() == types.UnsafePointer:
+			return "$rt.printPointer(" + v + ")"
+		}
+	case *types.Interface:
+		return "$rt.printIface(" + v + ")"
+	case *types.Slice:
+		return "$rt.printSlice(" + v + ")"
+	case *types.Pointer, *types.Map, *types.Chan, *types.Signature:
+		return "$rt.printPointer(" + v + ")"
+	}
+	return v
 }
