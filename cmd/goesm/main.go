@@ -133,7 +133,8 @@ func readOverlay(file string) map[string][]byte {
 	return m
 }
 
-// warn summarises the standard library functions that panic if called.
+// warn summarises the standard library and dependency functions that panic
+// if called.
 func warn(warnings []string, verbose bool) {
 	if len(warnings) == 0 {
 		return
@@ -143,7 +144,7 @@ func warn(warnings []string, verbose bool) {
 			fmt.Fprintln(os.Stderr, w)
 		}
 	}
-	fmt.Fprintf(os.Stderr, "goesm: %d standard library functions are not supported yet and panic if called", len(warnings))
+	fmt.Fprintf(os.Stderr, "goesm: %d standard library and dependency functions are not supported yet and panic if called", len(warnings))
 	if !verbose {
 		fmt.Fprint(os.Stderr, " (-v lists them)")
 	}
