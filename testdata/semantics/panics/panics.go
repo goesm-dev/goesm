@@ -186,3 +186,61 @@ func itoa(v int) string {
 	}
 	return itoa(v/10) + string(rune('0'+v%10))
 }
+
+// LoopIndices indexes slices and strings in loops whose bounds are known
+// (range, counting up to len) next to ones that look alike but may go out
+// of range, which must still panic.
+func LoopIndices() []string {
+	s := []int{1, 2, 3, 4}
+	str := "héllo"
+	sum, bytes := 0, 0
+	for i := range s {
+		s[i] *= 2
+		for j := i + 1; j < len(s); j++ {
+			sum += s[i] * s[j]
+		}
+	}
+	for i := 0; i < len(str); i += 2 {
+		bytes += int(str[i])
+	}
+	type pt struct{ x int }
+	ps := []pt{{1}, {2}}
+	for i := range ps {
+		p := &ps[i]
+		p.x += i
+	}
+	m := map[int]bool{-1: true}
+	out := []string{itoa(sum), itoa(bytes), itoa(ps[0].x + ps[1].x)}
+	out = append(out,
+		catch(func() {
+			for i := -1; i < len(s); i++ {
+				_ = s[i]
+			}
+		}),
+		catch(func() {
+			for i := 0; i < len(s); i++ {
+				_ = s[i]
+				i += 3
+				_ = s[i]
+			}
+		}),
+		catch(func() {
+			t := s
+			for i := 0; i < len(t); i++ {
+				t = t[:1]
+				_ = t[i]
+			}
+		}),
+		catch(func() {
+			for k := range m {
+				_ = s[k]
+			}
+		}),
+		catch(func() {
+			for i := range s {
+				_ = str[i*3]
+			}
+		}),
+	)
+	return out
+}
