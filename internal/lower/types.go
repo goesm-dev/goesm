@@ -128,7 +128,7 @@ func (pe *pkgEmitter) typeDesc(t types.Type, tp tpScope) string {
 		pe.errorf(tpar.Obj().Pos(), "internal: type parameter %s not in scope", tpar)
 		return "undefined"
 	}
-	if named, ok := t.(*types.Named); ok && named.TypeArgs().Len() == 0 {
+	if named, ok := t.(*types.Named); ok && named.TypeArgs().Len() == 0 && len(outerTypeParams(named.Obj())) == 0 {
 		return pe.namedDesc(named)
 	}
 	if tp.inline || hasTypeParam(t) {
@@ -172,6 +172,9 @@ func (pe *pkgEmitter) buildDesc(t types.Type, tp tpScope) string {
 	switch t := types.Unalias(t).(type) {
 	case *types.Named:
 		var args []string
+		for _, p := range outerTypeParams(t.Origin().Obj()) {
+			args = append(args, pe.typeDesc(p, tp))
+		}
 		for i := 0; i < t.TypeArgs().Len(); i++ {
 			args = append(args, pe.typeDesc(t.TypeArgs().At(i), tp))
 		}

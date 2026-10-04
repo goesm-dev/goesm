@@ -22,7 +22,7 @@ import {
   alignOf, arrayElemPtr, arrayOf, bytesToString, c64, chanCap, chanOf, close, encodeRune, equal, fieldPtr,
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
-  sliceElemPtr, sliceLit, sliceOf, stringToBytes, stringToRunes,
+  sliceElemPtr, sliceLit, sliceOf, stringToBytes, stringToRunes, topString, typeArgsName,
 } from "./index.ts";
 import type { S } from "./index.ts";
 
@@ -428,7 +428,7 @@ export function native$internal$reflectlite$asIface(x: any): Iface | null {
 }
 
 export function native$internal$reflectlite$typeName(t: Type): string {
-  if (t.named) return t.name + (t.typeArgs.length ? `[${t.typeArgs.map((a) => a.str).join(",")}]` : "");
+  if (t.named) return typeArgsName(t);
   if (t.kind === Kind.UnsafePointer) return "Pointer";
   // Predeclared types are named; composite literal types are not.
   return t.kind <= Kind.Complex128 || t.kind === Kind.String ? t.str : "";
@@ -446,7 +446,7 @@ export function native$internal$reflectlite$typeKind(t: Type): number {
 }
 
 export function native$internal$reflectlite$typeString(t: Type): string {
-  return t.str;
+  return topString(t);
 }
 
 export function native$internal$reflectlite$typeComparable(t: Type): boolean {

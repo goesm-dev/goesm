@@ -48,6 +48,7 @@ export class Type {
   name = "";           // for named types
   pkgPath = "";        // for named types
   typeArgs: Type[] = [];
+  nOuter = 0; // leading typeArgs of the function declaring a local type
   elem: Type | null = null;
   key: Type | null = null;
   len = 0;
@@ -218,15 +219,38 @@ function zeroStruct(t: Type): any {
 
 // named creates the descriptor of a defined (named) type. The underlying type
 // is attached later with setUnderlying so that recursive types work.
-export function named(pkgPath: string, name: string, typeArgs: Type[] = [], pkgName?: string): Type {
+// named creates a defined type. The first nOuter type arguments are those
+// of the generic function declaring a local type, which gc writes before a
+// semicolon: S[int,string;bool].
+//
+// An instance of a local type of a function carries gc's disambiguation
+// number gen (the local type's index in the package) in its string, as in
+// T[main.U[int]·3], except as the type itself: reflect's String and Name
+// leave it out (topString). Strings hold UTF-8 bytes: "\xc2\xb7" is "·".
+export function named(pkgPath: string, name: string, typeArgs: Type[] = [], pkgName?: string, nOuter = 0, gen = 0): Type {
   const t = new Type();
   t.named = true;
   t.pkgPath = pkgPath;
   t.name = name;
   t.typeArgs = typeArgs;
+  t.nOuter = nOuter;
   const short = pkgPath === "" ? "" : (pkgName ?? pkgPath.slice(pkgPath.lastIndexOf("/") + 1)) + ".";
-  t.str = short + name + (typeArgs.length ? `[${typeArgs.map((a) => a.str).join(",")}]` : "");
+  t.str = short + typeArgsName(t) + (gen && typeArgs.length ? "\xc2\xb7" + gen : "");
   return t;
+}
+
+// topString is t's string as reflect reports it for t itself.
+export function topString(t: Type): string {
+  return t.named ? t.str.replace(/\xc2\xb7\d+$/, "") : t.str;
+}
+
+// typeArgsName is t's name with its type arguments.
+export function typeArgsName(t: Type): string {
+  const a = t.typeArgs;
+  if (!a.length) return t.name;
+  const outer = a.slice(0, t.nOuter).map((x) => x.str).join(",");
+  const own = a.slice(t.nOuter).map((x) => x.str).join(",");
+  return `${t.name}[${t.nOuter === 0 ? own : own === "" ? outer : outer + ";" + own}]`;
 }
 
 export function setUnderlying(t: Type, u: Type, ctor?: any): void {
@@ -273,13 +297,15 @@ export function generic(
   name: string,
   init: (t: Type, ...targs: Type[]) => void,
   pkgName?: string,
+  nOuter = 0,
+  gen = 0,
 ): (...targs: Type[]) => Type {
   const cache = new Map<string, Type>();
   return (...targs: Type[]) => {
     const key = targs.map((t) => t.id).join(",");
     let t = cache.get(key);
     if (!t) {
-      t = named(pkgPath, name, targs, pkgName);
+      t = named(pkgPath, name, targs, pkgName, nOuter, gen);
       cache.set(key, t);
       init(t, ...targs);
     }

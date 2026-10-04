@@ -30,7 +30,9 @@ func hexInt(s string) *big.Int {
 	return n
 }
 
-func short(b []byte) string { return hex.EncodeToString(b[:8]) + "…" + hex.EncodeToString(b[len(b)-8:]) }
+func short(b []byte) string {
+	return hex.EncodeToString(b[:8]) + "…" + hex.EncodeToString(b[len(b)-8:])
+}
 
 func main() {
 	// RSA with a fixed 1024-bit key.

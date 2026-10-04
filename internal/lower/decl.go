@@ -19,7 +19,8 @@ func (pe *pkgEmitter) emitNamedType(tn *types.TypeName) {
 	named := tn.Type().(*types.Named)
 	name := pe.namedTypeName(tn)
 	st, isStruct := named.Underlying().(*types.Struct)
-	generic := named.TypeParams().Len() > 0
+	outer := outerTypeParams(tn)
+	generic := named.TypeParams().Len() > 0 || len(outer) > 0
 	if isStruct {
 		pe.emitStructClass(name, st, named, generic)
 		pe.export(name, name)
@@ -52,6 +53,18 @@ func (pe *pkgEmitter) emitNamedType(tn *types.TypeName) {
 
 	tp := tpScope{inline: true, names: map[*types.TypeParam]string{}}
 	var params []string
+	for _, p := range outer {
+		// Named apart from the type's own parameters, which may shadow them.
+		n := "$F_" + p.Obj().Name()
+		tp.names[p] = n
+		params = append(params, n+": $rt.Type")
+	}
+	if g := pe.localGen[tn]; g > 0 {
+		if genericExtra == "" {
+			genericExtra = ", undefined"
+		}
+		genericExtra += fmt.Sprintf(", %d, %d", len(outer), g)
+	}
 	for i := 0; i < named.TypeParams().Len(); i++ {
 		p := named.TypeParams().At(i)
 		n := "$T_" + p.Obj().Name()
@@ -242,8 +255,10 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 			}
 			tp.ts[p] = true
 		}
-		tparams = "<" + strings.Join(ps, ", ") + ">"
-		self = name + "<" + strings.Join(names, ", ") + ">"
+		if len(ps) > 0 {
+			tparams = "<" + strings.Join(ps, ", ") + ">"
+			self = name + "<" + strings.Join(names, ", ") + ">"
+		}
 	}
 	w.ln("class %s%s {", name, tparams)
 	w.indent++
@@ -265,7 +280,7 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 			clones = append(clones, pe.copyExpr(src, f.Type(), tp))
 			if _, ok := f.Type().Underlying().(*types.Struct); ok {
 				arg := ""
-				if n, ok := types.Unalias(f.Type()).(*types.Named); ok && n.TypeArgs().Len() > 0 {
+				if isGenericType(f.Type()) {
 					arg = ", " + pe.typeDesc(f.Type(), tp)
 				}
 				sets = append(sets, fmt.Sprintf("this.%s.$set(%s%s);", prop, dst, arg))
