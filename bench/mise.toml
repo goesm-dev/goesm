@@ -1,0 +1,6 @@
+# Tools for the comparison benchmark, pinned like the repository's own
+# (mise merges this with ../mise.toml: Go, Node.js, Bun). GopherJS is not a
+# mise tool: build.sh installs it with `go install` under Go 1.21, the Go it
+# compiles against.
+[tools]
+tinygo = "0.42.0"
