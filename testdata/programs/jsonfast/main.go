@@ -63,6 +63,63 @@ type WithStr struct {
 	N int `json:"n,string"`
 }
 
+// Typed values: json.Marshal of a value whose static type goesm knows takes
+// an encoder generated for the type.
+type Item struct {
+	SKU   string   `json:"sku"`
+	Price int      `json:"price"`
+	Qty   int64    `json:"qty,omitempty"`
+	Ratio float64  `json:"ratio"`
+	Small uint8    `json:"small"`
+	Note  Named    `json:"note,omitempty"`
+	Next  *Item    `json:"next,omitempty"`
+	Tags  []string `json:"tags"`
+	Flags map[Named]bool
+	skip  int
+}
+
+type Node struct {
+	Name string  `json:"name"`
+	Kids []*Node `json:"kids"`
+}
+
+func typed() {
+	print := func(label string, b []byte, err error) { fmt.Printf("typed %s: %s %v\n", label, b, err) }
+	b, err := json.Marshal(Item{SKU: "a", Price: 1, Tags: []string{"x"}})
+	print("item", b, err)
+	b, err = json.Marshal(&Item{SKU: "<é>&", Qty: 1 << 60, Ratio: 0.1, Note: "n\u2028", Next: &Item{SKU: "next"}, Flags: map[Named]bool{"b": true, "a": false}})
+	print("ptr", b, err)
+	b, err = json.Marshal([]Item{{Price: 1 << 53}, {Ratio: math.Copysign(0, -1)}})
+	print("bignums", b, err)
+	b, err = json.Marshal([]Item{{SKU: "bad\xff"}})
+	print("badutf8", b, err)
+	b, err = json.Marshal(map[string]Item{"2": {}, "1": {}})
+	print("numkeys", b, err)
+	b, err = json.Marshal(map[string][]float64{"nan": {math.NaN()}})
+	print("nan", b, err)
+	b, err = json.Marshal([]*Item(nil))
+	print("nil", b, err)
+	b, err = json.Marshal(map[string]*Item{"z": nil, "y": {}})
+	print("nilptr", b, err)
+	root := &Node{Name: "root"}
+	root.Kids = []*Node{{Name: "a"}, {Name: "b", Kids: []*Node{}}}
+	b, err = json.Marshal(root)
+	print("tree", b, err)
+	cyc := &Node{Name: "cycle"}
+	cyc.Kids = []*Node{cyc}
+	_, err = json.Marshal(cyc)
+	fmt.Println("typed cycle:", err != nil)
+	long := make([]Item, 40)
+	for i := range long {
+		long[i] = Item{SKU: fmt.Sprint("sku-", i), Price: i}
+	}
+	long[39].SKU = "日本"
+	b, err = json.Marshal(long)
+	fmt.Println("typed long:", len(b), string(b[len(b)-40:]), err)
+	s, err := json.Marshal(Item{SKU: "s"})
+	fmt.Println("typed string:", string(s), len(s), err)
+}
+
 func show(label string, v any) {
 	b, err := json.Marshal(v)
 	fmt.Printf("%s: %s %v\n", label, b, err)
@@ -191,4 +248,5 @@ func main() {
 	fmt.Println(json.Unmarshal([]byte(`1`), nil))
 	var notptr int
 	fmt.Println(json.Unmarshal([]byte(`1`), notptr))
+	typed()
 }
