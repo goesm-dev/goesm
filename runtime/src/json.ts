@@ -13,7 +13,7 @@
 
 // Like natives.ts, which imports it, this uses the runtime only through its
 // public module, so that split builds share one runtime.
-import { Cell, GoMap, Iface, Kind, Slice, Type, bytesToString, fromJSString, makeMap, mapOf, ptrTo, sliceLit, sliceOf, stringToBytes, types } from "./index.ts";
+import { Cell, GoMap, Iface, Kind, Slice, Type, bytesToString, fromJSString, hasMethods, makeMap, mapOf, ptrTo, sliceLit, sliceOf, stringToBytes, types } from "./index.ts";
 import type { S } from "./index.ts";
 
 // Abort is thrown to give up on the fast path.
@@ -41,7 +41,7 @@ const plainCache = new Map<Type, boolean>();
 function plain(t: Type): boolean {
   let p = plainCache.get(t);
   if (p === undefined) {
-    p = t.methods.size === 0 && (t.kind === Kind.Interface || t.kind === Kind.Pointer || ptrTo(t).methods.size === 0);
+    p = !hasMethods(t) && (t.kind === Kind.Interface || t.kind === Kind.Pointer || !hasMethods(ptrTo(t)));
     plainCache.set(t, p);
   }
   return p;

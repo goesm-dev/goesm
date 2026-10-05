@@ -104,6 +104,19 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 	for k, v := range p.linkProvides {
 		add("linkProvide", k, v)
 	}
+	// Which methods the method tables list (methods.go); a table also
+	// lists methods promoted from dependencies, covered by their digests.
+	for _, pkg := range p.Pkgs {
+		for _, f := range pkg.Syntax {
+			for _, d := range f.Decls {
+				if fd, isFunc := d.(*ast.FuncDecl); isFunc && fd.Recv != nil {
+					if fn, isFn := pkg.TypesInfo.Defs[fd.Name].(*types.Func); isFn {
+						add("dynMethod", fn, strconv.FormatBool(p.DynMethod(fn)))
+					}
+				}
+			}
+		}
+	}
 	if !ok {
 		return nil, false
 	}
