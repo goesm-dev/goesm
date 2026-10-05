@@ -1205,7 +1205,11 @@ export function native$syscall$js$copyBytesToJS(dst: any, src: S<number>): [numb
   return [n, true];
 }
 
-export function native$syscall$js$makeFunc(fn: (self: any, args: S<any>) => any): any {
+// fn returns its result as a one-element slice, so a js.Value holding a
+// Promise is told apart from the Promise of a Go function that blocks: the
+// former is returned to JavaScript as it is, with its own resolution.
+export function native$syscall$js$makeFunc(fn: (self: any, args: S<any>) => S<any> | Promise<S<any>>): any {
+  const result = (r: S<any>) => fromRef(r!.$array[r!.$offset]);
   return function (this: any, ...args: any[]): any {
     const a = args.map(toRef);
     let r;
@@ -1215,7 +1219,7 @@ export function native$syscall$js$makeFunc(fn: (self: any, args: S<any>) => any)
       throw toPanic(e); // a nil dereference is a TypeError until here
     }
     // A Go function that blocks was lowered to an async function.
-    return r instanceof Promise ? r.then(fromRef, (e) => { throw toPanic(e); }) : fromRef(r);
+    return r instanceof Promise ? r.then(result, (e) => { throw toPanic(e); }) : result(r);
   };
 }
 
