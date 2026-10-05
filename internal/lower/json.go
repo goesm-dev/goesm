@@ -123,13 +123,30 @@ func (fe *funcEmitter) jsonCall(e *ast.CallExpr) (string, bool) {
 		fe.temps = append(fe.temps, t)
 		return t + " = " + s + ", ", t
 	}
-	if fe.pe.strMarshal[e] {
-		if fe.pe.prog.CallBlocks(fe.info, e) {
+	if fe.pe.strMarshal[e] || len(e.Args) == 1 && isJSONFunc(fe.info, e, "Marshal") {
+		// A value of a type with a generated encoder (see jsonenc.go) is
+		// encoded by it, and boxed for the runtime's encoder and Go's code
+		// only when that gives up.
+		t := fe.info.TypeOf(e.Args[0])
+		typed := jsonEncComposite(t)
+		if !typed && !fe.pe.strMarshal[e] || fe.pe.prog.CallBlocks(fe.info, e) {
 			return "", false
 		}
-		set, x := temp(fe.valueOf(e.Args[0], anyT))
 		s := fe.declareName("$j")
 		fe.temps = append(fe.temps, s)
+		if typed {
+			setR, r := temp(fe.expr(e.Args[0]))
+			f := fe.pe.jsonEncoder(t)
+			box := fe.convertCopy(r, t, anyT)
+			call := fe.mark(e) + fe.expr(e.Fun) + "(" + box + ")"
+			if !fe.pe.strMarshal[e] {
+				return "(" + setR + "(" + s + " = $rt.jsonMarshalWith(" + f + ", " + r + ")) !== null ? [" + s + ", null] : " + call + ")", true
+			}
+			return "(" + setR + "(" + s + " = $rt.jsonMarshalStringWith(" + f + ", " + r + ")) !== null || (" +
+				s + " = $rt.jsonMarshalString(" + box + ")) !== null ? [" + s + ", null] : (" +
+				s + " = " + call + ", [$rt.bytesToString(" + s + "[0]), " + s + "[1]]))", true
+		}
+		set, x := temp(fe.valueOf(e.Args[0], anyT))
 		call := fe.mark(e) + fe.expr(e.Fun) + "(" + x + ")"
 		return "(" + set + "(" + s + " = $rt.jsonMarshalString(" + x + ")) !== null ? [" + s + ", null] : (" +
 			s + " = " + call + ", [$rt.bytesToString(" + s + "[0]), " + s + "[1]]))", true
