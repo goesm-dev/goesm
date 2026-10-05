@@ -179,7 +179,14 @@ func WriteTS(dir string, mods []*lower.Module) error {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(p, []byte(m.TS), 0o644); err != nil {
+		ts := m.TS
+		for _, f := range m.Files {
+			// //goesm:import of a file: relative to where the module is.
+			if old, rel := lower.JSImportSpecifier(p, f); old != "" {
+				ts = strings.ReplaceAll(ts, old, rel)
+			}
+		}
+		if err := os.WriteFile(p, []byte(ts), 0o644); err != nil {
 			return err
 		}
 		if err := os.WriteFile(p+".map", m.Map, 0o644); err != nil {
@@ -267,6 +274,10 @@ func Build(opts Options) (*Result, error) {
 		MinifyWhitespace:  opts.Minify,
 		MinifyIdentifiers: opts.Minify,
 		MinifySyntax:      opts.Minify,
+		// Packages that //goesm:import imports by name come from the
+		// node_modules of the Go module's directory and its parents, as
+		// for a file there; the TypeScript is in a temporary directory.
+		NodePaths: nodePaths(opts.Dir),
 	}
 	if opts.Split {
 		// One ES module per Go package (dist/<import path>.js) plus the
@@ -282,6 +293,7 @@ func Build(opts Options) (*Result, error) {
 		}
 		add(lower.RuntimeFile)
 		add(lower.NativesFile)
+		add(lower.JSABIFile)
 		bo.Plugins = []api.Plugin{splitResolver(entries)}
 		bo.Outdir = outDir
 	} else {
@@ -306,4 +318,21 @@ func Build(opts Options) (*Result, error) {
 		r.Outputs = append(r.Outputs, f.Path)
 	}
 	return r, nil
+}
+
+// nodePaths returns the node_modules directories of dir and its parents.
+func nodePaths(dir string) []string {
+	dir, _ = filepath.Abs(dir)
+	var paths []string
+	for {
+		nm := filepath.Join(dir, "node_modules")
+		if fi, err := os.Stat(nm); err == nil && fi.IsDir() {
+			paths = append(paths, nm)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return paths
+		}
+		dir = parent
+	}
 }

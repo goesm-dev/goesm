@@ -23,7 +23,7 @@ import {
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
   sliceElemRef, sliceLit, sliceToArrayPtr, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt, topString,
-  toPanic, typeArgsName, isASCII, noteASCII, setHTTPServer, hostListen, hostBuiltin,
+  goThrown, typeArgsName, jsNull, toRef, fromRef, isASCII, noteASCII, setHTTPServer, hostListen, hostBuiltin,
 } from "./index.ts";
 import type { S } from "./index.ts";
 import { fmtFixed, fmtShortest, mayTie, roundToEven, sprintf, tieScale } from "./fmt.ts";
@@ -1077,17 +1077,8 @@ export function native$reflect$funcOf(ins: S<Type>, outs: S<Type>, variadic: boo
 //
 // goesm's syscall/js (internal/natives/goroot/syscall/js) holds JavaScript
 // values as they are. Go's nil (the zero Value) is undefined, so JavaScript
-// null needs a sentinel.
+// null needs a sentinel (jsNull, toRef and fromRef in interop.ts).
 
-const jsNull = { toString: () => "null" };
-
-function toRef(x: unknown): any {
-  return x === undefined ? null : x === null ? jsNull : x;
-}
-
-function fromRef(r: any): any {
-  return r === null ? undefined : r === jsNull ? null : r;
-}
 
 function refArgs(args: S<any>): any[] {
   const out: any[] = [];
@@ -1248,10 +1239,10 @@ export function native$syscall$js$makeFunc(fn: (self: any, args: S<any>) => S<an
     try {
       r = fn(toRef(this), new Slice(a, 0, a.length, a.length));
     } catch (e) {
-      throw toPanic(e); // a nil dereference is a TypeError until here
+      throw goThrown(e); // a nil dereference is a TypeError until here
     }
     // A Go function that blocks was lowered to an async function.
-    return r instanceof Promise ? r.then(result, (e) => { throw toPanic(e); }) : result(r);
+    return r instanceof Promise ? r.then(result, (e) => { throw goThrown(e); }) : result(r);
   };
 }
 
