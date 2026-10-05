@@ -1358,6 +1358,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 		return fe.conversion(e, tv.Type)
 	}
 	if id, ok := fun.(*ast.Ident); ok {
+		if fe.genYield != nil && fe.info.Uses[id] == fe.genYield {
+			return fe.genYieldCall(e)
+		}
 		if b, ok := fe.info.Uses[id].(*types.Builtin); ok {
 			return fe.builtin(e, b.Name())
 		}

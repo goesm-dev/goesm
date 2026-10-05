@@ -14,7 +14,7 @@ import (
 // covered are the Program fields and methods that lowering a package may
 // read, each of which Facts covers: in the digests of the package or of its
 // dependencies (async, syncOnly, boxed, linkPulls, linkProvides, DynMethod, std, Deps,
-// TracksGoroutines and the methods reading them), as answers recorded for
+// TracksGoroutines, usesPull and the methods reading them), as answers recorded for
 // the package's nodes (CallBlocks, CallAlwaysAsync, RangeBlocks, WaitLock,
 // WaitLockVal, SyncClone, CallBlocksIn; cloned through HasClone), or
 // as output the module cache keeps with the module (Diags, Warns).
@@ -25,7 +25,7 @@ var covered = map[string]bool{
 	"boxed":     true,
 	"linkPulls": true, "linkProvides": true,
 	"std": true, "Deps": true,
-	"TracksGoroutines": true, "awaitMain": true,
+	"TracksGoroutines": true, "awaitMain": true, "usesPull": true,
 	"CallBlocks": true, "CallAlwaysAsync": true, "RangeBlocks": true, "WaitLock": true, "WaitLockVal": true,
 	"DynMethod": true,
 	"cloned":    true, "HasClone": true, "SyncClone": true, "CallBlocksIn": true,

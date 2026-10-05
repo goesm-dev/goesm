@@ -56,7 +56,11 @@ type funcEmitter struct {
 	fieldLocals map[*types.Var]map[int]string
 	// promoted maps the fields held in locals during a run of assignments
 	// to the locals (see fieldRun).
-	promoted   map[promoKey]string
+	promoted map[promoKey]string
+	// genYield is the yield parameter of the sequence lowered as a
+	// generator, whose state is genState (see seqGenerator).
+	genYield   *types.Var
+	genState   string
 	breakables []breakable
 	rangeFn    *rangeFuncCtx // the range-over-func body being lowered
 	// recoverTok identifies the function being lowered to recover(), which
@@ -485,7 +489,11 @@ func (fe *funcEmitter) funcLit(lit *ast.FuncLit) string {
 		prefix = "async "
 		ret = "Promise<" + ret + ">"
 	}
-	return fmt.Sprintf("%s%s(%s): %s => {\n%s%s}", fe.mark(lit), prefix, strings.Join(params, ", "), ret, w.String(), strings.Repeat("  ", fe.w.indent))
+	f := fmt.Sprintf("%s%s(%s): %s => {\n%s%s}", fe.mark(lit), prefix, strings.Join(params, ", "), ret, w.String(), strings.Repeat("  ", fe.w.indent))
+	if gen := fe.seqGenerator(lit, sig); gen != "" {
+		return "$rt.withSeqGen(" + f + ", " + gen + ")"
+	}
+	return f
 }
 
 // simpleRef matches a variable or a chain of property accesses, which may
