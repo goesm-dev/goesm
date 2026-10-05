@@ -294,3 +294,77 @@ export function Handle(req) {
   }
   return JSON.stringify({ user: r.user, count, total });
 }
+
+// ---- Cliffs ----
+//
+
+// The cliff kernels (kernels/cliffs.go). Parallel runs its four workers
+// one after another, as JS without workers does.
+export function Parallel(n) {
+  let total = 0;
+  for (let w = 0; w < 4; w++) {
+    for (let i = w; i < n; i += 4) {
+      let x = i + 1, steps = 0;
+      while (x !== 1) {
+        x = x % 2 === 0 ? x / 2 : 3 * x + 1;
+        steps++;
+      }
+      total += steps;
+    }
+  }
+  return total;
+}
+
+export function Rand64(n) {
+  const r = { s: 88172645463325252n };
+  let acc = 0n;
+  for (let i = 0; i < n; i++) {
+    let s = r.s;
+    s = BigInt.asUintN(64, s ^ (s << 13n));
+    s ^= s >> 7n;
+    s = BigInt.asUintN(64, s ^ (s << 17n));
+    r.s = s;
+    acc = BigInt.asUintN(64, acc + (s >> 40n));
+  }
+  return Number(acc % 1000000007n);
+}
+
+class SumSink {
+  sum = 0;
+  put(v) { this.sum += v; }
+}
+
+export function MaybeBlocking(n) {
+  const s = new SumSink();
+  for (let i = 0; i < n; i++) s.put(i & 0xff);
+  return s.sum;
+}
+
+function* count(n) {
+  for (let i = 0; i < n; i++) yield i;
+}
+
+export function Pull(n) {
+  const it = count(n);
+  let s = 0;
+  for (;;) {
+    const r = it.next();
+    if (r.done) return s;
+    s += r.value & 0xff;
+  }
+}
+
+// RSASign signs with Web Crypto, the engine's own RSA, which is
+// asynchronous: each signature is awaited in turn.
+const rsaJWK = {"d":"Lh0ARVMvh5Ca5HNZd3BOSDLGbqZ2ft2hs5HO8_hhI2fNfjzmIHh_8yFaaZk2JHQCAmQJiO4Wx199QFE7MRi8yZkMUh0DlUCIknNPnPZaSgtsyat4jPK3C5fQxY5ftMpjwLwgHnLuYRYhTZa-lQiy60lz1sOJB5gPF4f8xX_33j2LJbGzPofC-tplHUyeqg5VWB6S9D8ckCbIh-NVdvNf6EynPOE1O0E75XKpk4Bcno0Jkr7Cd527u3mgxpk8I2LaW3cJE28M418IK4kQpDVTvNamfUB5y0SQST3W9ekoemJnj86saCPgSaParYTQrxdkEW1HYRQ1_to3lYNXrI9CpQ","dp":"ptSZbTJ6O-v8CGpSzQ0ESB5X9Km3jQpP2HyMDMfWoN6P1wq6pkH_WCJM3GIfnJLjdljXkrloATItA-G2QdzAEODW2gurWdGheaSSNWCcc42pzeV0hXS7dRWpoSRyzIY2QJuJWh_wyL3ko7rH4tPrqQsBkFwWYQ-mRluDYIFajU8","dq":"7_Qg7LqY3SRoZCxHEvLFLy_64h6GheL-_PKk4tMaEYbj9n2SiKX-aBtasqhDXliO55hVUEroYKjO941cz3Hgcl_Bc7Ni19XWqTsaGL0NTt7gyAceK806F5yCFaPh2e4dsUbK_VMYWHfVoBMIp9KFRVKuXBqSjE6Niwaz0VzPzPM","e":"AQAB","kty":"RSA","n":"2liQmyHrJpDw-4KPZND1x_o0OLAG564vaIwrrtQE4P__hRWXYFGvY3nSvW0_7wYOghAp91-_SrWaYXHVGIrmr3wfpjWO4oBbf5As_J1ZI3N8CM8Lty_iq-DvEJMs_Bli4XYTBjcrcmfhJNNyZGszXMzX0AwhINmiSvb_hzMEpXWjtb-evKj052KqrCUAVvD8BOWa6yXiYgtR6whwTDdlNfZbDl7z9uw3pmNhDMw0Nmo1spsrEu3S8UgzIFDVz31MjsILrItwELERJb32d0S_DsUwNGJiQfAnb9qJGq7UFqdsWAkr-cTDvMn-AJjnnPyl8pcSRQV8qlH1_VNdI2jWMQ","p":"4nT7BSMtfZCTzw_NTogCyM_Oz4eudyGViMDmd0TpJ_r0uwPPitKgTLN6LzIUg1G5dElEQ8S8HjE01nBuOMhEaICcaWbYamlfwBCw2jcEA8PmgRXwE6V2f_4gdE0ICcL20MLAxLNhon4K9pBr_AL7g5nkRAFfNXEkYQqbxVbcyn8","q":"9tSzMlVYABXhhUvth40tk-Bcha5o_urMvYSwxakXU-5LQ_DhO-R--1eN-R_yyGJzFptmwB_byWf9-e8Vxw7AC1DfW8H4VpoOwkjMTELOTJxWKSMp4HSEibAqkZ4PSMXBZyTJhLlCXa4Dn751fnWyIsG6wzJ5euY9M-MlI9UTJ08","qi":"0aSENkOLjNmWxWJ_i49l3vacrkUNhieJ-y9B9ht-JWCfcHvso5qssuhIdEZvplLWNBa-ExmZFhEaNYsVyNy-R5zO7Y1wDQyDrqS_m2XY9fhMoAPwJ7zG-tKrLGzT_ScDEQwYHaucKPTcSy75pRthEvmbS1ojnRC_ky93oaoAV34"};
+let rsaKey = null;
+
+export async function RSASign(n) {
+  rsaKey ??= await crypto.subtle.importKey("jwk", rsaJWK, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  let acc = 0;
+  for (let i = 0; i < n; i++) {
+    const sig = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", rsaKey, new Uint8Array([i & 0xff, (i >> 8) & 0xff])));
+    acc = (acc * 31 + sig[0] + sig[sig.length - 1]) % 1000000007;
+  }
+  return acc;
+}

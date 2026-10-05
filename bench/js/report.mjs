@@ -25,6 +25,7 @@ const T = {
     runtime: "Runtime",
     files: "Files",
     raw: "Raw",
+    worst: (ref) => `Worst kernel vs ${ref}`,
   },
   ja: {
     runtimes: { node: "Node.js", bun: "Bun", chromium: "Chromium" },
@@ -37,6 +38,7 @@ const T = {
     runtime: "ランタイム",
     files: "ファイル",
     raw: "非圧縮",
+    worst: (ref) => `${ref}比で最も遅いカーネル`,
   },
 };
 
@@ -57,6 +59,11 @@ const what = (k, lang) => {
   return (lang === "ja" ? s?.ja : s?.what) ?? k.what;
 };
 const runtimeLabel = (data, r, lang) => data.env[r] ?? T[lang].runtimes[r];
+
+// The kernels the geometric means and totals cover, and the cliffs
+// (suite.mjs), which the report shows apart.
+const standard = (data) => data.suite.filter((k) => !k.cliff);
+const cliffs = (data) => data.suite.filter((k) => k.cliff);
 
 // valid returns the measurement of kernel k in run r, or undefined if the
 // kernel is missing, failed or gave a result different from native Go's.
@@ -84,7 +91,7 @@ function time(data, r, k) {
 // kernels' whole loops), and whether some kernel was left out.
 function total(data, r) {
   let sum = 0, partial = false, any = false;
-  for (const k of data.suite) {
+  for (const k of standard(data)) {
     const m = valid(data, r, k);
     if (m) {
       sum += m.median;
@@ -111,7 +118,7 @@ export function slowdowns(data, runtime) {
   for (const impl of data.impls) {
     const r = data.runs[runtime][impl.id];
     const ratios = [];
-    for (const k of data.suite) {
+    for (const k of standard(data)) {
       const n = data.native.kernels[k.name];
       const t = time(data, r, k);
       if (n && t !== undefined) ratios.push(t / perCall(k, n.median));
@@ -128,19 +135,27 @@ function bolder(impls, values) {
   return (j, text) => (values[j] === best && !impls[j].reference ? `**${text}**` : text);
 }
 
-export function timeTable(data, runtime, lang = "en") {
+// kernelRows are the rows of timeTable and cliffTable for kernels ks.
+function kernelRows(data, runtime, ks, lang) {
   const t = T[lang];
   const impls = data.impls;
   const rows = [
     `| ${t.kernel} | ${t.exercises} | ${t.native} | ${impls.map((i) => implLabel(i, lang)).join(" | ")} |`,
     `| --- | --- | ---: | ${impls.map(() => "---:").join(" | ")} |`,
   ];
-  for (const k of data.suite) {
+  for (const k of ks) {
     const b = bolder(impls, impls.map((i) => time(data, data.runs[runtime][i.id], k)));
     const native = data.native.kernels[k.name];
     const name = k.calls ? `${k.name}, ${t.perCall}` : k.name;
     rows.push(`| ${name} | ${what(k, lang)} | ${native ? fmt(perCall(k, native.median)) : "—"} | ${impls.map((i, j) => b(j, cell(data, data.runs[runtime][i.id], k))).join(" | ")} |`);
   }
+  return rows;
+}
+
+export function timeTable(data, runtime, lang = "en") {
+  const t = T[lang];
+  const impls = data.impls;
+  const rows = kernelRows(data, runtime, standard(data), lang);
   const tot = impls.map((i) => total(data, data.runs[runtime][i.id]));
   const bt = bolder(impls, tot.map((x) => (x && !x.partial ? x.sum : undefined)));
   const nt = total(data, data.native);
@@ -148,6 +163,50 @@ export function timeTable(data, runtime, lang = "en") {
   const sd = slowdowns(data, runtime);
   const b = bolder(impls, impls.map((i) => sd[i.id]));
   rows.push(`| **${t.geomean}** | | 1.00× | ${impls.map((i, j) => (sd[i.id] ? b(j, `${sd[i.id].toFixed(2)}×`) : "—")).join(" | ")} |`);
+  return rows.join("\n");
+}
+
+// cliffTable shows the cliff kernels under runtime, as timeTable does the
+// others.
+export function cliffTable(data, runtime, lang = "en") {
+  return kernelRows(data, runtime, cliffs(data), lang).join("\n");
+}
+
+// worst returns the kernel of all, cliffs included, on which run r is the
+// slowest relative to ref (a run, or native Go's results), with the ratio.
+function worst(data, r, ref) {
+  let w;
+  for (const k of data.suite) {
+    const t = time(data, r, k);
+    const m = ref === data.native ? ref.kernels[k.name] : valid(data, ref, k);
+    if (t === undefined || !m) continue;
+    const ratio = t / perCall(k, m.median);
+    if (!w || ratio > w.ratio) w = { kernel: k.name, ratio };
+  }
+  return w;
+}
+
+// worstTable shows, per runtime, the kernel on which each implementation is
+// the slowest relative to native Go and to hand-written JS: the cliffs a
+// program that does that work runs into.
+export function worstTable(data, lang = "en") {
+  const impls = data.impls.filter((i) => !i.reference);
+  const refs = lang === "ja"
+    ? [["native", "ネイティブ Go "], ["js", "手書き JS "]]
+    : [["native", "native Go"], ["js", "hand-written JS"]];
+  const rows = [
+    `| ${T[lang].runtime} | | ${impls.map((i) => implLabel(i, lang)).join(" | ")} |`,
+    `| --- | --- | ${impls.map(() => "---:").join(" | ")} |`,
+  ];
+  for (const runtime of Object.keys(data.runs)) {
+    for (const [id, label] of refs) {
+      const ref = id === "native" ? data.native : data.runs[runtime][id];
+      if (!ref) continue;
+      const ws = impls.map((i) => worst(data, data.runs[runtime][i.id], ref));
+      const b = bolder(impls, ws.map((w) => w?.ratio));
+      rows.push(`| ${runtimeLabel(data, runtime, lang)} | ${T[lang].worst(label)} | ${ws.map((w, j) => (w ? b(j, `${fmt(w.ratio)}× ${w.kernel}`) : "—")).join(" | ")} |`);
+    }
+  }
   return rows.join("\n");
 }
 
@@ -259,9 +318,16 @@ export function markdown(data) {
     "",
     totalTable(data),
     "",
+    "## Worst kernel",
+    "",
+    "The kernel, cliffs included, on which each implementation is the slowest relative to native Go and to hand-written JS.",
+    "",
+    worstTable(data),
+    "",
   ];
   for (const runtime of Object.keys(data.runs)) {
     parts.push(`## ${runtimeLabel(data, runtime, "en")}: median ms per call`, "", `![Time vs native Go per kernel](charts/kernels-${runtime}.svg)`, "", timeTable(data, runtime), "");
+    if (cliffs(data).length) parts.push("Cliffs:", "", cliffTable(data, runtime), "");
   }
   parts.push("## Startup: ms from loading the output to the first callable function", "", startupTable(data), "");
   parts.push("## Output size", "", sizeTable(data), "");
@@ -277,6 +343,8 @@ export function readmeBlock(data, lang, charts = "bench/results/charts") {
         summary: "次の表は、ネイティブ Go に対する遅さを、カーネルごとの時間の比の幾何平均で示します。値が小さいほど速いことを表します。",
         total: "次の表は、全カーネルを 1 回ずつ実行した合計時間を ms で示します。合計は各カーネルの中央値の和で、呼び出し系のカーネルはループ全体の時間を足しています。* の付いた値は、その実装にないカーネルを除いた合計です。値が小さいほど速いことを表します。",
         times: `次の表は、${runtimeLabel(data, node, lang)} での 1 回あたりの時間の中央値を ms で示します。ns/回 と書いた行だけは、JS から関数を 1 回呼び出すのにかかる時間を ns で示します。値が小さいほど速いことを表します。`,
+        worst: "次の表は、各実装がネイティブ Go と手書き JS に対して最も遅くなるカーネルと、その時間の比を示します。対象には次の段落の崖のカーネルも含みます。",
+        cliffs: `次の表は、崖のカーネルの ${runtimeLabel(data, node, lang)} での時間を ms で示します。崖のカーネルとは、JS へのコンパイラがネイティブ Go や手書き JS より極端に遅くしやすい Go の書き方を測るカーネルです。上の幾何平均と合計には含めていません。`,
         startup: "次の表は起動時間を ms で示します。起動時間は、出力を読み込み始めてから関数を呼べるようになるまでの時間です。",
         size: "次の表は出力サイズを示します。サイズには、カーネル一式と、カーネルが使う標準ライブラリが含まれます。",
       }
@@ -284,6 +352,8 @@ export function readmeBlock(data, lang, charts = "bench/results/charts") {
         summary: "Slowdown against native Go, as the geometric mean of the per-kernel time ratios. Lower is better.",
         total: "Total ms to run every kernel once: the sum of the medians, with the calling kernels' whole loops included. A value marked * leaves out the kernels that implementation lacks. Lower is better.",
         times: `Median ms per call under ${runtimeLabel(data, node, lang)}. The rows marked ns/call give the time of one call from JS in ns. Lower is better.`,
+        worst: "The kernel on which each implementation is the slowest relative to native Go and to hand-written JS, with the time ratio. The cliff kernels below are included.",
+        cliffs: `The cliff kernels, in ms under ${runtimeLabel(data, node, lang)}: ways of writing Go that a compiler to JS can make far slower than native Go or than the JS one would write. The geometric means and totals above leave them out.`,
         startup: "Startup in ms, from starting to load the output to the first callable function.",
         size: "Output size, covering all kernels and the standard library they use.",
       };
@@ -292,7 +362,9 @@ export function readmeBlock(data, lang, charts = "bench/results/charts") {
     chartImages(charts, data, lang), "",
     h.summary, "", summaryTable(data, lang), "",
     h.total, "", totalTable(data, lang), "",
+    h.worst, "", worstTable(data, lang), "",
     h.times, "", timeTable(data, node, lang), "",
+    ...(cliffs(data).length ? [h.cliffs, "", cliffTable(data, node, lang), ""] : []),
     h.startup, "", startupTable(data, lang), "",
     h.size, "", sizeTable(data, lang),
   ].join("\n");

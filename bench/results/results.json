@@ -1,14 +1,14 @@
 {
-  "date": "2026-10-05T02:09:42.409Z",
+  "date": "2026-10-05T07:17:20.396Z",
   "opts": {
     "warmup": 300,
     "time": 1000,
     "samples": 10
   },
   "env": {
-    "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz (4 threads)",
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz (4 threads)",
     "os": "linux 6.18.44-fc-v70",
-    "goesm": "6425cb0",
+    "goesm": "f2910eb",
     "go": "go version go1.27.1 linux/amd64",
     "gopherjs": "GopherJS 1.21.0+go1.21.13",
     "tinygo": "tinygo version 0.42.0 linux/amd64 (using go version go1.27.1 and LLVM version 22.1.4)",
@@ -108,6 +108,41 @@
       "ja": "goroutine、バッファなしチャネル"
     },
     {
+      "name": "Parallel",
+      "arg": 100000,
+      "cliff": true,
+      "what": "CPU work split over 4 goroutines",
+      "ja": "4 つの goroutine に分けた CPU 処理"
+    },
+    {
+      "name": "Rand64",
+      "arg": 1000000,
+      "cliff": true,
+      "what": "uint64 arithmetic on a struct field",
+      "ja": "構造体フィールドでの uint64 演算"
+    },
+    {
+      "name": "MaybeBlocking",
+      "arg": 1000000,
+      "cliff": true,
+      "what": "interface calls of which another implementation blocks",
+      "ja": "別の実装がブロックするインターフェースの呼び出し"
+    },
+    {
+      "name": "Pull",
+      "arg": 50000,
+      "cliff": true,
+      "what": "iter.Pull",
+      "ja": "iter.Pull"
+    },
+    {
+      "name": "RSASign",
+      "arg": 4,
+      "cliff": true,
+      "what": "crypto/rsa 2048-bit signatures, math/big",
+      "ja": "crypto/rsa の 2048 ビット署名、math/big"
+    },
+    {
       "name": "Add",
       "arg": 100000,
       "calls": true,
@@ -158,35 +193,35 @@
       "files": [
         "goesm/kernels.js"
       ],
-      "raw": 896666,
-      "gzip": 244147,
-      "brotli": 193657
+      "raw": 1250631,
+      "gzip": 357728,
+      "brotli": 283414
     },
     "gopherjs": {
       "files": [
         "gopherjs/bench.js"
       ],
-      "raw": 1180776,
-      "gzip": 233919,
-      "brotli": 172832
+      "raw": 1672126,
+      "gzip": 338967,
+      "brotli": 247377
     },
     "gowasm": {
       "files": [
         "gowasm/bench.wasm",
         "gowasm/wasm_exec.js"
       ],
-      "raw": 4498390,
-      "gzip": 1240448,
-      "brotli": 915697
+      "raw": 5191310,
+      "gzip": 1432865,
+      "brotli": 1052239
     },
     "tinygo": {
       "files": [
         "tinygo/bench.wasm",
         "tinygo/wasm_exec.js"
       ],
-      "raw": 1130838,
-      "gzip": 415872,
-      "brotli": 306034
+      "raw": 1370002,
+      "gzip": 515810,
+      "brotli": 372218
     }
   },
   "native": {
@@ -194,121 +229,156 @@
       "Fib": {
         "name": "Fib",
         "result": 832040,
-        "median": 4.2620765,
-        "min": 3.762803,
-        "samples": 230
+        "median": 4.80096,
+        "min": 4.544657,
+        "samples": 190
       },
       "Sieve": {
         "name": "Sieve",
         "result": 148933,
-        "median": 8.350831,
-        "min": 6.096323,
-        "samples": 118
+        "median": 10.7923935,
+        "min": 9.229295,
+        "samples": 88
       },
       "Mandelbrot": {
         "name": "Mandelbrot",
         "result": 63572,
-        "median": 11.396728,
-        "min": 9.899082,
-        "samples": 86
+        "median": 16.467066,
+        "min": 15.773046,
+        "samples": 60
       },
       "NBody": {
         "name": "NBody",
         "result": 169079859,
-        "median": 8.182499,
-        "min": 7.966734,
-        "samples": 117
+        "median": 11.1494625,
+        "min": 10.158872,
+        "samples": 80
       },
       "FNV32": {
         "name": "FNV32",
         "result": 1199414498,
-        "median": 11.345978,
-        "min": 10.352842,
-        "samples": 86
+        "median": 12.020548,
+        "min": 10.767849,
+        "samples": 80
       },
       "FNV64": {
         "name": "FNV64",
         "result": 713958045,
-        "median": 11.200719,
-        "min": 9.987017,
-        "samples": 88
+        "median": 11.455932,
+        "min": 10.707973,
+        "samples": 86
       },
       "BinaryTrees": {
         "name": "BinaryTrees",
         "result": 3123888,
-        "median": 58.80225,
-        "min": 54.257361,
-        "samples": 17
+        "median": 90.252242,
+        "min": 78.323017,
+        "samples": 11
       },
       "Interfaces": {
         "name": "Interfaces",
         "result": 152426481,
-        "median": 18.421655,
-        "min": 15.396844,
-        "samples": 53
+        "median": 43.14783,
+        "min": 34.579225,
+        "samples": 23
       },
       "MapInt": {
         "name": "MapInt",
         "result": 25593856,
-        "median": 26.345716,
-        "min": 23.108565,
-        "samples": 37
+        "median": 63.912761,
+        "min": 53.391571,
+        "samples": 15
       },
       "MapString": {
         "name": "MapString",
         "result": 5771000,
-        "median": 7.173927,
-        "min": 6.329486,
-        "samples": 126
+        "median": 12.5134155,
+        "min": 10.734745,
+        "samples": 74
       },
       "Strings": {
         "name": "Strings",
         "result": 857778,
-        "median": 7.700121,
-        "min": 5.240987,
-        "samples": 123
+        "median": 12.164956,
+        "min": 9.335404,
+        "samples": 79
       },
       "Sort": {
         "name": "Sort",
         "result": 49313,
-        "median": 29.139066999999997,
-        "min": 26.439092,
-        "samples": 34
+        "median": 40.817192,
+        "min": 35.013442,
+        "samples": 23
       },
       "JSON": {
         "name": "JSON",
         "result": 282891,
-        "median": 6.5515065,
-        "min": 5.021811,
-        "samples": 152
+        "median": 13.2665095,
+        "min": 9.187529,
+        "samples": 72
       },
       "Sprintf": {
         "name": "Sprintf",
         "result": 1494476,
-        "median": 12.668938,
-        "min": 11.196529,
-        "samples": 77
+        "median": 24.397076,
+        "min": 18.545357,
+        "samples": 40
       },
       "Channels": {
         "name": "Channels",
         "result": 999999937,
-        "median": 80.124702,
-        "min": 69.834251,
-        "samples": 13
+        "median": 125.24645050000001,
+        "min": 119.992051,
+        "samples": 10
+      },
+      "Parallel": {
+        "name": "Parallel",
+        "result": 10753840,
+        "median": 8.7162845,
+        "min": 7.201015,
+        "samples": 110
+      },
+      "Rand64": {
+        "name": "Rand64",
+        "result": 688045436,
+        "median": 2.799388,
+        "min": 2.690188,
+        "samples": 350
+      },
+      "MaybeBlocking": {
+        "name": "MaybeBlocking",
+        "result": 127493856,
+        "median": 1.629626,
+        "min": 1.417182,
+        "samples": 617
+      },
+      "Pull": {
+        "name": "Pull",
+        "result": 6367960,
+        "median": 4.421429,
+        "min": 4.217521,
+        "samples": 209
+      },
+      "RSASign": {
+        "name": "RSASign",
+        "result": 7658273,
+        "median": 6.093852,
+        "min": 5.94221,
+        "samples": 159
       },
       "Upper": {
         "name": "Upper",
         "result": 370853891,
-        "median": 13.317806,
-        "min": 12.217793,
-        "samples": 73
+        "median": 18.636195999999998,
+        "min": 16.146341,
+        "samples": 52
       },
       "Handle": {
         "name": "Handle",
         "result": 246107465,
-        "median": 29.300498,
-        "min": 26.837179,
-        "samples": 33
+        "median": 48.521949,
+        "min": 44.870107,
+        "samples": 19
       }
     }
   },
@@ -319,741 +389,937 @@
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 7.646192499999984,
-            "min": 7.576111999999966,
-            "first": 8.726272999999999,
-            "samples": 120
+            "median": 12.467088999999987,
+            "min": 11.904377000000068,
+            "first": 20.002809,
+            "samples": 70
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 9.58153799999991,
-            "min": 8.702549999999974,
-            "first": 14.941960999999992,
-            "samples": 101
+            "median": 13.701964499999917,
+            "min": 12.101196999999956,
+            "first": 18.96173799999997,
+            "samples": 70
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 11.261105999999927,
-            "min": 9.849962000000232,
-            "first": 19.058102000000417,
-            "samples": 91
+            "median": 16.148674999999912,
+            "min": 14.854380999999648,
+            "first": 21.467525000000023,
+            "samples": 61
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 7.2550240000000485,
-            "min": 6.921679999999469,
-            "first": 15.847503999999844,
-            "samples": 131
+            "median": 15.132088000000294,
+            "min": 14.213694000000032,
+            "first": 26.7423560000002,
+            "samples": 63
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 11.383986000000277,
-            "min": 10.813250000000153,
-            "first": 15.599052000000484,
-            "samples": 88
+            "median": 11.927020499999799,
+            "min": 11.123188999999911,
+            "first": 16.96402399999988,
+            "samples": 70
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 42.0103180000001,
-            "min": 38.53665600000022,
-            "first": 56.160304,
-            "samples": 24
+            "median": 57.569838999999774,
+            "min": 56.11171800000011,
+            "first": 71.59287399999994,
+            "samples": 18
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 43.54918499999985,
-            "min": 32.23471000000063,
-            "first": 52.005308999999215,
-            "samples": 24
+            "median": 58.31198350000068,
+            "min": 54.17598700000053,
+            "first": 74.87317600000006,
+            "samples": 16
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 13.847027000000708,
-            "min": 12.287825000001249,
-            "first": 20.746181000000433,
-            "samples": 70
+            "median": 15.050435500000276,
+            "min": 14.039022000000841,
+            "first": 23.333502000001317,
+            "samples": 66
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 27.399406999999883,
-            "min": 23.27314699999988,
-            "first": 30.76448799999889,
-            "samples": 36
+            "median": 43.55399949999992,
+            "min": 34.401073000000906,
+            "first": 44.17133199999989,
+            "samples": 22
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 23.087251000000833,
-            "min": 21.15116499999931,
-            "first": 23.598143999999593,
-            "samples": 43
+            "median": 28.70355550000022,
+            "min": 26.543553999999858,
+            "first": 26.486672000000908,
+            "samples": 34
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 10.849383000000671,
-            "min": 9.46788799999922,
-            "first": 19.089756999999736,
-            "samples": 81
+            "median": 19.916650499999378,
+            "min": 16.146174000001338,
+            "first": 20.71781799999917,
+            "samples": 44
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 44.73530799999935,
-            "min": 42.57769499999995,
-            "first": 46.39194800000041,
-            "samples": 23
+            "median": 70.03339350000078,
+            "min": 60.42470200000025,
+            "first": 63.49912199999926,
+            "samples": 14
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 2.4432844999992085,
-            "min": 2.179202000002988,
-            "first": 4.258933999999499,
-            "samples": 386
+            "median": 5.112021000000823,
+            "min": 3.8308369999977003,
+            "first": 6.5161150000003545,
+            "samples": 177
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 5.473203499997908,
-            "min": 4.917378999998618,
-            "first": 6.924250000000029,
-            "samples": 180
+            "median": 11.601439000000028,
+            "min": 11.152469000000565,
+            "first": 12.900981999999203,
+            "samples": 82
           },
           "Channels": {
             "name": "Channels",
             "missing": true
           },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 42.48094900000069,
+            "min": 33.07777799999894,
+            "first": 38.7283860000025,
+            "samples": 24
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 23.974921000000904,
+            "min": 18.57225699999981,
+            "first": 24.003405999999814,
+            "samples": 38
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 0.9732754999986355,
+            "min": 0.8825260000012349,
+            "first": 4.610931999999593,
+            "samples": 832
+          },
+          "Pull": {
+            "name": "Pull",
+            "result": 6367960,
+            "median": 1.1696499999998196,
+            "min": 1.0651199999992969,
+            "first": 2.414802999999665,
+            "samples": 807
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 3.7962440000010247,
+            "min": 2.9108930000002147,
+            "first": 24.3715200000006,
+            "samples": 245
+          },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 0.06068849999974191,
-            "min": 0.06062000000019907,
-            "first": 1.221609999996872,
+            "median": 0.059160000000701984,
+            "min": 0.0589380000019446,
+            "first": 1.0460459999994782,
             "samples": 1000
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 4.646967000000586,
-            "min": 4.206137000001036,
-            "first": 5.8678300000028685,
-            "samples": 213
+            "median": 7.197137999999541,
+            "min": 6.667531000002782,
+            "first": 10.144121000001178,
+            "samples": 127
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 12.530070499999056,
-            "min": 11.426222000001871,
-            "first": 14.94438099999752,
-            "samples": 80
+            "median": 20.09547400000156,
+            "min": 18.680147999999463,
+            "first": 21.971481000000495,
+            "samples": 47
           }
         },
-        "startup": 1.1425659999999986
+        "startup": 1.6985639999999975
       },
       "goesm": {
         "kernels": {
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 7.584653500000002,
-            "min": 7.0235589999999775,
-            "first": 9.028271000000004,
-            "samples": 124
+            "median": 13.122742499999958,
+            "min": 12.382753999999977,
+            "first": 21.369151000000045,
+            "samples": 68
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 9.535751000000005,
-            "min": 8.51600899999994,
-            "first": 16.71634999999992,
-            "samples": 100
+            "median": 17.47277299999996,
+            "min": 14.152023999999983,
+            "first": 22.846878999999944,
+            "samples": 53
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 11.33242099999984,
-            "min": 9.865673000000243,
-            "first": 23.409036000000015,
-            "samples": 90
+            "median": 16.000069500000336,
+            "min": 14.839805999999953,
+            "first": 32.93962099999999,
+            "samples": 62
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 8.960210499999903,
-            "min": 8.44921500000055,
-            "first": 11.202753999999914,
-            "samples": 110
+            "median": 18.627313999999387,
+            "min": 16.747573000000557,
+            "first": 20.748255000000427,
+            "samples": 49
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 10.663230000000112,
-            "min": 9.788405999999668,
-            "first": 23.545680999999604,
-            "samples": 75
+            "median": 12.037269000000379,
+            "min": 11.031260999999176,
+            "first": 19.162059000000227,
+            "samples": 65
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 13.921115999999529,
-            "min": 13.060436000000664,
-            "first": 23.646692999999686,
-            "samples": 65
+            "median": 21.442536999999902,
+            "min": 19.000277000000096,
+            "first": 39.547927999999956,
+            "samples": 25
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 51.374109999998836,
-            "min": 39.055491999999504,
-            "first": 60.62906099999964,
-            "samples": 21
+            "median": 76.10821899999974,
+            "min": 60.83742699999857,
+            "first": 86.58600900000056,
+            "samples": 13
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 19.99634849999984,
-            "min": 19.216623000000254,
-            "first": 27.777601999998296,
-            "samples": 48
+            "median": 31.842906999998377,
+            "min": 27.10865299999932,
+            "first": 35.59614800000054,
+            "samples": 29
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 27.778639000000112,
-            "min": 23.778049000000465,
-            "first": 33.90006200000062,
-            "samples": 35
+            "median": 80.65060249999988,
+            "min": 58.539371000000756,
+            "first": 66.9384280000013,
+            "samples": 12
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 17.662234999999782,
-            "min": 16.947807000000466,
-            "first": 28.023177000000942,
-            "samples": 56
+            "median": 24.40130599999975,
+            "min": 22.82993400000123,
+            "first": 37.40476699999999,
+            "samples": 35
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 13.543016500000704,
-            "min": 11.13482699999986,
-            "first": 22.730579999999463,
-            "samples": 72
+            "median": 21.8347545000006,
+            "min": 18.42585700000018,
+            "first": 37.54573000000164,
+            "samples": 44
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 52.003787999999986,
-            "min": 45.626946999998836,
-            "first": 54.37801699999909,
-            "samples": 18
+            "median": 70.84932200000003,
+            "min": 67.11271599999964,
+            "first": 87.046918,
+            "samples": 14
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 4.027558000001591,
-            "min": 3.6739639999977953,
-            "first": 15.216899999999441,
-            "samples": 219
+            "median": 5.984542000000147,
+            "min": 5.596529999998893,
+            "first": 20.455720000001747,
+            "samples": 158
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 5.565117000001919,
-            "min": 5.174858999998833,
-            "first": 8.07238199999847,
-            "samples": 173
+            "median": 16.463159999999334,
+            "min": 11.474747000000207,
+            "first": 13.766773999999714,
+            "samples": 64
           },
           "Channels": {
             "name": "Channels",
             "result": 999999937,
-            "median": 99.89312550000068,
-            "min": 91.24206200000117,
-            "first": 125.03285899999901,
+            "median": 90.9797150000013,
+            "min": 88.78875499999776,
+            "first": 112.26037300000098,
+            "samples": 11
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 33.133379000002606,
+            "min": 30.853235999999015,
+            "first": 34.681737999999314,
+            "samples": 25
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 133.62346699999944,
+            "min": 118.38001200000144,
+            "first": 119.79104899999948,
+            "samples": 10
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 4.8998629999987315,
+            "min": 3.627678000000742,
+            "first": 6.129616999998689,
+            "samples": 186
+          },
+          "Pull": {
+            "name": "Pull",
+            "result": 6367960,
+            "median": 70.74988049999956,
+            "min": 67.79159599999912,
+            "first": 83.74161200000162,
+            "samples": 14
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 335.296049999999,
+            "min": 282.81525899999906,
+            "first": 376.30507899999793,
             "samples": 10
           },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 0.058915999998134794,
-            "min": 0.057316000002174405,
-            "first": 1.4055810000027122,
+            "median": 0.0591870000007475,
+            "min": 0.058954000000085216,
+            "first": 1.3408839999974589,
             "samples": 1000
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 10.381217499998456,
-            "min": 9.614204999998037,
-            "first": 14.054218000001129,
-            "samples": 96
+            "median": 19.780828000000838,
+            "min": 17.87528999999995,
+            "first": 26.412692000001698,
+            "samples": 46
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 18.982872500000667,
-            "min": 17.45326700000078,
-            "first": 26.876338999998552,
-            "samples": 50
+            "median": 30.945138499995664,
+            "min": 28.869704000004276,
+            "first": 68.17975399999705,
+            "samples": 30
           }
         },
-        "startup": 75.127823
+        "startup": 220.484123
       },
       "gopherjs": {
         "kernels": {
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 7.440221000000065,
-            "min": 7.276716999999962,
-            "first": 8.439915,
-            "samples": 130
+            "median": 13.092849999999999,
+            "min": 12.73940800000014,
+            "first": 14.961443999999972,
+            "samples": 75
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 57.226951999999756,
-            "min": 53.530685000000176,
-            "first": 79.92788799999994,
-            "samples": 18
+            "median": 114.73443900000007,
+            "min": 107.2854470000002,
+            "first": 124.37170800000013,
+            "samples": 10
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 11.355879500000356,
-            "min": 9.839038999999957,
-            "first": 13.163848000000144,
-            "samples": 90
+            "median": 15.988752999999633,
+            "min": 14.85957099999996,
+            "first": 21.570334999999886,
+            "samples": 62
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 639.6229494999998,
-            "min": 612.2421219999997,
-            "first": 661.433403,
-            "samples": 10
+            "median": 1210.3508970000003,
+            "min": 1107.0041619999993,
+            "first": 1114.2668779999995,
+            "samples": 9
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 16.250888000000486,
-            "min": 15.497744999998758,
-            "first": 29.027937999999267,
-            "samples": 55
+            "median": 28.81523499999821,
+            "min": 25.005133000002388,
+            "first": 40.65282300000035,
+            "samples": 25
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 289.8705984999988,
-            "min": 269.75978399999985,
-            "first": 290.1664809999984,
+            "median": 456.74259249999886,
+            "min": 424.7699279999979,
+            "first": 420.9113440000001,
             "samples": 10
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 60.129816999997274,
-            "min": 53.442691000000195,
-            "first": 76.29369099999894,
-            "samples": 17
+            "median": 91.92720200000258,
+            "min": 84.65244000000166,
+            "first": 124.9487020000015,
+            "samples": 11
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 36.94140200000038,
-            "min": 26.666692999999213,
-            "first": 44.42080700000224,
-            "samples": 27
+            "median": 56.761436999997386,
+            "min": 52.92290899999716,
+            "first": 66.98526700000002,
+            "samples": 17
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 45.07217700000183,
-            "min": 38.713494999999966,
-            "first": 46.842248000000836,
-            "samples": 22
+            "median": 79.1597469999997,
+            "min": 68.22411999999895,
+            "first": 80.50568900000144,
+            "samples": 12
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 116.97073549999914,
-            "min": 104.99926799999957,
-            "first": 129.3247479999991,
+            "median": 201.31608099999903,
+            "min": 165.40960700000142,
+            "first": 223.3419700000013,
             "samples": 10
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 435.06437650000044,
-            "min": 404.443045,
-            "first": 539.0067829999971,
+            "median": 803.0027009999976,
+            "min": 634.7225400000025,
+            "first": 728.1148950000024,
             "samples": 10
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 139.0218189999996,
-            "min": 133.04939000000013,
-            "first": 220.47449100000085,
+            "median": 224.93980699999884,
+            "min": 209.72926099999313,
+            "first": 331.8659310000003,
             "samples": 10
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 456.03412500000195,
-            "min": 428.8366890000034,
-            "first": 556.355141,
+            "median": 900.4132790000003,
+            "min": 822.1724210000029,
+            "first": 1201.7485529999976,
             "samples": 10
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 1276.3623869999974,
-            "min": 1233.505425000003,
-            "first": 1113.928675999996,
-            "samples": 8
+            "median": 2020.1050725000023,
+            "min": 1874.9246279999934,
+            "first": 1893.2912750000032,
+            "samples": 6
           },
           "Channels": {
             "name": "Channels",
             "result": 999999937,
-            "median": 245.52805549999903,
-            "min": 227.40769799999543,
-            "first": 260.06047899999976,
+            "median": 512.2572044999979,
+            "min": 405.91965500000515,
+            "first": 631.5262199999997,
             "samples": 10
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 60.31361499999184,
+            "min": 55.25844499999948,
+            "first": 88.88794399998733,
+            "samples": 16
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 176.75620250000065,
+            "min": 156.02660100000503,
+            "first": 212.11705999998958,
+            "samples": 10
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 2.604513999991468,
+            "min": 2.505893000008655,
+            "first": 5.8859470000024885,
+            "samples": 375
+          },
+          "Pull": {
+            "name": "Pull",
+            "missing": true
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 1991.561412499992,
+            "min": 1799.6747350000078,
+            "first": 2261.6245289999933,
+            "samples": 6
           },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 286.8624520000012,
-            "min": 266.6210559999963,
-            "first": 286.694190000002,
+            "median": 631.3796114999932,
+            "min": 514.1555910000025,
+            "first": 736.4083519999986,
             "samples": 10
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 1220.7923880000017,
-            "min": 1173.8831130000035,
-            "first": 984.222646000002,
-            "samples": 9
+            "median": 2115.931515000004,
+            "min": 2003.2385300000024,
+            "first": 1814.8607249999914,
+            "samples": 5
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 2971.2430894999998,
-            "min": 2936.3844180000015,
-            "first": 2901.403051000001,
-            "samples": 4
+            "median": 5827.718445000006,
+            "min": 5453.033009000006,
+            "first": 6215.41214,
+            "samples": 3
           }
         },
-        "startup": 72.42723199999999
+        "startup": 216.64161500000003
       },
       "gowasm": {
         "kernels": {
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 11.299642999999946,
-            "min": 10.31859899999995,
-            "first": 15.737312999999986,
-            "samples": 85
+            "median": 18.253118500000028,
+            "min": 16.583158999999796,
+            "first": 18.918284,
+            "samples": 52
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 10.92084399999976,
-            "min": 10.065380000000005,
-            "first": 21.561834999999974,
-            "samples": 91
+            "median": 18.54950400000007,
+            "min": 15.56817699999965,
+            "first": 38.08127800000011,
+            "samples": 51
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 11.400179000000207,
-            "min": 10.459346000000096,
-            "first": 23.229179000000386,
-            "samples": 87
+            "median": 16.614012999999886,
+            "min": 16.12991000000011,
+            "first": 33.3563180000001,
+            "samples": 59
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 8.645611500000086,
-            "min": 8.158085000000028,
-            "first": 12.598598000000038,
-            "samples": 114
+            "median": 15.126534999999421,
+            "min": 14.728776999999354,
+            "first": 16.765148999999838,
+            "samples": 63
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 11.442289000000073,
-            "min": 10.786538000000292,
-            "first": 19.522938000000067,
-            "samples": 84
+            "median": 22.541074999999637,
+            "min": 22.185989000000518,
+            "first": 32.7951520000006,
+            "samples": 42
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 13.482379000000037,
-            "min": 11.541451000000052,
-            "first": 19.190107999999782,
-            "samples": 74
+            "median": 23.628602499999943,
+            "min": 22.284161999999924,
+            "first": 39.06500099999994,
+            "samples": 40
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 218.73895000000084,
-            "min": 209.82158700000036,
-            "first": 221.95547199999965,
+            "median": 406.6177320000006,
+            "min": 357.94609599999967,
+            "first": 406.7183299999997,
             "samples": 10
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 70.70298999999977,
-            "min": 69.26284200000009,
-            "first": 96.86724500000128,
-            "samples": 14
+            "median": 121.28367299999991,
+            "min": 115.79273400000056,
+            "first": 145.45459200000005,
+            "samples": 10
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 52.557176999998774,
-            "min": 49.307724000000235,
-            "first": 80.05725700000039,
-            "samples": 19
+            "median": 131.10581400000228,
+            "min": 110.81703899999957,
+            "first": 159.89020999999957,
+            "samples": 10
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 20.9464495000002,
-            "min": 20.60833999999886,
-            "first": 43.187151000000085,
-            "samples": 46
+            "median": 37.3379144999999,
+            "min": 33.26996099999815,
+            "first": 42.75716100000136,
+            "samples": 26
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 26.147822000000815,
-            "min": 25.35056000000077,
-            "first": 37.76002100000005,
-            "samples": 39
+            "median": 42.84896700000172,
+            "min": 42.14515599999868,
+            "first": 58.68991300000198,
+            "samples": 23
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 94.34502799999973,
-            "min": 92.52978900000016,
-            "first": 102.4665559999994,
-            "samples": 11
+            "median": 142.21355149999908,
+            "min": 131.33412899999894,
+            "first": 165.56848399999944,
+            "samples": 10
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 20.018903999998656,
-            "min": 18.733657999997376,
-            "first": 65.51014399999985,
-            "samples": 48
+            "median": 35.81794400000035,
+            "min": 34.01349200000186,
+            "first": 118.6408560000018,
+            "samples": 24
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 53.80790799999886,
-            "min": 47.70494800000233,
-            "first": 98.96886900000027,
-            "samples": 17
+            "median": 77.26399549999951,
+            "min": 72.5525439999983,
+            "first": 94.99723499999891,
+            "samples": 12
           },
           "Channels": {
             "name": "Channels",
             "result": 999999937,
-            "median": 205.0249729999996,
-            "min": 195.9682380000013,
-            "first": 206.34499900000083,
+            "median": 329.8104475,
+            "min": 310.71866800000134,
+            "first": 474.5667460000004,
             "samples": 10
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 47.55592299999989,
+            "min": 42.18457999999737,
+            "first": 53.77029000000039,
+            "samples": 21
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 3.6283299999995506,
+            "min": 2.8265810000011697,
+            "first": 5.126742000000377,
+            "samples": 253
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 2.6161540000030072,
+            "min": 2.4256959999984247,
+            "first": 6.847742000001745,
+            "samples": 292
+          },
+          "Pull": {
+            "name": "Pull",
+            "result": 6367960,
+            "median": 12.930492999999842,
+            "min": 12.630914000001212,
+            "first": 15.97102100000484,
+            "samples": 72
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 32.73451899999782,
+            "min": 32.52133400000457,
+            "first": 34.74786400000448,
+            "samples": 31
           },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 0.5087284999990516,
-            "min": 0.48800699999992503,
-            "first": 2.4767979999996896,
+            "median": 0.7019629999958852,
+            "min": 0.679269000000204,
+            "first": 3.103273000000627,
             "samples": 1000
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 86.91425900000104,
-            "min": 79.26416899999822,
-            "first": 90.6536500000002,
-            "samples": 12
+            "median": 151.26818550000098,
+            "min": 138.67304599999625,
+            "first": 148.23559099999693,
+            "samples": 10
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 143.46136800000204,
-            "min": 126.47058800000013,
-            "first": 144.08549300000232,
+            "median": 293.4687774999984,
+            "min": 240.91618400000152,
+            "first": 332.71030600000086,
             "samples": 10
           }
         },
-        "startup": 43.809133
+        "startup": 81.997192
       },
       "tinygo": {
         "kernels": {
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 3.8885850000000346,
-            "min": 3.741463999999951,
-            "first": 5.765684,
-            "samples": 227
+            "median": 5.433698999999933,
+            "min": 4.820515,
+            "first": 8.220819000000006,
+            "samples": 155
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 9.225464000000102,
-            "min": 8.138439999999719,
-            "first": 23.605142999999998,
-            "samples": 92
+            "median": 12.620821999999862,
+            "min": 11.20870100000002,
+            "first": 40.22424100000012,
+            "samples": 65
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 10.094193500000074,
-            "min": 9.802295999999842,
-            "first": 14.784096000000318,
-            "samples": 84
+            "median": 15.021935499999927,
+            "min": 14.7111689999997,
+            "first": 57.73091399999976,
+            "samples": 58
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 6.205302999999731,
-            "min": 5.920207999999548,
-            "first": 10.669840000000022,
-            "samples": 121
+            "median": 11.81527399999959,
+            "min": 11.234347999999954,
+            "first": 16.775235000000066,
+            "samples": 61
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 10.96248899999955,
-            "min": 10.450276999999915,
-            "first": 11.781694000000243,
+            "median": 11.380796000000373,
+            "min": 10.62844800000039,
+            "first": 13.453458999999384,
             "samples": 73
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 10.803767500000049,
-            "min": 10.44713800000045,
-            "first": 12.231090999999651,
-            "samples": 74
+            "median": 11.17752100000007,
+            "min": 10.548686000000089,
+            "first": 89.73513899999944,
+            "samples": 66
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 96.9260134999995,
-            "min": 92.91713499999969,
-            "first": 113.55880100000013,
+            "median": 209.91167849999965,
+            "min": 153.5449239999998,
+            "first": 166.50089299999945,
             "samples": 10
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 24.555662999999186,
-            "min": 22.988868000000366,
-            "first": 31.917324000000008,
-            "samples": 32
+            "median": 42.34208000000035,
+            "min": 39.27966000000015,
+            "first": 65.76551699999982,
+            "samples": 19
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 94.83195249999972,
-            "min": 89.03000400000019,
-            "first": 438.14068899999984,
+            "median": 184.19155950000004,
+            "min": 168.11935300000005,
+            "first": 617.4153819999992,
             "samples": 10
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 60.887517999999545,
-            "min": 59.228071000001364,
-            "first": 68.26605699999891,
-            "samples": 17
+            "median": 84.91035100000045,
+            "min": 83.91084799999953,
+            "first": 107.55326299999979,
+            "samples": 12
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 11.019814999999653,
-            "min": 10.537080000001879,
-            "first": 16.975635999999213,
-            "samples": 17
+            "median": 17.828197000002547,
+            "min": 16.910871000000043,
+            "first": 22.219278999997186,
+            "samples": 16
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 40.4866469999979,
-            "min": 35.45903300000646,
-            "first": 55.26382300000114,
-            "samples": 9
+            "median": 53.40889949999837,
+            "min": 42.452838999997766,
+            "first": 75.6227080000026,
+            "samples": 10
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 20.662231000009342,
-            "min": 20.081174000006285,
-            "first": 43.40461399999913,
-            "samples": 5
+            "median": 33.35582799999975,
+            "min": 32.00726900000882,
+            "first": 75.94569500000216,
+            "samples": 9
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 31.451265000010608,
-            "min": 30.10754799999995,
-            "first": 42.507001999998465,
-            "samples": 9
+            "median": 58.10785499999474,
+            "min": 48.04316800000379,
+            "first": 78.43131800000265,
+            "samples": 11
           },
           "Channels": {
             "name": "Channels",
             "result": 999999937,
-            "median": 19.052840999996988,
-            "min": 18.983784000010928,
-            "first": 26.180216999986442,
+            "median": 64.54946549999295,
+            "min": 61.181824999977835,
+            "first": 51.61086100002285,
             "samples": 4
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 12.16620900000271,
+            "min": 11.903801999986172,
+            "first": 17.878112000005785,
+            "samples": 4
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 2.2492705000040587,
+            "min": 2.132261999999173,
+            "first": 3.4369150000275113,
+            "samples": 16
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 0.46982699999352917,
+            "min": 0.4111810000031255,
+            "first": 1.0456070000072941,
+            "samples": 16
+          },
+          "Pull": {
+            "name": "Pull",
+            "result": 6367960,
+            "median": 23.61276600000565,
+            "min": 22.94224000000395,
+            "first": 17.93422900000587,
+            "samples": 4
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 51.3267909999995,
+            "min": 43.5685110000195,
+            "first": 49.52161799999885,
+            "samples": 10
           },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 0.1944119999971008,
-            "min": 0.14987100000143982,
-            "first": 2.69108899999992,
+            "median": 0.21350599997094832,
+            "min": 0.206214000005275,
+            "first": 4.322848999989219,
             "samples": 1000
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 72.98677950000274,
-            "min": 71.27370200000587,
-            "first": 86.16695600000094,
-            "samples": 8
+            "median": 160.39411300001666,
+            "min": 112.90461000002688,
+            "first": 217.37631700001657,
+            "samples": 10
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 114.48812799999723,
-            "min": 111.66364099999191,
-            "first": 160.0268090000027,
+            "median": 208.86197100000572,
+            "min": 188.01377399999183,
+            "first": 283.58305700001074,
             "samples": 10
           }
         },
-        "startup": 19.419024
+        "startup": 64.849281
       }
     },
     "bun": {
@@ -1062,741 +1328,937 @@
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 5.366224999999986,
-            "min": 5.219822999999906,
-            "first": 7.185168000000001,
-            "samples": 177
+            "median": 8.09894700000001,
+            "min": 7.901791000000003,
+            "first": 11.241718999999998,
+            "samples": 105
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 10.187182500000063,
-            "min": 8.646931000000222,
-            "first": 35.88570699999991,
-            "samples": 96
+            "median": 15.222149499999887,
+            "min": 13.5271130000001,
+            "first": 18.82099100000005,
+            "samples": 64
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 10.594209000000319,
-            "min": 9.925622000000203,
-            "first": 13.08863700000029,
-            "samples": 95
+            "median": 16.471218000000135,
+            "min": 15.228504000000157,
+            "first": 18.38756000000012,
+            "samples": 61
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 10.480930499999886,
-            "min": 10.262267000000065,
-            "first": 21.43010000000004,
-            "samples": 92
+            "median": 18.989329999999427,
+            "min": 17.64968200000021,
+            "first": 39.21757300000036,
+            "samples": 49
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 14.230850000000828,
-            "min": 12.360877999999502,
-            "first": 14.556306000000404,
-            "samples": 71
+            "median": 14.52586749999955,
+            "min": 13.333711000000221,
+            "first": 16.850070999999843,
+            "samples": 68
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 497.78401399999984,
-            "min": 470.32398099999955,
-            "first": 568.9333889999998,
+            "median": 894.4675065000001,
+            "min": 817.0027040000004,
+            "first": 958.9756280000001,
             "samples": 10
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 37.98760299999958,
-            "min": 32.77109299999938,
-            "first": 42.073419000000285,
-            "samples": 26
+            "median": 87.45595599999797,
+            "min": 72.00143700000262,
+            "first": 85.43143199999759,
+            "samples": 12
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 9.332200999999259,
-            "min": 7.552290000001449,
-            "first": 15.417514999999185,
-            "samples": 105
+            "median": 28.479794000000766,
+            "min": 17.734334000000672,
+            "first": 26.701766000001953,
+            "samples": 38
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 23.952511999999842,
-            "min": 18.476277000001573,
-            "first": 38.92307199999959,
-            "samples": 39
+            "median": 64.27608499999769,
+            "min": 55.65178500000184,
+            "first": 115.74226699999781,
+            "samples": 15
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 14.506984499999817,
-            "min": 13.998752999999851,
-            "first": 17.21287400000074,
-            "samples": 68
+            "median": 39.552214500001355,
+            "min": 24.67030700000032,
+            "first": 28.581340000000637,
+            "samples": 28
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 17.64116499999909,
-            "min": 12.127376000000368,
-            "first": 24.613037999999506,
-            "samples": 58
+            "median": 43.948325999999724,
+            "min": 29.073529999997845,
+            "first": 54.662490000002435,
+            "samples": 24
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 20.18402799999967,
-            "min": 16.64858599999934,
-            "first": 24.488295999999536,
-            "samples": 49
+            "median": 46.20194400000037,
+            "min": 28.86333200000081,
+            "first": 53.27013199999783,
+            "samples": 21
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 1.8673969999999827,
-            "min": 1.5708689999992203,
-            "first": 4.157835999998497,
-            "samples": 462
+            "median": 3.873561000000336,
+            "min": 2.858662999999069,
+            "first": 10.07300000000032,
+            "samples": 211
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 11.570808000000397,
-            "min": 9.655737000000954,
-            "first": 14.382925999998406,
-            "samples": 85
+            "median": 23.406488000000536,
+            "min": 20.92941399999836,
+            "first": 24.40885200000048,
+            "samples": 39
           },
           "Channels": {
             "name": "Channels",
             "missing": true
           },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 74.69457950000105,
+            "min": 50.82552399999986,
+            "first": 49.89858700000332,
+            "samples": 16
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 410.33156249999956,
+            "min": 364.96027600000525,
+            "first": 577.6461789999994,
+            "samples": 10
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 1.6285339999994903,
+            "min": 0.8905830000003334,
+            "first": 4.2836370000004536,
+            "samples": 606
+          },
+          "Pull": {
+            "name": "Pull",
+            "result": 6367960,
+            "median": 0.8046939999949245,
+            "min": 0.7105640000008862,
+            "first": 4.115743999995175,
+            "samples": 1000
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 4.191881499998999,
+            "min": 2.8414489999995567,
+            "first": 17.538264000002528,
+            "samples": 234
+          },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 0.060649999999441206,
-            "min": 0.060614000001805834,
-            "first": 0.8491240000003017,
+            "median": 0.10305249999873922,
+            "min": 0.10298900000634603,
+            "first": 1.2758400000020629,
             "samples": 1000
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 5.720535499998732,
-            "min": 5.181395000003249,
-            "first": 11.894917000001442,
-            "samples": 170
+            "median": 8.063431999995373,
+            "min": 7.5953129999979865,
+            "first": 14.126572000001033,
+            "samples": 117
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 9.387450500000341,
-            "min": 8.653157000000647,
-            "first": 12.130034000001615,
-            "samples": 104
+            "median": 21.569806999999855,
+            "min": 14.513781000001472,
+            "first": 26.21718300000066,
+            "samples": 46
           }
         },
-        "startup": 1.3927200000000006
+        "startup": 1.9198079999999997
       },
       "goesm": {
         "kernels": {
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 5.422133000000031,
-            "min": 5.311225000000036,
-            "first": 7.110309000000001,
-            "samples": 177
+            "median": 9.039490500000056,
+            "min": 8.567015999999967,
+            "first": 10.536747999999989,
+            "samples": 94
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 8.703550000000064,
-            "min": 7.740778000000319,
-            "first": 19.66932500000007,
-            "samples": 112
+            "median": 13.388046999999915,
+            "min": 12.386089000000084,
+            "first": 22.027501999999913,
+            "samples": 71
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 10.75656200000003,
-            "min": 10.560405000000173,
-            "first": 13.0576030000002,
-            "samples": 93
+            "median": 17.45356700000025,
+            "min": 15.321683000000121,
+            "first": 20.242850999999973,
+            "samples": 58
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 10.948882499999854,
-            "min": 10.321118999999271,
-            "first": 18.3580750000001,
-            "samples": 84
+            "median": 25.006940499999473,
+            "min": 17.767815999999584,
+            "first": 34.974732000000586,
+            "samples": 42
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 12.635409999999865,
-            "min": 11.745926999999938,
-            "first": 22.12033700000029,
-            "samples": 77
+            "median": 14.650055999999495,
+            "min": 13.234011000000464,
+            "first": 109.66676800000005,
+            "samples": 63
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 14.070670499999324,
-            "min": 12.881602999999814,
-            "first": 19.363142000000153,
-            "samples": 70
+            "median": 25.87451300000066,
+            "min": 22.73236100000031,
+            "first": 50.200660000000425,
+            "samples": 37
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 41.971089999999094,
-            "min": 33.924895000000106,
-            "first": 42.045602000000144,
-            "samples": 23
+            "median": 85.51536300000043,
+            "min": 68.19344199999978,
+            "first": 83.10794700000042,
+            "samples": 13
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 15.699784499999623,
-            "min": 14.302897999999914,
-            "first": 23.703428000000713,
-            "samples": 62
+            "median": 35.98060599999917,
+            "min": 32.93877199999952,
+            "first": 67.63791800000035,
+            "samples": 27
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 30.005373499999223,
-            "min": 20.057550999999876,
-            "first": 44.172544000000926,
-            "samples": 34
+            "median": 59.13030400000025,
+            "min": 48.31161699999939,
+            "first": 92.47209399999883,
+            "samples": 17
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 19.062574999999924,
-            "min": 17.870450999998866,
-            "first": 26.661692000001494,
-            "samples": 53
+            "median": 35.5783139999985,
+            "min": 32.61138299999948,
+            "first": 41.34399099999973,
+            "samples": 25
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 24.236155999999028,
-            "min": 13.948911999999837,
-            "first": 138.24844699999994,
-            "samples": 25
+            "median": 30.773731999999654,
+            "min": 23.107099999999264,
+            "first": 121.49227500000052,
+            "samples": 22
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 19.554025000001275,
-            "min": 17.26494199999979,
-            "first": 28.61042400000042,
-            "samples": 49
+            "median": 40.58610800000042,
+            "min": 31.86526000000049,
+            "first": 55.953935999999885,
+            "samples": 24
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 3.645885999998427,
-            "min": 2.4384360000003653,
-            "first": 15.44082200000048,
-            "samples": 248
+            "median": 6.225839499998983,
+            "min": 4.5273809999998775,
+            "first": 22.192297000001417,
+            "samples": 138
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 10.335327999999208,
-            "min": 9.373893999996653,
-            "first": 14.556114000002708,
-            "samples": 94
+            "median": 19.22820900000079,
+            "min": 16.204632000000856,
+            "first": 30.737593999998353,
+            "samples": 53
           },
           "Channels": {
             "name": "Channels",
             "result": 999999937,
-            "median": 48.43662499999846,
-            "min": 45.691790000000765,
-            "first": 70.98437600000034,
-            "samples": 21
+            "median": 73.64173500000106,
+            "min": 66.98801100000128,
+            "first": 89.33370899999863,
+            "samples": 13
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 62.77638600000137,
+            "min": 48.83650199999829,
+            "first": 64.45475299999816,
+            "samples": 17
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 395.82154400000036,
+            "min": 303.3397079999995,
+            "first": 346.33671999999933,
+            "samples": 10
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 5.796012499999051,
+            "min": 5.724850999999035,
+            "first": 6.634591000001819,
+            "samples": 170
+          },
+          "Pull": {
+            "name": "Pull",
+            "result": 6367960,
+            "median": 76.27173799999946,
+            "min": 66.02451500000097,
+            "first": 87.0368559999988,
+            "samples": 13
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 411.6848700000046,
+            "min": 383.5158190000002,
+            "first": 545.8541829999995,
+            "samples": 10
           },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 0.06353249999847321,
-            "min": 0.0618560000002617,
-            "first": 1.2882700000009208,
+            "median": 0.08839699999953154,
+            "min": 0.08830200000375044,
+            "first": 1.6057609999988927,
             "samples": 1000
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 10.69224000000031,
-            "min": 9.828541999999288,
-            "first": 17.933442000001378,
-            "samples": 92
+            "median": 19.81230399999913,
+            "min": 17.474922000001243,
+            "first": 33.759085999998206,
+            "samples": 47
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 15.728750000002037,
-            "min": 14.361676000000443,
-            "first": 24.811885999999504,
-            "samples": 63
+            "median": 26.477395000001707,
+            "min": 24.227395000001707,
+            "first": 52.56853400000546,
+            "samples": 35
           }
         },
-        "startup": 135.91083500000002
+        "startup": 495.609541
       },
       "gopherjs": {
         "kernels": {
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 5.135852,
-            "min": 5.048625000000129,
-            "first": 7.478894999999994,
-            "samples": 193
+            "median": 8.362853499999915,
+            "min": 7.657670000000053,
+            "first": 10.450003999999979,
+            "samples": 104
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 32.83571299999994,
-            "min": 31.89337300000011,
-            "first": 51.12445799999978,
-            "samples": 31
+            "median": 74.1556700000001,
+            "min": 68.72178599999961,
+            "first": 105.06415900000002,
+            "samples": 13
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 10.029414000000088,
-            "min": 9.94786299999987,
-            "first": 12.670773000000281,
-            "samples": 95
+            "median": 15.561742999999979,
+            "min": 14.669448000000102,
+            "first": 19.417920000000322,
+            "samples": 62
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 266.53624549999995,
-            "min": 255.56462200000078,
-            "first": 280.6703090000001,
+            "median": 632.3810344999997,
+            "min": 518.9307239999998,
+            "first": 770.454976,
             "samples": 10
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 16.114097999999103,
-            "min": 15.282170000000406,
-            "first": 94.30713000000014,
-            "samples": 62
+            "median": 20.371197999999822,
+            "min": 19.244340999999622,
+            "first": 156.38200399999914,
+            "samples": 44
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 948.393639500001,
-            "min": 911.349717000001,
-            "first": 963.0440830000007,
-            "samples": 10
+            "median": 1890.599473000002,
+            "min": 1716.6496359999983,
+            "first": 1782.5836780000009,
+            "samples": 6
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 58.900109999998676,
-            "min": 54.437668999999005,
-            "first": 65.00751899999887,
-            "samples": 17
+            "median": 104.14463050000268,
+            "min": 100.23769799999718,
+            "first": 107.22034899999926,
+            "samples": 10
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 64.03516599999966,
-            "min": 59.622090999997454,
-            "first": 73.63515499999994,
-            "samples": 16
+            "median": 101.55079049999767,
+            "min": 98.49052700000175,
+            "first": 163.30893300000025,
+            "samples": 10
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 34.835329000001366,
-            "min": 30.486767999998847,
-            "first": 47.56792900000073,
-            "samples": 27
+            "median": 80.07159899999533,
+            "min": 61.80169500000193,
+            "first": 94.19110399999772,
+            "samples": 13
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 71.57062399999813,
-            "min": 66.698465999998,
-            "first": 146.01825699999972,
-            "samples": 14
+            "median": 120.2976305000011,
+            "min": 101.16750499999762,
+            "first": 196.14585700000316,
+            "samples": 10
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 208.9869830000007,
-            "min": 199.4074989999972,
-            "first": 247.89658300000156,
+            "median": 467.5611170000011,
+            "min": 420.27731700000004,
+            "first": 543.9967220000035,
             "samples": 10
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 153.6762690000014,
-            "min": 145.49234100000103,
-            "first": 210.3682390000031,
+            "median": 345.80742400000236,
+            "min": 279.4975520000007,
+            "first": 519.4451970000009,
             "samples": 10
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 371.6000305000016,
-            "min": 354.9911839999986,
-            "first": 552.7759459999979,
+            "median": 876.0704154999985,
+            "min": 724.720242000003,
+            "first": 1082.2463320000024,
             "samples": 10
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 951.8395255000032,
-            "min": 892.0324650000039,
-            "first": 1062.8422759999958,
-            "samples": 10
+            "median": 1932.3351919999986,
+            "min": 1871.320246000003,
+            "first": 2091.3973579999947,
+            "samples": 5
           },
           "Channels": {
             "name": "Channels",
             "result": 999999937,
-            "median": 125.61701900000116,
-            "min": 116.06691500000306,
-            "first": 148.31428700000106,
+            "median": 258.0860365000044,
+            "min": 231.3127300000051,
+            "first": 272.18674000000465,
             "samples": 10
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 59.194626000004064,
+            "min": 52.99871900001017,
+            "first": 80.95575700000336,
+            "samples": 16
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 595.0358330000017,
+            "min": 469.646802999996,
+            "first": 567.068059000012,
+            "samples": 10
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 6.15265800000634,
+            "min": 5.4603000000061,
+            "first": 7.751080999994883,
+            "samples": 150
+          },
+          "Pull": {
+            "name": "Pull",
+            "missing": true
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 3846.5632320000004,
+            "min": 3654.6570890000003,
+            "first": 3864.6978450000024,
+            "samples": 3
           },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 200.68898799999806,
-            "min": 182.566522000001,
-            "first": 241.4827490000025,
+            "median": 370.7934765000027,
+            "min": 347.5994059999939,
+            "first": 387.997675000006,
             "samples": 10
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 710.3787015000016,
-            "min": 674.064274999997,
-            "first": 757.7759280000028,
-            "samples": 10
+            "median": 1954.2788125000006,
+            "min": 1711.3807159999997,
+            "first": 1823.124386999989,
+            "samples": 6
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 2669.2942859999966,
-            "min": 2566.072767999998,
-            "first": 2777.5846519999905,
-            "samples": 4
+            "median": 5917.739686000015,
+            "min": 5252.001144000009,
+            "first": 6406.946247000014,
+            "samples": 3
           }
         },
-        "startup": 89.23025799999999
+        "startup": 473.648769
       },
       "gowasm": {
         "kernels": {
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 10.333120500000007,
-            "min": 9.964756999999963,
-            "first": 11.965594999999993,
-            "samples": 96
+            "median": 19.224627999999996,
+            "min": 16.666352000000074,
+            "first": 34.427260000000004,
+            "samples": 46
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 9.59941850000007,
-            "min": 8.613331000000017,
-            "first": 12.34134999999992,
-            "samples": 104
+            "median": 18.41131499999983,
+            "min": 16.493670999999722,
+            "first": 25.741416999999956,
+            "samples": 51
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 11.013546000000133,
-            "min": 10.737752999999884,
-            "first": 14.65661799999998,
-            "samples": 90
+            "median": 18.932466999999633,
+            "min": 15.782502000000022,
+            "first": 19.73814799999991,
+            "samples": 53
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 8.657245999999759,
-            "min": 8.235758000000715,
-            "first": 10.347407999999632,
-            "samples": 113
+            "median": 14.743438500000138,
+            "min": 14.197919000000184,
+            "first": 18.304979999999887,
+            "samples": 54
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 11.32650300000023,
-            "min": 11.09954900000048,
-            "first": 15.021085999999741,
-            "samples": 87
+            "median": 45.443236999999954,
+            "min": 26.402721000000383,
+            "first": 34.061047000000144,
+            "samples": 24
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 11.253993499999979,
-            "min": 10.64814699999988,
-            "first": 14.932710000000043,
-            "samples": 88
+            "median": 28.506615999999667,
+            "min": 27.150580999999875,
+            "first": 36.381491000000096,
+            "samples": 29
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 206.68850549999934,
-            "min": 199.67728499999976,
-            "first": 218.91184799999974,
+            "median": 349.28886950000106,
+            "min": 321.65547100000003,
+            "first": 419.9738839999991,
             "samples": 10
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 59.30571400000008,
-            "min": 58.02197400000114,
-            "first": 64.5735679999998,
-            "samples": 17
+            "median": 145.716665500001,
+            "min": 99.33131099999991,
+            "first": 144.02120800000012,
+            "samples": 10
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 51.96518199999991,
-            "min": 45.865272000000914,
-            "first": 60.325871999999436,
-            "samples": 20
+            "median": 121.81393250000019,
+            "min": 112.66837399999895,
+            "first": 164.38719499999934,
+            "samples": 10
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 20.315354500000467,
-            "min": 19.335220999999365,
-            "first": 24.37897200000043,
-            "samples": 48
+            "median": 51.693412999999055,
+            "min": 31.22963200000231,
+            "first": 70.10288200000286,
+            "samples": 20
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 27.019539000000805,
-            "min": 25.3402240000014,
-            "first": 27.670326000001296,
-            "samples": 37
+            "median": 43.76328099999955,
+            "min": 38.72335999999996,
+            "first": 59.78688499999771,
+            "samples": 21
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 94.0092650000006,
-            "min": 92.65028399999937,
-            "first": 101.35287000000062,
-            "samples": 11
+            "median": 155.38968949999798,
+            "min": 124.02537500000108,
+            "first": 141.8981359999998,
+            "samples": 10
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 24.643151999998736,
-            "min": 19.597737000000052,
-            "first": 107.91935000000012,
-            "samples": 42
+            "median": 46.69137899999987,
+            "min": 32.52239299999928,
+            "first": 167.61394799999835,
+            "samples": 21
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 46.684644999997545,
-            "min": 43.368108000002394,
-            "first": 64.53362399999969,
-            "samples": 21
+            "median": 92.80593600000066,
+            "min": 70.85656599999857,
+            "first": 150.9349570000013,
+            "samples": 11
           },
           "Channels": {
             "name": "Channels",
             "result": 999999937,
-            "median": 176.40908300000046,
-            "min": 172.9077819999984,
-            "first": 262.195971000001,
+            "median": 332.2717380000013,
+            "min": 269.0026399999988,
+            "first": 589.5686659999992,
             "samples": 10
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 43.03486000000157,
+            "min": 40.92726699999912,
+            "first": 67.46718500000134,
+            "samples": 22
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 3.04330100000152,
+            "min": 2.7170379999988654,
+            "first": 6.679508999997779,
+            "samples": 281
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 1.9675774999996065,
+            "min": 1.8095240000002377,
+            "first": 6.731886000001396,
+            "samples": 400
+          },
+          "Pull": {
+            "name": "Pull",
+            "result": 6367960,
+            "median": 9.884722500002681,
+            "min": 9.272690999998304,
+            "first": 24.250472000003356,
+            "samples": 86
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 37.358305000001565,
+            "min": 35.80620199999976,
+            "first": 46.33031399999891,
+            "samples": 26
           },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 0.5371050000012474,
-            "min": 0.49106899999969755,
-            "first": 1.820319999998901,
+            "median": 0.6840239999983169,
+            "min": 0.6490069999999832,
+            "first": 2.299071000001277,
             "samples": 1000
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 73.55597250000028,
-            "min": 70.40399999999863,
-            "first": 81.36906200000158,
-            "samples": 14
+            "median": 112.48653049999848,
+            "min": 108.93370200000209,
+            "first": 199.09930700000405,
+            "samples": 10
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 129.0513890000002,
-            "min": 121.84622200000013,
-            "first": 168.7686369999974,
+            "median": 280.0510334999999,
+            "min": 255.85064300000522,
+            "first": 272.0739850000027,
             "samples": 10
           }
         },
-        "startup": 54.301747999999996
+        "startup": 114.519781
       },
       "tinygo": {
         "kernels": {
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 4.52745950000002,
-            "min": 4.352600000000166,
-            "first": 5.911199,
-            "samples": 192
+            "median": 6.3090845000000115,
+            "min": 5.892843999999968,
+            "first": 9.805779999999999,
+            "samples": 132
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 10.0589594999999,
-            "min": 8.795978999999988,
-            "first": 20.085296999999855,
-            "samples": 84
+            "median": 17.73357950000002,
+            "min": 16.056164999999964,
+            "first": 32.20420400000012,
+            "samples": 50
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 10.20176349999997,
-            "min": 9.952960000000076,
-            "first": 11.2105260000003,
-            "samples": 72
+            "median": 15.194228000000294,
+            "min": 14.733170999999857,
+            "first": 17.301668000000063,
+            "samples": 53
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 5.721737999999277,
-            "min": 5.544519000000037,
-            "first": 10.286173999999846,
-            "samples": 105
+            "median": 11.595057499999712,
+            "min": 9.468460999999479,
+            "first": 15.680382999999892,
+            "samples": 62
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 10.975854000000254,
-            "min": 10.477574000000459,
-            "first": 11.915142999999262,
-            "samples": 73
+            "median": 11.736254000000372,
+            "min": 10.843706999999995,
+            "first": 16.184513000000152,
+            "samples": 67
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 10.672708499999771,
-            "min": 10.430704999999762,
-            "first": 11.555928999999196,
-            "samples": 72
+            "median": 11.829885000000104,
+            "min": 10.84973700000046,
+            "first": 19.281410999999935,
+            "samples": 63
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 122.17091950000031,
-            "min": 102.85902300000089,
-            "first": 112.388328,
+            "median": 179.09678650000023,
+            "min": 154.05098800000087,
+            "first": 207.47032899999977,
             "samples": 10
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 32.72440800000004,
-            "min": 30.720213999999032,
-            "first": 32.616085999999996,
-            "samples": 25
+            "median": 54.092617999998765,
+            "min": 48.58204800000021,
+            "first": 52.57612700000027,
+            "samples": 15
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 101.20768399999906,
-            "min": 94.82994300000064,
-            "first": 100.3853620000009,
+            "median": 211.5059494999996,
+            "min": 182.79351700000007,
+            "first": 1050.9081399999995,
             "samples": 10
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 65.02329299999838,
-            "min": 61.40495700000247,
-            "first": 66.39917099999911,
+            "median": 88.37775399999373,
+            "min": 86.81262199999765,
+            "first": 184.7664449999993,
             "samples": 3
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 11.174773499998992,
-            "min": 10.48052800000005,
-            "first": 20.508458000000246,
+            "median": 20.70804400000634,
+            "min": 16.510113000011188,
+            "first": 26.725399999995716,
             "samples": 16
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 39.56845150000299,
-            "min": 38.2211479999969,
-            "first": 56.731776000000536,
-            "samples": 8
+            "median": 51.038790000020526,
+            "min": 49.90570299999672,
+            "first": 98.0137720000057,
+            "samples": 11
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 30.867277999997896,
-            "min": 25.101787999999942,
-            "first": 89.5646459999989,
-            "samples": 8
+            "median": 49.02290000001085,
+            "min": 43.47546399998828,
+            "first": 145.9381069999945,
+            "samples": 11
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 39.24359899997944,
-            "min": 37.94528500002343,
-            "first": 53.00589400000172,
-            "samples": 10
+            "median": 73.48525050000171,
+            "min": 69.48205599997891,
+            "first": 90.79399299999932,
+            "samples": 12
           },
           "Channels": {
             "name": "Channels",
             "result": 999999937,
-            "median": 19.70211399999971,
-            "min": 19.175482000020565,
-            "first": 25.046478000003844,
+            "median": 47.75738850000198,
+            "min": 43.394390999979805,
+            "first": 43.624414999969304,
             "samples": 4
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 19.653591500071343,
+            "min": 18.891070000012405,
+            "first": 20.619326999993064,
+            "samples": 4
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 2.4425119999214076,
+            "min": 2.3598629999905825,
+            "first": 3.9549320000223815,
+            "samples": 16
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 0.22380300000077114,
+            "min": 0.1601469999877736,
+            "first": 1.639928000047803,
+            "samples": 16
+          },
+          "Pull": {
+            "name": "Pull",
+            "result": 6367960,
+            "median": 22.422945500002243,
+            "min": 16.553188999998383,
+            "first": 17.86647000000812,
+            "samples": 4
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 73.22092599992175,
+            "min": 46.521005999995396,
+            "first": 49.36931199999526,
+            "samples": 9
           },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 0.21214050002163276,
-            "min": 0.19189199997344986,
-            "first": 1.4459470000001602,
+            "median": 0.4927214999916032,
+            "min": 0.47065499995369464,
+            "first": 1.9563869999255985,
             "samples": 1000
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 75.37321749998955,
-            "min": 73.51894400001038,
-            "first": 111.6809990000329,
-            "samples": 12
+            "median": 123.9604330000002,
+            "min": 112.1396759999916,
+            "first": 157.38296900002751,
+            "samples": 10
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 312.17139849998057,
-            "min": 282.54546300001675,
-            "first": 367.13027399999555,
-            "samples": 10
+            "median": 363.93915700004436,
+            "min": 354.1393599999137,
+            "first": 416.3806709999917,
+            "samples": 3
           }
         },
-        "startup": 17.382014
+        "startup": 50.072954
       }
     },
     "chromium": {
@@ -1805,741 +2267,937 @@
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 8.162500000093132,
-            "min": 7.8250000001862645,
-            "first": 9.964999999850988,
-            "samples": 118
+            "median": 15.270000000484288,
+            "min": 13.745000001043081,
+            "first": 17.84999999962747,
+            "samples": 56
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 11.179999999701977,
-            "min": 10.520000000484288,
-            "first": 16.87999999988824,
-            "samples": 89
+            "median": 14.990000000223517,
+            "min": 13.760000001639128,
+            "first": 20.00499999895692,
+            "samples": 63
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 9.985000000335276,
-            "min": 9.790000000037253,
-            "first": 11.625,
-            "samples": 97
+            "median": 15.029999999329448,
+            "min": 14.730000000447035,
+            "first": 16.71499999985099,
+            "samples": 63
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 8.077500000130385,
-            "min": 7.65500000026077,
-            "first": 15.644999999552965,
-            "samples": 110
+            "median": 15.994999999180436,
+            "min": 14.820000000298023,
+            "first": 23.779999999329448,
+            "samples": 57
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 11.375,
-            "min": 11.205000000074506,
-            "first": 17.009999999776483,
-            "samples": 87
+            "median": 12.205000000074506,
+            "min": 11.745000001043081,
+            "first": 20.71000000089407,
+            "samples": 77
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 23.975000000558794,
-            "min": 23.125,
-            "first": 34.37000000011176,
-            "samples": 41
+            "median": 38.62249999959022,
+            "min": 36.42999999970198,
+            "first": 60.625,
+            "samples": 26
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 32.9499999997206,
-            "min": 26.865000000223517,
-            "first": 34.21499999985099,
-            "samples": 30
+            "median": 43.67500000074506,
+            "min": 41.2649999987334,
+            "first": 55.72999999858439,
+            "samples": 23
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 13.429999999701977,
-            "min": 12.854999999515712,
-            "first": 18.479999999515712,
-            "samples": 74
+            "median": 13.31499999947846,
+            "min": 11.790000000968575,
+            "first": 20.195000000298023,
+            "samples": 67
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 20.084999999962747,
-            "min": 18.445000000298023,
-            "first": 21.24500000011176,
-            "samples": 49
+            "median": 33.63250000029802,
+            "min": 27.445000000298023,
+            "first": 31.87000000104308,
+            "samples": 28
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 23.950000000186265,
-            "min": 23.389999999664724,
-            "first": 22.825000000186265,
-            "samples": 41
+            "median": 38.14250000100583,
+            "min": 33.205000000074506,
+            "first": 32.44499999843538,
+            "samples": 26
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 12.364999999757856,
-            "min": 10.975000000558794,
-            "first": 14.334999999962747,
-            "samples": 76
+            "median": 21.255000000819564,
+            "min": 18.780000001192093,
+            "first": 34.31499999947846,
+            "samples": 44
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 43.74500000011176,
-            "min": 41.924999999813735,
-            "first": 44.58499999996275,
-            "samples": 23
+            "median": 65.39499999955297,
+            "min": 60.980000000447035,
+            "first": 111.625,
+            "samples": 15
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 2.7549999998882413,
-            "min": 2.540000000037253,
-            "first": 4.885000000707805,
-            "samples": 328
+            "median": 4.644999999552965,
+            "min": 4.139999998733401,
+            "first": 7.525000000372529,
+            "samples": 201
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 6.052500000223517,
-            "min": 5.665000000037253,
-            "first": 6.9500000001862645,
-            "samples": 156
+            "median": 13.054999999701977,
+            "min": 12.379999998956919,
+            "first": 22.945000000298023,
+            "samples": 73
           },
           "Channels": {
             "name": "Channels",
             "missing": true
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 34.0149999987334,
+            "min": 33.105000000447035,
+            "first": 39.82500000111759,
+            "samples": 29
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 11.599999999627471,
+            "min": 9.630000000819564,
+            "first": 13.25,
+            "samples": 81
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 1.2050000000745058,
+            "min": 1.1399999987334013,
+            "first": 3.544999999925494,
+            "samples": 790
+          },
+          "Pull": {
+            "name": "Pull",
+            "result": 6367960,
+            "median": 1.4700000006705523,
+            "min": 0.9950000010430813,
+            "first": 3.7650000005960464,
+            "samples": 665
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 2.722499999217689,
+            "min": 2.449999999254942,
+            "first": 8.330000000074506,
+            "samples": 316
           },
           "Add": {
             "name": "Add",
             "result": 11952,
             "median": 0.06000000052154064,
             "min": 0.054999999701976776,
-            "first": 1.0099999997764826,
+            "first": 0.724999999627471,
             "samples": 1000
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 4.3299999996088445,
-            "min": 4.054999999701977,
-            "first": 5.579999999143183,
-            "samples": 228
+            "median": 6.879999998956919,
+            "min": 6.470000000670552,
+            "first": 10.209999999031425,
+            "samples": 140
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 8.725000000558794,
-            "min": 8.440000000409782,
-            "first": 10.964999999850988,
-            "samples": 114
+            "median": 15.094999998807907,
+            "min": 14.309999998658895,
+            "first": 18.199999999254942,
+            "samples": 65
           }
         },
-        "startup": 5.519999999552965
+        "startup": 16.425000000745058
       },
       "goesm": {
         "kernels": {
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 7.75,
-            "min": 7.370000000111759,
-            "first": 8.730000000447035,
-            "samples": 127
+            "median": 12.66499999910593,
+            "min": 11.78999999910593,
+            "first": 13.074999999254942,
+            "samples": 69
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 13.097500000149012,
-            "min": 12.360000000335276,
-            "first": 17.800000000745058,
-            "samples": 72
+            "median": 18.37749999947846,
+            "min": 17.404999999329448,
+            "first": 31.125,
+            "samples": 52
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 10.169999999925494,
-            "min": 9.705000000074506,
-            "first": 11.885000000707805,
-            "samples": 95
+            "median": 15.260000001639128,
+            "min": 14.714999999850988,
+            "first": 26.68500000052154,
+            "samples": 63
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 9.580000000074506,
-            "min": 9.285000000149012,
-            "first": 16.5,
-            "samples": 103
+            "median": 17.875,
+            "min": 16.529999999329448,
+            "first": 21.530000001192093,
+            "samples": 50
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 11.565000000409782,
-            "min": 10.740000000223517,
-            "first": 16.794999999925494,
-            "samples": 86
+            "median": 12.505000000819564,
+            "min": 12.040000000968575,
+            "first": 20.740000000223517,
+            "samples": 77
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 14.53000000026077,
-            "min": 13.865000000223517,
-            "first": 23.024999999441206,
-            "samples": 67
+            "median": 20.40000000130385,
+            "min": 19.655000001192093,
+            "first": 45.22499999962747,
+            "samples": 46
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 31.21499999985099,
-            "min": 25.519999999552965,
-            "first": 39.10499999951571,
-            "samples": 32
+            "median": 46.919999999925494,
+            "min": 43.57499999925494,
+            "first": 61.44500000029802,
+            "samples": 20
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 21.12250000005588,
-            "min": 20.440000000409782,
-            "first": 26.320000000298023,
-            "samples": 48
+            "median": 22.919999999925494,
+            "min": 21.10499999858439,
+            "first": 36.27999999932945,
+            "samples": 41
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 20.59000000078231,
-            "min": 19.484999999403954,
-            "first": 24.75,
-            "samples": 47
+            "median": 36.72000000067055,
+            "min": 27.915000000968575,
+            "first": 70.77500000037253,
+            "samples": 26
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 18.934999999590218,
-            "min": 18.740000000223517,
-            "first": 27.200000000186265,
-            "samples": 53
+            "median": 30.290000000968575,
+            "min": 28.065000001341105,
+            "first": 38.75999999977648,
+            "samples": 29
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 12.514999999664724,
-            "min": 11.6800000006333,
-            "first": 19.154999999329448,
-            "samples": 71
+            "median": 25.827499999664724,
+            "min": 19.169999999925494,
+            "first": 33.14000000059605,
+            "samples": 38
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 51.480000000447035,
-            "min": 47.6800000006333,
-            "first": 55.82000000029802,
-            "samples": 19
+            "median": 94.30499999970198,
+            "min": 76.6699999999255,
+            "first": 89.99000000022352,
+            "samples": 11
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 4.610000000335276,
-            "min": 4.309999999590218,
-            "first": 16.419999999925494,
-            "samples": 204
+            "median": 7.462500000372529,
+            "min": 6.839999999850988,
+            "first": 25.699999999254942,
+            "samples": 128
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 6.222500000149012,
-            "min": 5.910000000149012,
-            "first": 12.315000000409782,
-            "samples": 158
+            "median": 13.31499999947846,
+            "min": 12.269999999552965,
+            "first": 17.404999999329448,
+            "samples": 70
           },
           "Channels": {
             "name": "Channels",
             "result": 999999937,
-            "median": 71.04000000003725,
-            "min": 63.18500000052154,
-            "first": 86.35499999951571,
-            "samples": 15
+            "median": 80.21499999985099,
+            "min": 73.2949999999255,
+            "first": 98.34999999962747,
+            "samples": 13
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 39.33999999985099,
+            "min": 32.05499999970198,
+            "first": 43.31499999947846,
+            "samples": 26
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 125.42999999970198,
+            "min": 120.59999999962747,
+            "first": 200.07000000029802,
+            "samples": 10
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 3.2149999998509884,
+            "min": 3.0049999989569187,
+            "first": 5.400000000372529,
+            "samples": 289
+          },
+          "Pull": {
+            "name": "Pull",
+            "result": 6367960,
+            "median": 58.15000000037253,
+            "min": 51.17999999970198,
+            "first": 118.3300000000745,
+            "samples": 17
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 350.5224999990314,
+            "min": 297.945000000298,
+            "first": 366.4850000012666,
+            "samples": 10
           },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 0.06500000040978193,
+            "median": 0.06000000052154064,
             "min": 0.054999999701976776,
-            "first": 0.8149999994784594,
+            "first": 0.9450000002980232,
             "samples": 1000
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 10.265000000596046,
-            "min": 9.75,
-            "first": 15.504999999888241,
-            "samples": 95
+            "median": 19.782500000670552,
+            "min": 18.119999999180436,
+            "first": 29.419999999925494,
+            "samples": 46
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 17.99999999953434,
-            "min": 16.93999999947846,
-            "first": 30.790000000037253,
-            "samples": 54
+            "median": 28.5,
+            "min": 27.53500000014901,
+            "first": 46.33500000089407,
+            "samples": 33
           }
         },
-        "startup": 59.42999999970198
+        "startup": 221.11999999918044
       },
       "gopherjs": {
         "kernels": {
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 8.542499999515712,
-            "min": 7.919999999925494,
-            "first": 14.899999999441206,
-            "samples": 110
+            "median": 12.424999999813735,
+            "min": 11.165000000968575,
+            "first": 13.410000000149012,
+            "samples": 74
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 62.78250000020489,
-            "min": 58.89999999944121,
-            "first": 85.42499999981374,
-            "samples": 16
+            "median": 103.47000000067055,
+            "min": 89.06499999947846,
+            "first": 140.31000000052154,
+            "samples": 10
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 10.129999999888241,
-            "min": 9.885000000707805,
-            "first": 12.214999999850988,
-            "samples": 97
+            "median": 15.639999998733401,
+            "min": 14.864999998360872,
+            "first": 17.925000000745058,
+            "samples": 63
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 475.89999999990687,
-            "min": 444.9900000002235,
-            "first": 480.79999999981374,
+            "median": 887.5374999996275,
+            "min": 794.7099999990314,
+            "first": 949.855000000447,
             "samples": 10
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 26.58999999985099,
-            "min": 24.62999999988824,
-            "first": 34.28000000026077,
-            "samples": 37
+            "median": 39.11500000022352,
+            "min": 35.59500000067055,
+            "first": 44.59999999962747,
+            "samples": 23
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 298.4425000003539,
-            "min": 255.0449999999255,
-            "first": 291.5349999992177,
+            "median": 392.9925000006333,
+            "min": 360.89499999955297,
+            "first": 365.1150000002235,
             "samples": 10
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 50.172499999869615,
-            "min": 48.110000000335276,
-            "first": 64.86000000033528,
-            "samples": 20
+            "median": 75.71000000089407,
+            "min": 71.13499999977648,
+            "first": 83.89500000141561,
+            "samples": 13
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 30.71499999985099,
-            "min": 28.78500000014901,
-            "first": 53.94000000040978,
-            "samples": 33
+            "median": 42.83000000100583,
+            "min": 38.02500000037253,
+            "first": 70.11500000022352,
+            "samples": 22
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 34.04000000003725,
-            "min": 31.934999999590218,
-            "first": 38.05999999959022,
-            "samples": 27
+            "median": 77.14499999955297,
+            "min": 62.83999999985099,
+            "first": 76.49000000022352,
+            "samples": 13
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 73.0449999999255,
-            "min": 66.76500000059605,
-            "first": 89.75,
-            "samples": 13
+            "median": 128.53749999962747,
+            "min": 99.14499999955297,
+            "first": 178.9349999986589,
+            "samples": 10
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 525.6699999999255,
-            "min": 497.10500000044703,
-            "first": 495.15000000037253,
+            "median": 611.4399999994785,
+            "min": 517.7249999996275,
+            "first": 543.1350000016391,
             "samples": 10
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 165.76500000059605,
-            "min": 136.21999999973923,
-            "first": 256.8850000007078,
+            "median": 202.35500000044703,
+            "min": 171.17999999970198,
+            "first": 418.97000000067055,
             "samples": 10
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 418.5649999999441,
-            "min": 395.84999999962747,
-            "first": 842.1350000007078,
+            "median": 785.3100000005215,
+            "min": 686.445000000298,
+            "first": 1258.339999999851,
             "samples": 10
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 1012.0724999997765,
-            "min": 941.105000000447,
-            "first": 1090.390000000596,
-            "samples": 10
+            "median": 1541.304999999702,
+            "min": 1510.0249999985099,
+            "first": 1798.820000000298,
+            "samples": 7
           },
           "Channels": {
             "name": "Channels",
             "result": 999999937,
-            "median": 197.49750000052154,
-            "min": 195.49500000011176,
-            "first": 219.09999999962747,
+            "median": 335.24500000011176,
+            "min": 314.1100000012666,
+            "first": 381.86999999918044,
             "samples": 10
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 224.85500000044703,
+            "min": 207.36500000022352,
+            "first": 101.39500000141561,
+            "samples": 10
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 129.59500000067055,
+            "min": 115.85000000149012,
+            "first": 124.0800000000745,
+            "samples": 10
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 4.064999999478459,
+            "min": 3.9299999997019768,
+            "first": 6.175000000745058,
+            "samples": 233
+          },
+          "Pull": {
+            "name": "Pull",
+            "missing": true
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 1688.597500000149,
+            "min": 1593.9350000005215,
+            "first": 1720.5299999993294,
+            "samples": 6
           },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 260.0150000001304,
-            "min": 252.11500000022352,
-            "first": 254.9199999999255,
+            "median": 480.5699999993667,
+            "min": 456.5200000014156,
+            "first": 484.410000000149,
             "samples": 10
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 1090.3824999998324,
-            "min": 1048.8300000000745,
-            "first": 1083.6049999995157,
-            "samples": 10
+            "median": 1779.925000000745,
+            "min": 1729.8800000008196,
+            "first": 1881.2799999993294,
+            "samples": 6
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 2576.9174999999814,
-            "min": 2555.81500000041,
-            "first": 2446.05999999959,
-            "samples": 4
+            "median": 4824.235000001267,
+            "min": 4694.6349999997765,
+            "first": 4859.404999999329,
+            "samples": 3
           }
         },
-        "startup": 74.06500000040978
+        "startup": 196.01999999955297
       },
       "gowasm": {
         "kernels": {
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 11.489999999757856,
-            "min": 10.46000000089407,
-            "first": 12.90500000026077,
-            "samples": 86
+            "median": 16.96499999985099,
+            "min": 16.134999999776483,
+            "first": 25.700000001117587,
+            "samples": 56
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 11.125,
-            "min": 9.950000000186265,
-            "first": 36.375,
-            "samples": 88
+            "median": 19.739999998360872,
+            "min": 18.445000000298023,
+            "first": 37.42999999970198,
+            "samples": 51
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 11.179999999701977,
-            "min": 10.855000000447035,
-            "first": 23.135000000707805,
-            "samples": 83
+            "median": 17.21999999973923,
+            "min": 16.320000000298023,
+            "first": 31.530000001192093,
+            "samples": 54
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 8.809999999590218,
-            "min": 8.354999999515712,
-            "first": 9.714999999850988,
-            "samples": 109
+            "median": 16.137499999254942,
+            "min": 15.105000000447035,
+            "first": 17.905000001192093,
+            "samples": 60
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 13.930000000167638,
-            "min": 12.229999999515712,
-            "first": 36.03500000014901,
-            "samples": 72
+            "median": 23.165000000037253,
+            "min": 21.27500000037253,
+            "first": 33.32000000029802,
+            "samples": 40
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 11.994999999180436,
-            "min": 11.285000000149012,
-            "first": 20.950000000186265,
-            "samples": 83
+            "median": 23.46499999985099,
+            "min": 21.154999999329448,
+            "first": 39.644999999552965,
+            "samples": 40
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 218.93499999959022,
-            "min": 209.8549999995157,
-            "first": 214.56499999947846,
+            "median": 460.91750000044703,
+            "min": 396.48499999940395,
+            "first": 556.9249999988824,
             "samples": 10
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 72.94500000029802,
-            "min": 70.40000000037253,
-            "first": 89.4750000005588,
-            "samples": 13
+            "median": 126.6699999999255,
+            "min": 117.37000000104308,
+            "first": 174.25,
+            "samples": 10
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 54.85000000009313,
-            "min": 50.169999999925494,
-            "first": 64.70999999996275,
-            "samples": 18
+            "median": 145.04250000044703,
+            "min": 111.06000000052154,
+            "first": 179.9500000011176,
+            "samples": 10
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 22.274999999441206,
-            "min": 21.53500000014901,
-            "first": 34.46499999985099,
-            "samples": 43
+            "median": 37.90499999932945,
+            "min": 35.39500000141561,
+            "first": 48.02500000037253,
+            "samples": 24
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 27.104999999515712,
-            "min": 26.179999999701977,
-            "first": 29.605000000447035,
-            "samples": 37
+            "median": 52.30250000022352,
+            "min": 45.355000000447035,
+            "first": 60.33500000089407,
+            "samples": 20
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 100.03000000026077,
-            "min": 97,
-            "first": 105.57000000029802,
+            "median": 142.6499999994412,
+            "min": 136.1699999999255,
+            "first": 206.12000000104308,
             "samples": 10
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 21.639999999664724,
-            "min": 20.610000000335276,
-            "first": 106.01500000059605,
-            "samples": 46
+            "median": 47.607499999925494,
+            "min": 38.30499999970198,
+            "first": 187.00999999977648,
+            "samples": 20
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 51.237499999348074,
-            "min": 47.21999999973923,
-            "first": 75.76500000059605,
-            "samples": 20
+            "median": 88.36999999918044,
+            "min": 73.53500000014901,
+            "first": 108.375,
+            "samples": 11
           },
           "Channels": {
             "name": "Channels",
             "result": 999999937,
-            "median": 252.02000000001863,
-            "min": 239.7299999995157,
-            "first": 260.48499999940395,
+            "median": 421.6949999993667,
+            "min": 375.285000000149,
+            "first": 495.160000000149,
             "samples": 10
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 53.71499999985099,
+            "min": 48.02500000037253,
+            "first": 64.92500000074506,
+            "samples": 19
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 2.9950000010430813,
+            "min": 2.75,
+            "first": 8.669999999925494,
+            "samples": 297
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 2.730000000447035,
+            "min": 2.4350000005215406,
+            "first": 5.785000000149012,
+            "samples": 300
+          },
+          "Pull": {
+            "name": "Pull",
+            "result": 6367960,
+            "median": 14.450000000186265,
+            "min": 13.094999998807907,
+            "first": 17.93500000052154,
+            "samples": 66
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 37.705000000074506,
+            "min": 34.92499999888241,
+            "first": 39.31499999947846,
+            "samples": 25
           },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 0.6000000005587935,
-            "min": 0.5749999992549419,
-            "first": 3.1099999994039536,
-            "samples": 1000
+            "median": 0.9700000006705523,
+            "min": 0.8949999995529652,
+            "first": 3.7849999982863665,
+            "samples": 921
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 142.60000000009313,
-            "min": 118.55499999970198,
-            "first": 146.0800000000745,
+            "median": 216.18499999959022,
+            "min": 191.45999999903142,
+            "first": 243.58499999903142,
             "samples": 10
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 135.5500000002794,
-            "min": 128.464999999851,
-            "first": 151.35500000044703,
+            "median": 269.74750000052154,
+            "min": 242.8250000011176,
+            "first": 278.839999999851,
             "samples": 10
           }
         },
-        "startup": 71.29500000085682
+        "startup": 145.01500000059605
       },
       "tinygo": {
         "kernels": {
           "Fib": {
             "name": "Fib",
             "result": 832040,
-            "median": 3.8049999997019768,
-            "min": 3.724999999627471,
-            "first": 5.625,
-            "samples": 239
+            "median": 4.91499999910593,
+            "min": 4.660000000149012,
+            "first": 5.879999998956919,
+            "samples": 175
           },
           "Sieve": {
             "name": "Sieve",
             "result": 148933,
-            "median": 8.770000000484288,
-            "min": 7.839999999850988,
-            "first": 23.575000000186265,
-            "samples": 97
+            "median": 14.402500000782311,
+            "min": 12.344999998807907,
+            "first": 49.75499999895692,
+            "samples": 54
           },
           "Mandelbrot": {
             "name": "Mandelbrot",
             "result": 63572,
-            "median": 10.5625,
-            "min": 9.785000000149012,
-            "first": 15.440000000409782,
-            "samples": 70
+            "median": 15.799999998882413,
+            "min": 15.050000000745058,
+            "first": 25.53500000014901,
+            "samples": 53
           },
           "NBody": {
             "name": "NBody",
             "result": 169079859,
-            "median": 6.060000000055879,
-            "min": 5.839999999850988,
-            "first": 59.019999999552965,
-            "samples": 108
+            "median": 11.759999999776483,
+            "min": 10.464999999850988,
+            "first": 22.884999999776483,
+            "samples": 68
           },
           "FNV32": {
             "name": "FNV32",
             "result": 1199414498,
-            "median": 11.022499999962747,
-            "min": 10.475000000558794,
-            "first": 12.390000000596046,
+            "median": 11.222500000149012,
+            "min": 10.669999999925494,
+            "first": 14.815000001341105,
             "samples": 74
           },
           "FNV64": {
             "name": "FNV64",
             "result": 713958045,
-            "median": 10.855000000447035,
-            "min": 10.449999999254942,
-            "first": 12.484999999403954,
-            "samples": 75
+            "median": 11.037500000558794,
+            "min": 10.625,
+            "first": 14.470000000670552,
+            "samples": 74
           },
           "BinaryTrees": {
             "name": "BinaryTrees",
             "result": 3123888,
-            "median": 112.27500000037253,
-            "min": 90.70999999996275,
-            "first": 106.50499999988824,
+            "median": 176.76499999966472,
+            "min": 148.33500000089407,
+            "first": 199.64999999850988,
             "samples": 10
           },
           "Interfaces": {
             "name": "Interfaces",
             "result": 152426481,
-            "median": 26.09499999973923,
-            "min": 25.075000000186265,
-            "first": 29.27500000037253,
-            "samples": 31
+            "median": 54.762500000186265,
+            "min": 40.72499999962747,
+            "first": 56.71499999985099,
+            "samples": 16
           },
           "MapInt": {
             "name": "MapInt",
             "result": 25593856,
-            "median": 105.26250000018626,
-            "min": 98.23500000033528,
-            "first": 118.33499999996275,
+            "median": 200.79999999981374,
+            "min": 181.06499999947846,
+            "first": 581.3149999994785,
             "samples": 10
           },
           "MapString": {
             "name": "MapString",
             "result": 5771000,
-            "median": 64.41500000003725,
-            "min": 62.23499999940395,
-            "first": 73.95999999996275,
+            "median": 102.8300000000745,
+            "min": 93.75,
+            "first": 119.1699999999255,
             "samples": 10
           },
           "Strings": {
             "name": "Strings",
             "result": 857778,
-            "median": 10.429999999701977,
-            "min": 9.600000000558794,
-            "first": 15.604999999515712,
+            "median": 18.59499999973923,
+            "min": 16.679999999701977,
+            "first": 24.855000000447035,
             "samples": 16
           },
           "Sort": {
             "name": "Sort",
             "result": 49313,
-            "median": 38.71249999990687,
-            "min": 37.23499999940395,
-            "first": 52.34999999962747,
-            "samples": 8
+            "median": 49.88499999977648,
+            "min": 47.57000000029802,
+            "first": 93.90000000037253,
+            "samples": 11
           },
           "JSON": {
             "name": "JSON",
             "result": 282891,
-            "median": 19.740000000223517,
-            "min": 18.46499999985099,
-            "first": 55.39500000048429,
-            "samples": 5
+            "median": 34.99000000022352,
+            "min": 32.68999999947846,
+            "first": 116.75999999977648,
+            "samples": 12
           },
           "Sprintf": {
             "name": "Sprintf",
             "result": 1494476,
-            "median": 33.705000000074506,
-            "min": 29.940000000409782,
-            "first": 48.1800000006333,
-            "samples": 7
+            "median": 58.625,
+            "min": 50.09499999880791,
+            "first": 97.2649999987334,
+            "samples": 11
           },
           "Channels": {
             "name": "Channels",
             "result": 999999937,
-            "median": 21.37749999994412,
-            "min": 21.08999999985099,
-            "first": 29.21499999985099,
+            "median": 44.10250000003725,
+            "min": 39.024999998509884,
+            "first": 49.644999999552965,
             "samples": 4
+          },
+          "Parallel": {
+            "name": "Parallel",
+            "result": 10753840,
+            "median": 12.190000000409782,
+            "min": 11.944999998435378,
+            "first": 19.595000000670552,
+            "samples": 4
+          },
+          "Rand64": {
+            "name": "Rand64",
+            "result": 688045436,
+            "median": 2.2949999989941716,
+            "min": 2.105000000447035,
+            "first": 3.2200000006705523,
+            "samples": 16
+          },
+          "MaybeBlocking": {
+            "name": "MaybeBlocking",
+            "result": 127493856,
+            "median": 0.4649999998509884,
+            "min": 0.4150000009685755,
+            "first": 1.6150000002235174,
+            "samples": 16
+          },
+          "Pull": {
+            "name": "Pull",
+            "result": 6367960,
+            "median": 17.195000000298023,
+            "min": 16.570000000298023,
+            "first": 20.83999999985099,
+            "samples": 4
+          },
+          "RSASign": {
+            "name": "RSASign",
+            "result": 7658273,
+            "median": 53.60250000003725,
+            "min": 44.419999999925494,
+            "first": 81.58500000089407,
+            "samples": 10
           },
           "Add": {
             "name": "Add",
             "result": 11952,
-            "median": 0.23499999940395355,
-            "min": 0.21999999973922968,
-            "first": 1.8650000002235174,
+            "median": 0.39499999955296516,
+            "min": 0.3399999998509884,
+            "first": 3.7600000016391277,
             "samples": 1000
           },
           "Upper": {
             "name": "Upper",
             "result": 370853891,
-            "median": 120.6750000002794,
-            "min": 110.27000000048429,
-            "first": 158.90000000037253,
+            "median": 219.70999999996275,
+            "min": 195.18999999947846,
+            "first": 329.43500000052154,
             "samples": 10
           },
           "Handle": {
             "name": "Handle",
             "result": 246107465,
-            "median": 133.36500000022352,
-            "min": 123.98500000033528,
-            "first": 159.73000000044703,
-            "samples": 10
+            "median": 238.74500000104308,
+            "min": 231.81499999947846,
+            "first": 397.59500000067055,
+            "samples": 3
           }
         },
-        "startup": 27.865000000223517
+        "startup": 60.665000000968575
       }
     }
   }

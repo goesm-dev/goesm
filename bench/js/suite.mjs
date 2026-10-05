@@ -20,6 +20,14 @@ export const SUITE = [
   { name: "JSON", arg: 2_000, what: "encoding/json Marshal + Unmarshal", ja: "encoding/json の Marshal + Unmarshal" },
   { name: "Sprintf", arg: 50_000, what: "fmt.Sprintf", ja: "fmt.Sprintf" },
   { name: "Channels", arg: 100_000, what: "goroutines, unbuffered channels", ja: "goroutine、バッファなしチャネル" },
+  // The cliffs: ways of writing Go that a compiler to JS can make far
+  // slower than native Go or than the JS one would write instead (see
+  // kernels/cliffs.go). The report shows them apart from the kernels above.
+  { name: "Parallel", arg: 100_000, cliff: true, what: "CPU work split over 4 goroutines", ja: "4 つの goroutine に分けた CPU 処理" },
+  { name: "Rand64", arg: 1_000_000, cliff: true, what: "uint64 arithmetic on a struct field", ja: "構造体フィールドでの uint64 演算" },
+  { name: "MaybeBlocking", arg: 1_000_000, cliff: true, what: "interface calls of which another implementation blocks", ja: "別の実装がブロックするインターフェースの呼び出し" },
+  { name: "Pull", arg: 50_000, cliff: true, what: "iter.Pull", ja: "iter.Pull" },
+  { name: "RSASign", arg: 4, cliff: true, what: "crypto/rsa 2048-bit signatures, math/big", ja: "crypto/rsa の 2048 ビット署名、math/big" },
   { name: "Add", arg: 100_000, calls: true, what: "calls from JS: two numbers in, one out", ja: "JS からの呼び出し: 数値 2 つを渡して 1 つ受け取る" },
   { name: "Upper", arg: 100_000, calls: true, what: "calls from JS: strings.ToUpper, a string in and out", ja: "JS からの呼び出し: strings.ToUpper、文字列を渡して受け取る" },
   { name: "Handle", arg: 10_000, calls: true, what: "calls from JS: a JSON request handler, a string in and out", ja: "JS からの呼び出し: JSON のリクエストハンドラ、文字列を渡して受け取る" },
