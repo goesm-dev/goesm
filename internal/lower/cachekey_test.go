@@ -13,7 +13,7 @@ import (
 
 // covered are the Program fields and methods that lowering a package may
 // read, each of which Facts covers: in the digests of the package or of its
-// dependencies (async, syncOnly, boxed, linkPulls, linkProvides, std, Deps,
+// dependencies (async, syncOnly, boxed, linkPulls, linkProvides, DynMethod, std, Deps,
 // TracksGoroutines and the methods reading them), as answers recorded for
 // the package's nodes (CallBlocks, CallAlwaysAsync, RangeBlocks, WaitLock,
 // WaitLockVal), or
@@ -27,6 +27,7 @@ var covered = map[string]bool{
 	"std": true, "Deps": true,
 	"TracksGoroutines": true, "awaitMain": true,
 	"CallBlocks": true, "CallAlwaysAsync": true, "RangeBlocks": true, "WaitLock": true, "WaitLockVal": true,
+	"DynMethod": true,
 }
 
 // TestFactsCoverProgram fails when the lowering reads a Program field or

@@ -92,7 +92,7 @@ Go のコードは、`//goesm:import` で宣言した ES モジュールの関�
 75 パーセンタイルから 95 パーセンタイルの間で分かっている不足を挙げます。これらを必要とするコードも、一部は動くことがあります。
 
 - **ハンドルのフィールド:** メソッドを持つ構造体型へのポインタは Go のオブジェクトそのままで JavaScript に渡るので、そのフィールドには Go の内部表現が入っています。データはメソッドや関数を通して読みます。
-- **バンドルの大きさ。** `fmt`、`encoding/json`、`reflect` で gzip 後に約 200 KiB かかります。`errors.New` や `regexp.MustCompile` のように関数呼び出しで初期化するパッケージ変数があると、import した側が何も使わなくてもそのパッケージはバンドルに残ります。`net/http` のクライアントは、リクエストを `fetch` で送るにもかかわらず TLS と HTTP/2 のコードを残します。
+- **バンドルの大きさ。** `fmt.Sprintf` を使うパッケージは gzip 後に約 95 KiB になります。その大半は、`fmt` がすべての引数に使う `reflect` です。`errors.New` 以外の関数呼び出しで初期化するパッケージ変数があると、import した側が何も使わなくても、そのパッケージはバンドルに残ります。`regexp.MustCompile` がその例です。`net/http` のクライアントは、リクエストを `fetch` で送るにもかかわらず TLS と HTTP/2 のコードを残します。`time`、`strings`、`strconv` の一部だけを使うコードは小さく収まります。`time` の 6 つの関数を使うパッケージは 13 KiB です。
 - **HTTP サーバー:** HTTP/2 と gRPC 本来のプロトコル、TLS による `ListenAndServeTLS`、WebSocket と `Hijack`、トレーラー、ハンドラの実行中に読むストリーミングのリクエストボディ、クライアントストリーミングと双方向ストリーミングの RPC、`net.Listener` を渡す `Serve` はまだありません。Connect と gRPC-Web は動きます。
 - **fetch 以外の Workers の機能:** KV、D1、R2、Durable Objects などのバインディングは `syscall/js` を通してしか使えません。`ctx.waitUntil` にはつながっていないので、レスポンスの後も動いている goroutine は止められることがあります。
 - **ネットワークとプロセス:** 生の TCP や UDP に対する `net.Dial` と `net.Listen`、`pgx` や `go-sql-driver/mysql` のように TCP で接続するデータベースドライバ、`os/exec` は使えません。

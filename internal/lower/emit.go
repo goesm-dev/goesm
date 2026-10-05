@@ -577,6 +577,11 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 		if pe.prog.boxed[v] {
 			init = "$rt.cell(" + init + ")"
 		}
+		if !jsLiteral.MatchString(init) && init != "null" && init != "false" {
+			// A zero value has no effect: a variable nothing uses (one of
+			// internal/cpu's feature sets) is dropped with its types.
+			init = "/* @__PURE__ */ (() => " + init + ")()"
+		}
 		pe.vars.ln("let %s: %s = %s;", local, pe.varTSType(v), init)
 	}
 	for _, name := range scope.Names() {
@@ -668,13 +673,65 @@ func (pe *pkgEmitter) pureExpr(e ast.Expr) bool {
 		// panics if too short).
 		if tv, ok := pe.info.Types[e.Fun]; ok && tv.IsType() && len(e.Args) == 1 {
 			switch under(tv.Type).(type) {
-			case *types.Array, *types.Pointer:
+			case *types.Pointer:
+				// (*T)(nil)
+				return pe.info.Types[e.Args[0]].IsNil()
+			case *types.Array:
 				return false
 			}
 			return pe.pureExpr(e.Args[0])
 		}
+		// Calls of the functions that only allocate, which the standard
+		// library's error variables and type descriptors are made with.
+		var fn *types.Func
+		var recv ast.Expr
+		switch f := unparen(e.Fun).(type) {
+		case *ast.Ident:
+			fn, _ = pe.info.Uses[f].(*types.Func)
+		case *ast.SelectorExpr:
+			fn, _ = pe.info.Uses[f.Sel].(*types.Func)
+			if sel := pe.info.Selections[f]; sel != nil {
+				recv = f.X
+			}
+		}
+		if fn == nil || !pureFuncs[fn.FullName()] || recv != nil && !pe.pureExpr(recv) {
+			return false
+		}
+		if fn.Name() == "Elem" && !pe.typeOfElemType(recv) {
+			return false
+		}
+		for _, a := range e.Args {
+			if !pe.pureExpr(a) {
+				return false
+			}
+		}
+		return true
 	}
 	return false
+}
+
+// typeOfElemType reports whether e is reflect.TypeOf(x) (or reflectlite's)
+// for an x whose type has an element type, so that Elem does not panic.
+func (pe *pkgEmitter) typeOfElemType(e ast.Expr) bool {
+	call, ok := unparen(e).(*ast.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		return false
+	}
+	switch under(pe.info.TypeOf(call.Args[0])).(type) {
+	case *types.Pointer, *types.Slice, *types.Array, *types.Map, *types.Chan:
+		return true
+	}
+	return false
+}
+
+// pureFuncs are functions without effects that cannot panic when their
+// arguments are pure expressions (pureExpr), receivers included.
+var pureFuncs = map[string]bool{
+	"errors.New":                       true,
+	"internal/reflectlite.TypeOf":      true,
+	"reflect.TypeOf":                   true,
+	"(internal/reflectlite.Type).Elem": true, // of TypeOf((*T)(nil)) (typeOfElemType)
+	"(reflect.Type).Elem":              true,
 }
 
 // pkgLevel reports whether obj is a package-level variable or a function.
