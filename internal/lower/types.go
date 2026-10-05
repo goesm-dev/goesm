@@ -141,10 +141,10 @@ func (pe *pkgEmitter) typeDesc(t types.Type, tp tpScope) string {
 	t = types.Unalias(t)
 	if b, ok := t.(*types.Basic); ok {
 		if n, ok := basicDesc[b.Kind()]; ok {
-			return "$rt.types." + n
+			return "$rt.t" + strings.ToUpper(n[:1]) + n[1:]
 		}
 		pe.errorf(0, "unsupported basic type %s", b)
-		return "$rt.types.int"
+		return "$rt.tInt"
 	}
 	if tpar, ok := t.(*types.TypeParam); ok {
 		if n, ok := tp.names[tpar]; ok {
@@ -273,15 +273,30 @@ func methodKey(f *types.Func) string {
 }
 
 func (pe *pkgEmitter) structDesc(s *types.Struct, ctor string, tp tpScope) string {
+	// Fields as [name, type, embedded, tag, prop] (runtime FieldSpec),
+	// without the trailing defaults, and the unexported fields' package
+	// once.
 	var fs []string
+	pkgPath := ""
 	for i := 0; i < s.NumFields(); i++ {
 		f := s.Field(i)
-		pkgPath := ""
 		if !f.Exported() && f.Pkg() != nil {
 			pkgPath = goPkgPath(f.Pkg())
 		}
-		fs = append(fs, fmt.Sprintf("{ name: %s, pkgPath: %s, type: %s, embedded: %v, tag: %s, prop: %s }",
-			jsString(f.Name()), jsString(pkgPath), pe.typeDesc(f.Type(), tp), f.Embedded(), jsString(s.Tag(i)), jsPropString(fieldProp(s, i))))
+		embedded := "0"
+		if f.Embedded() {
+			embedded = "1"
+		}
+		spec := []string{jsString(f.Name()), pe.typeDesc(f.Type(), tp), embedded, jsString(s.Tag(i)), jsPropString(fieldProp(s, i))}
+		defaults := []string{"", "", "0", `""`, jsString(f.Name())}
+		n := len(spec)
+		for n > 2 && spec[n-1] == defaults[n-1] {
+			n--
+		}
+		fs = append(fs, "["+strings.Join(spec[:n], ", ")+"]")
+	}
+	if pkgPath != "" {
+		return "$rt.structOf([" + strings.Join(fs, ", ") + "], " + ctor + ", " + jsString(pkgPath) + ")"
 	}
 	return "$rt.structOf([" + strings.Join(fs, ", ") + "], " + ctor + ")"
 }

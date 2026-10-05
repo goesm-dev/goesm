@@ -405,6 +405,15 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 		return
 	}
 
+	if s.Tok == token.ASSIGN && fe.directParallel(s) {
+		for i, l := range s.Lhs {
+			if !isBlank(l) {
+				fe.assignOne(s.Tok, l, fe.valueOf(s.Rhs[i], fe.lhsType(l, fe.info.TypeOf(s.Rhs[i]))), "")
+			}
+		}
+		return
+	}
+
 	// Parallel assignment: evaluate left operands and all right-hand sides
 	// first, then assign left to right.
 	type target struct {
@@ -432,6 +441,56 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 			w.ln("%s;", t.lv.set(vals[i]))
 		}
 	}
+}
+
+// directParallel reports whether the parallel assignment s can assign its
+// values one after the other, without temporaries: its right-hand sides are
+// constants or variables of non-aggregate types that it does not assign,
+// and its targets are variables, or fields of one variable's struct, so that
+// a nil pointer stops it before the first assignment as in Go.
+func (fe *funcEmitter) directParallel(s *ast.AssignStmt) bool {
+	assigned := map[types.Object]bool{}
+	var base types.Object
+	for i, l := range s.Lhs {
+		switch l := ast.Unparen(l).(type) {
+		case *ast.Ident:
+			if l.Name == "_" {
+				continue
+			}
+			v, ok := fe.info.Uses[l].(*types.Var)
+			if !ok || base != nil {
+				return false
+			}
+			assigned[v] = true
+		case *ast.SelectorExpr:
+			x, ok := ast.Unparen(l.X).(*ast.Ident)
+			if !ok {
+				return false
+			}
+			sel := fe.info.Selections[l]
+			v, isVar := fe.info.Uses[x].(*types.Var)
+			if sel == nil || sel.Kind() != types.FieldVal || len(sel.Index()) != 1 || !isVar || len(assigned) > 0 || base != nil && base != v || i > 0 && base == nil {
+				return false
+			}
+			base = v
+		default:
+			return false
+		}
+	}
+	for _, r := range s.Rhs {
+		if tv, ok := fe.info.Types[r]; ok && (tv.Value != nil || tv.IsNil()) {
+			continue
+		}
+		id, ok := ast.Unparen(r).(*ast.Ident)
+		if !ok {
+			return false
+		}
+		v, ok := fe.info.Uses[id].(*types.Var)
+		if !ok || assigned[v] || isAggregate(v.Type()) {
+			return false
+		}
+	}
+	return true
 }
 
 var opAssign = map[token.Token]token.Token{

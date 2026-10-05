@@ -116,9 +116,11 @@ type pkgEmitter struct {
 	definesTypes                                 bool        // phase1 has $rt.defined types
 	exports                                      [][2]string // local, exported
 	exportSet                                    map[string]bool
-	wrappers                                     map[string]string    // function -> its exportWrapper
-	withBody                                     map[*types.Func]bool // the entry package's methods that get wrappers
-	usesJSABI                                    bool                 // an export wrapper uses $jsabi
+	wrappers                                     map[string]string        // function -> its exportWrapper
+	withBody                                     map[*types.Func]bool     // the entry package's methods that get wrappers
+	usesJSABI                                    bool                     // an export wrapper uses $jsabi
+	jsMethods                                    []string                 // statements giving classes their JS methods ($jsm)
+	noCopy                                       map[*types.TypeName]bool // uncopied, once computed
 
 	lastPos token.Pos
 
@@ -400,6 +402,7 @@ func (pe *pkgEmitter) emit() *Module {
 
 	if pe.isEntry && !pe.std && !pe.dep {
 		pe.emitImportedHandleMethods()
+		pe.emitJSMethods()
 	}
 
 	// Package variables: declare with zero values, then initialise in the

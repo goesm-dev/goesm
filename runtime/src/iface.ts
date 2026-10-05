@@ -7,7 +7,7 @@
 // method dispatch goes through the type's method table instead of relying on
 // JS structural typing.
 
-import { Kind, Type, implementsIface, isAggregate, types, zeroSized } from "./types.ts";
+import { Kind, Type, implementsIface, isAggregate, tFloat32, tFloat64, zeroSized } from "./types.ts";
 import { ceq } from "./complex.ts";
 import { GoPanic, runtimePanic, typeAssertionErrorType } from "./panic.ts";
 
@@ -229,7 +229,7 @@ function serialize(t: Type, v: any): string {
       if (v !== v) return "NaN#" + nextObjID++; // NaN != NaN: every such key is distinct
       return String(v === 0 ? 0 : v);
     case Kind.Complex64: case Kind.Complex128: {
-      const f = t.kind === Kind.Complex64 ? types.float32 : types.float64;
+      const f = t.kind === Kind.Complex64 ? tFloat32 : tFloat64;
       return "(" + serialize(f, v.re) + "," + serialize(f, v.im) + ")";
     }
     case Kind.Pointer:

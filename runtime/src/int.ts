@@ -56,8 +56,7 @@ export function pairLo(x: bigint): number {
 }
 
 // bigShifts[n] is BigInt(n) for the shift counts 0 to 64.
-const bigShifts: bigint[] = [];
-for (let i = 0; i <= 64; i++) bigShifts.push(BigInt(i));
+const bigShifts: bigint[] = /* @__PURE__ */ Array.from({ length: 65 }, (_, i) => BigInt(i));
 
 export function shlBig(x: bigint, n: number, signed: boolean): bigint {
   checkShift(n);
@@ -124,8 +123,7 @@ export function shr32(x: number, n: number, signed: boolean): number {
 // 64-bit operations on int, uint and uintptr (numbers). Shifts scale by
 // powers of two, exact for integers; bitwise operations work on the two
 // 32-bit halves. A result beyond 2^53 rounds like Number(BigInt(...)).
-const pow2: number[] = [];
-for (let i = 0; i < 64; i++) pow2.push(2 ** i);
+const pow2: number[] = /* @__PURE__ */ Array.from({ length: 64 }, (_, i) => 2 ** i);
 const two32 = 4294967296;
 const maxSafe = 9007199254740992; // 2^53
 

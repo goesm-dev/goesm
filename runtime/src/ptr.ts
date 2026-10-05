@@ -231,7 +231,7 @@ export function zeroSizePtrEq(a: unknown, b: unknown): boolean {
 
 const addresses = new WeakMap<object, number>();
 const pointers = new Map<number, WeakRef<object>>();
-const forgetAddress = new FinalizationRegistry<number>((a) => pointers.delete(a));
+const forgetAddress = /* @__PURE__ */ new FinalizationRegistry<number>((a) => pointers.delete(a));
 let nextAddress = 0xc000010000;
 
 // addressOf stands in for uintptr(unsafe.Pointer(p)): a stable number per
