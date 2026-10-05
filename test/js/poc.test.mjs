@@ -101,3 +101,39 @@ test("a nil dereference surfaces as a GoPanic, not a TypeError", async () => {
     return true;
   });
 });
+
+test("js.FuncOf passes a returned Promise to JavaScript as it is", async () => {
+  const m = await load("GOESM_JSFUNCS");
+  m.Setup();
+  const f = globalThis.jsfuncs;
+  assert.equal(f.value(21), 42);
+  const resolved = f.resolve("ok");
+  assert.ok(resolved instanceof Promise);
+  assert.equal(await resolved, "ok");
+  await assert.rejects(f.reject("x"), (e) => {
+    assert.ok(e instanceof Error && !(e instanceof m.$runtime.GoPanic));
+    assert.equal(e.message, "x");
+    return true;
+  });
+});
+
+test("js.FuncOf of a blocking Go function returns a Promise of its result", async () => {
+  const m = await load("GOESM_JSFUNCS_BLOCKING");
+  m.Setup();
+  const f = globalThis.jsfuncsblocking;
+  assert.equal(await f.value(21), 42);
+  assert.equal(await f.resolve("ok"), "ok");
+  assert.equal(await f.blocking(5), 15);
+  for (const p of [f.reject("x"), f.blockingReject("y")]) {
+    await assert.rejects(p, (e) => {
+      assert.ok(e instanceof Error && !(e instanceof m.$runtime.GoPanic));
+      assert.match(e.message, /^[xy]$/);
+      return true;
+    });
+  }
+  await assert.rejects(f.blockingPanic("boom"), (e) => {
+    assert.ok(e instanceof m.$runtime.GoPanic);
+    assert.equal(e.message, "panic: boom");
+    return true;
+  });
+});

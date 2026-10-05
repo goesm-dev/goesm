@@ -409,12 +409,15 @@ type Func struct {
 // Func.Release must be called to free up resources when the function will
 // not be invoked any more.
 func FuncOf(fn func(this Value, args []Value) any) Func {
-	return Func{makeValue(makeFunc(func(this ref, args []ref) ref {
+	return Func{makeValue(makeFunc(func(this ref, args []ref) []ref {
 		vs := make([]Value, len(args))
 		for i, a := range args {
 			vs[i] = makeValue(a)
 		}
-		return ValueOf(fn(makeValue(this), vs)).ref
+		// The result travels in a slice: if fn blocks, this function is
+		// async, and returning a Promise from it would make the Promise the
+		// function returns adopt that one instead of resolving to it.
+		return []ref{ValueOf(fn(makeValue(this), vs)).ref}
 	}))}
 }
 
@@ -451,4 +454,4 @@ func valueString(v ref) string
 func valueInstanceOf(v, t ref) bool
 func copyBytesToGo(dst []byte, src ref) (int, bool)
 func copyBytesToJS(dst ref, src []byte) (int, bool)
-func makeFunc(fn func(this ref, args []ref) ref) ref
+func makeFunc(fn func(this ref, args []ref) []ref) ref

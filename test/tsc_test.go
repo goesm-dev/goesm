@@ -122,6 +122,8 @@ func TestTSC(t *testing.T) {
 		{testdata("semantics"), "./generics"},
 		{testdata("semantics"), "./goroutines"},
 		{testdata("semantics"), "./int64s"},
+		{testdata("semantics"), "./jsfuncs"},
+		{testdata("semantics"), "./jsfuncsblocking"},
 		{testdata("semantics"), "./panics"},
 		{testdata("semantics"), "./stdlibuse"},
 		{testdata("programs"), "./pipe"},
