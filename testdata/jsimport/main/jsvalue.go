@@ -5,6 +5,10 @@ import (
 	"syscall/js"
 )
 
+func nameAndArg() (string, int) { return "pair", 7 }
+
+func absArg() (string, int) { return "abs", -3 }
+
 // syscallJS covers the syscall/js calls goesm lowers to direct JavaScript
 // calls (internal/lower/jsvalue.go) next to the ones it does not.
 func syscallJS() {
@@ -34,6 +38,12 @@ func syscallJS() {
 	fmt.Println(js.Global().Get("Math").Call("max", 3, o.Get("ascii"), 2.5).Float())
 	double := js.FuncOf(func(this js.Value, args []js.Value) any { return args[0].Int() * 2 })
 	fmt.Println(js.Global().Get("Array").Call("of", 1, 2).Call("map", double).Call("join", "+").String())
+	o.Set(nameAndArg())
+	fmt.Println(o.Get("pair").Int(), js.Global().Get("Math").Call(absArg()).Int())
+	frozen := js.Global().Get("Object").Call("freeze", js.Global().Get("Object").New())
+	frozen.Set("x", 1)
+	frozen.SetIndex(0, "y")
+	fmt.Println(frozen.Get("x").IsUndefined(), frozen.Index(0).IsUndefined())
 
 	for _, f := range []func(){
 		func() { js.ValueOf(1).Get("x") },

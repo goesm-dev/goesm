@@ -1231,11 +1231,33 @@ export function native$syscall$js$valueSetIndex(v: any, i: number, x: any): void
 
 // x is a JavaScript value (Value.setJS, setIndexJS).
 export function native$syscall$js$valueSetJS(v: any, name: string, x: any): void {
-  fromRef(v)[name] = x;
+  setProperty(fromRef(v), name, x);
 }
 
 export function native$syscall$js$valueSetIndexJS(v: any, i: number, x: any): void {
-  fromRef(v)[i] = x;
+  const o = fromRef(v);
+  try {
+    o[i] = x;
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e;
+    Reflect.set(o, i, x);
+  }
+}
+
+// setProperty sets o[k] = x as Value.Set does (valueSetIndexJS is the same
+// for indices, kept apart so that each stays monomorphic), which ignores an assignment
+// that fails (a read-only property, a frozen object, a Proxy whose set trap
+// returns false) as Reflect.set does. An assignment is several times faster
+// than Reflect.set, but in strict code it throws a TypeError for those, so
+// Reflect.set makes the assignment again then; a setter that threw the
+// TypeError throws it again from there.
+function setProperty(o: any, k: string, x: any): void {
+  try {
+    o[k] = x;
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e;
+    Reflect.set(o, k, x);
+  }
 }
 
 export function native$syscall$js$valueLength(v: any): number {

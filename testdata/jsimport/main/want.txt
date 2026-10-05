@@ -36,6 +36,8 @@ string 日本語と2truenull
 xab
 3
 2+4
+7 3
+true true
 recovered: syscall/js: call of Value.Get on number
 recovered: syscall/js: call of Value.Set on string
 recovered: syscall/js: call of Value.SetIndex on null
