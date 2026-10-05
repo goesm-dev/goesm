@@ -31,8 +31,8 @@ goesm の対応範囲は、言語機能ではなくユースケースで定め�
 `http.Handler` は、次のように Worker の fetch ハンドラになります。
 
 ```ts
-import { Handler, $runtime as rt } from "./goesm-ts/example.com/app/api.ts";
-export default { fetch: rt.fetchHandler(Handler()) };
+import { Handler } from "./goesm-ts/example.com/app/api.ts";
+export default { fetch: Handler() };
 ```
 
 | ユースケース | 典型的なコード | 状態 | 確認方法 |
@@ -68,14 +68,14 @@ Go のコードがページの JavaScript に加える量を、Vite 8 で minify
 
 ## JavaScript と TypeScript から使う Go のライブラリ
 
-Go のパッケージが export する関数と型は、上のどの実行場所でも、そのモジュールの export として TypeScript の型付きで使えます。
+ビルドした Go のパッケージが export する関数は、上のどの実行場所でも、そのモジュールの export として TypeScript の型付きで使えます。
 
 | ユースケース | 典型的なコード | 状態 | 確認方法 |
 | --- | --- | --- | --- |
-| export された Go の関数と型を TS から呼ぶ | 関数、クラスになる構造体、値レシーバのメソッド、タプルになる複数の戻り値、`error`、Promise を返すブロックしうる関数 | 対応。ただし値の変換は手作業で行います | `TestTSC`、`TestJS`、`TestExamples` |
+| export された Go の関数を TS から呼ぶ | 文字列、配列、プレーンオブジェクトを渡して受け取る関数、メソッドを持つハンドル、配列になる複数の戻り値、例外になる `error`、Promise を返すブロックしうる関数 | 対応 | `TestTSC`、`TestJS`、`TestExamples` |
 | よく使われる純 Go のライブラリ | `google/uuid`、`golang.org/x/mod/semver`、`Masterminds/semver`、`shopspring/decimal`、`go-playground/validator`、`expr-lang/expr`、`tidwall/gjson`、`golang.org/x/text`、`yuin/goldmark`、`gopkg.in/yaml.v3` | 対応 | `TestUseCaseLibraries` の `testdata/usecases/libs` と `TestUseCaseBuildTool` |
 
-JavaScript から Go を呼ぶときの ABI はまだないので、呼び出し側は各モジュールが `$runtime` として再 export するランタイムで値を変換します。文字列は `rt.fromJSString` と `rt.toJSString`、スライスは `rt.sliceLit` と `rt.toArray`、エラーは `rt.icall(err, "Error")` で変換します。実際には Go の API ごとに小さなラッパーのモジュールを 1 つ書くことになります。`fromJSString` を通さずに渡した文字列は、ASCII 以外の文字が崩れた状態で Go に届きます。
+引数と戻り値は Go の型に従って境界で変換されます。文字列は JS の文字列、スライスは配列、構造体はプレーンオブジェクトのまま渡して受け取れます。詳しくは [js-exports.ja.md](js-exports.ja.md) にまとめています。
 
 ## Go から使う JavaScript と TypeScript
 
@@ -91,7 +91,7 @@ Go のコードは、`//goesm:import` で宣言した ES モジュールの関�
 
 75 パーセンタイルから 95 パーセンタイルの間で分かっている不足を挙げます。これらを必要とするコードも、一部は動くことがあります。
 
-- **変換なしで JS から Go を呼ぶこと。** 文字列、スライス、マップ、エラーは手作業で変換します。ポインタの戻り値と関数型の引数は `any` 型になり、ポインタレシーバのメソッドは `Cart$Add(c, item)` のような独立した関数になります。Go の構造体は、プレーンなオブジェクトに写さない限り、Next.js の Server Component から Client Component へ props として渡せません。
+- **ハンドルのフィールド:** メソッドを持つ構造体型へのポインタは Go のオブジェクトそのままで JavaScript に渡るので、そのフィールドには Go の内部表現が入っています。データはメソッドや関数を通して読みます。
 - **バンドルの大きさ。** `fmt`、`encoding/json`、`reflect` で gzip 後に約 200 KiB かかります。`errors.New` や `regexp.MustCompile` のように関数呼び出しで初期化するパッケージ変数があると、import した側が何も使わなくてもそのパッケージはバンドルに残ります。`net/http` のクライアントは、リクエストを `fetch` で送るにもかかわらず TLS と HTTP/2 のコードを残します。
 - **HTTP サーバー:** HTTP/2 と gRPC 本来のプロトコル、TLS による `ListenAndServeTLS`、WebSocket と `Hijack`、トレーラー、ハンドラの実行中に読むストリーミングのリクエストボディ、クライアントストリーミングと双方向ストリーミングの RPC、`net.Listener` を渡す `Serve` はまだありません。Connect と gRPC-Web は動きます。
 - **fetch 以外の Workers の機能:** KV、D1、R2、Durable Objects などのバインディングは `syscall/js` を通してしか使えません。`ctx.waitUntil` にはつながっていないので、レスポンスの後も動いている goroutine は止められることがあります。

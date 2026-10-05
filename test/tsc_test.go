@@ -37,21 +37,23 @@ const tscConfig = `{
 const consumer = `import * as cart from "./example.com/examples/cart.ts";
 import * as workers from "./example.com/examples/workers.ts";
 
-const rt = cart.$runtime;
-const items = rt.sliceLit([new cart.Item("apple", 120, 3)]);
+const items = [{ Name: "りんご", Price: 120, Quantity: 3 }];
 const total: number = cart.Total(items);
 const discounted: number = cart.Discount(total, 15);
+const receipt: string = cart.Receipt(items);
 const sum: Promise<number> = workers.SumSquares(10, 2);
 const square: number = workers.Square(3);
-export { discounted, sum, square };
+export { discounted, receipt, sum, square };
 
 // @ts-expect-error a string is not a []Item
 cart.Total("apple");
-// @ts-expect-error Item has three fields
-new cart.Item("apple", 120);
+// @ts-expect-error Price is a number
+cart.Total([{ Name: "apple", Price: "120" }]);
+// @ts-expect-error Receipt returns a string
+const notString: number = cart.Receipt(items);
 // @ts-expect-error SumSquares blocks, so it returns a Promise
 const notPromise: number = workers.SumSquares(10, 2);
-export { notPromise };
+export { notString, notPromise };
 `
 
 // projectConfig is a stock application setup, as create-next-app writes
@@ -122,6 +124,7 @@ func TestTSC(t *testing.T) {
 		{testdata("semantics"), "./generics"},
 		{testdata("semantics"), "./goroutines"},
 		{testdata("semantics"), "./int64s"},
+		{testdata("semantics"), "./jsexport"},
 		{testdata("semantics"), "./jsfuncs"},
 		{testdata("semantics"), "./jsfuncsblocking"},
 		{testdata("semantics"), "./panics"},
