@@ -287,6 +287,9 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 	}
 	switch sel.Kind() {
 	case types.FieldVal:
+		if name, ok := fe.promotedField(e); ok {
+			return fe.mark(e) + name // see fieldRun
+		}
 		if id, ok := e.X.(*ast.Ident); ok {
 			if v, ok := fe.info.Uses[id].(*types.Var); ok && fe.fieldLocals[v] != nil {
 				names := fe.fieldLocals[v]
