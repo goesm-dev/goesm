@@ -1,0 +1,9 @@
+syntax = "proto3";
+package greet.v1;
+option go_package = "usecases/gen/greet/v1;greetv1";
+message GreetRequest { string name = 1; repeated int32 nums = 2; map<string,string> tags = 3; }
+message GreetResponse { string greeting = 1; int64 sum = 2; }
+service GreetService {
+  rpc Greet(GreetRequest) returns (GreetResponse) {}
+  rpc Count(GreetRequest) returns (stream GreetResponse) {}
+}

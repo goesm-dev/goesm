@@ -1,12 +1,16 @@
 package test
 
 import (
+	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/goesm-dev/goesm/internal/build"
+	"github.com/goesm-dev/goesm/internal/lower"
 )
 
 // tscConfig is the strictest common setup a consumer of goesm's TypeScript
@@ -87,6 +91,7 @@ func TestTSC(t *testing.T) {
 		{testdata("programs"), "./jsoncodec"},
 		{testdata("programs"), "./timers"},
 		{testdata("programs"), "./mathfuncs"},
+		{testdata("programs"), "./jsnames"},
 		{examples, "./cart"},
 		{examples, "./textstats"},
 		{examples, "./workers"},
@@ -98,6 +103,24 @@ func TestTSC(t *testing.T) {
 		if err := build.WriteTS(out, l.Mods); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// The generated files turn type checking off for the projects that
+	// import them (lower.NoCheck); here it stays on.
+	err := filepath.WalkDir(out, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".ts") {
+			return err
+		}
+		src, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(src), lower.NoCheck) {
+			return fmt.Errorf("%s does not have the @ts-nocheck header", p)
+		}
+		return os.WriteFile(p, []byte(strings.Replace(string(src), lower.NoCheck, "", 1)), 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	for name, src := range map[string]string{"tsconfig.json": tscConfig, "consumer.ts": consumer} {
 		if err := os.WriteFile(filepath.Join(out, name), []byte(src), 0o644); err != nil {

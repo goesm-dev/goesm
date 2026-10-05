@@ -4,11 +4,22 @@
 
 const g = globalThis as any;
 
+// hostBuiltin returns the host's built-in module name (node:fs, ...), or
+// null where it has none. Next.js's edge runtime throws as soon as
+// process.getBuiltinModule is read.
+export function hostBuiltin(name: string): any {
+  try {
+    return g.process?.getBuiltinModule?.(name) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 let nodeFS: any = undefined;
 
 // hostNodeFS returns node:fs, or null where the host has none.
 export function hostNodeFS(): any {
-  if (nodeFS === undefined) nodeFS = g.process?.getBuiltinModule?.("fs") ?? null;
+  if (nodeFS === undefined) nodeFS = hostBuiltin("fs");
   return nodeFS;
 }
 

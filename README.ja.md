@@ -60,6 +60,7 @@ PoC は Go 言語の大部分と、標準ライブラリのかなりの部分を
 - **標準ライブラリ**（Go のソースからコンパイル）: `strings`、`strconv`、`unicode`、`sort`、`slices`、`maps`、`errors`、`math`、`math/bits`、`fmt`、`reflect`、`encoding/json`、`sync`、`time`（ホストのタイマー上で動作）、`os` の標準入出力など。goesm がまだ変換できない関数は、呼ぶと panic するスタブになります。`goesm build -v` で一覧できます。
 - **compile-time instrumentation**: `goesm build -toolexec "otelc toolexec"` で OpenTelemetry の [otelc](https://github.com/open-telemetry/opentelemetry-go-compile-instrumentation) が計装したプログラムをビルドでき、ネイティブのビルドと同じ span を console や OTLP/HTTP の collector に出力します（[docs/otelc.ja.md](docs/otelc.ja.md)）。package 間の `//go:linkname` と `//go:embed` も動きます。
 - **Go のテストスイート**: `$GOROOT/test` の実行可能なテスト 961 件のうち 898 件で、ネイティブ Go と同じ出力になります（[docs/conformance.ja.md](docs/conformance.ja.md)）。
+- **ユースケース**: cobra を含む CLI、ビルドツール、サーバーサイドレンダリング、Node.js・Bun・Deno 上の `http.ListenAndServe` による HTTP と Connect のサーバー、Cloudflare Workers の fetch ハンドラとして動く同じ `http.Handler`、Connect のクライアント、DOM 操作、Go を呼ぶ React・Preact・Next.js のアプリに対応しています。どこで何に対応し、どう確認しているか、何が未対応かは [docs/use-cases.ja.md](docs/use-cases.ja.md) にまとめています。
 
 まだできないこと（詳細は [ARCHITECTURE.ja.md §11](ARCHITECTURE.ja.md)）:
 
@@ -141,6 +142,23 @@ Result(); // 3
 - ブロックしうる関数（チャネル操作、`time.Sleep`、ミューテックスの待ち）は `async function` で Promise を返します。それ以外は同期関数です。
 
 `rt` はランタイムで、すべてのモジュールが `$runtime` として再 export しています。[examples/](examples) に、呼び出し側の JavaScript 付きで実行できる例（cart、標準ライブラリの利用、goroutine）があります。
+
+### HTTP を処理する
+
+`http.Handler`（`ServeMux`、Connect のサービス、ミドルウェア）は、どのホストでもホスト自身のサーバーを通じてリクエストを処理します。
+
+```go
+// Node.js、Bun、Deno: ホストの HTTP サーバー（node:http、Bun.serve、Deno.serve）が処理する。
+log.Fatal(http.ListenAndServe(":8080", api.Handler()))
+```
+
+```ts
+// Cloudflare Workers（と Deno.serve、Bun.serve、Service Worker）: fetch ハンドラとして公開する。
+import { Handler, $runtime as rt } from "./goesm-ts/example.com/app/api.ts";
+export default { fetch: rt.fetchHandler(Handler()) };
+```
+
+各リクエストは専用の goroutine で処理され、ボディは最初に全部読み込まれます。レスポンスはハンドラが戻った時点で送られ、ハンドラが flush した場合はその時点からストリームになります。Server-Sent Events や Connect のサーバーストリーミングはこの仕組みで動きます。Workers では、`nodejs_compat` フラグを有効にすると `os.Getenv` で Worker のテキストバインディングとシークレットを読めます。HTTP クライアントは `fetch` を使います。どこで何に対応しているかは [docs/use-cases.ja.md](docs/use-cases.ja.md) にまとめています。
 
 ## 性能
 
@@ -249,6 +267,7 @@ Go 風の言語、WebAssembly ランタイム、パッケージマネージャ�
 ## ドキュメント
 
 - [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md): 設計、値の表現、goroutine、標準ライブラリ、実装済みの範囲とネイティブ Go との違い
+- [docs/use-cases.ja.md](docs/use-cases.ja.md): Node.js、エッジ、ブラウザでの対応範囲と未対応の項目
 - [docs/example-output.ja.md](docs/example-output.ja.md): 生成される TypeScript と JavaScript
 - [docs/conformance.ja.md](docs/conformance.ja.md): Go 自身のテストスイートを goesm で実行する
 - [docs/otelc.ja.md](docs/otelc.ja.md): OpenTelemetry の compile-time instrumentation (otelc) を goesm で使う
@@ -262,7 +281,7 @@ Go 風の言語、WebAssembly ランタイム、パッケージマネージャ�
 
 ```sh
 mise install           # mise.toml で固定したバージョンの Go、Node.js、Bun（CI と同じ）
-npm ci --prefix test   # TestTSC / TestOxlint 用の tsc と oxlint（ローカルでは任意、CI では必須）
+npm ci --prefix test   # TestTSC / TestOxlint / TestUseCaseEdge 用の tsc、oxlint、workerd（ローカルでは任意、CI では必須）
 go test ./...          # Go 1.27 以降と Node.js 22.18 以降が必要。Bun は任意
 ```
 

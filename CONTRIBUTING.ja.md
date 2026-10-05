@@ -18,7 +18,7 @@
 
 ```sh
 mise install
-npm ci --prefix test   # test/package.json で pin した tsc と oxlint
+npm ci --prefix test   # test/package.json で pin した tsc、oxlint、workerd
 ```
 
 mise を使わない場合は Go 1.27 以上と Node.js 22.18 以上が必要です。Bun は任意です。ツールの version を変えるときは、`mise.toml` か `test/package.json` で正確な version に pin してください (`latest` は使いません)。
@@ -40,6 +40,7 @@ go test ./...
 | `TestPrograms` | `testdata/programs` の command が native Go と goesm (Node.js と Bun) で同じ出力をし、同じ status で終了する |
 | `TestToolexec` | `-toolexec` program による module と標準 library の書き換えが、`go build` と同じように goesm の出力に反映される (`testdata/toolexec`) |
 | `TestFetch` | HTTP client が `fetch` を使い、素の `net.Dialer` を持つ Transport でも同様で、独自の dialer は引き続き呼ばれる (`testdata/fetch`、local の server に対して) |
+| `TestUseCase*` | [docs/use-cases.ja.md](docs/use-cases.ja.md) のユースケース (`testdata/usecases`) が native と同じように動く: CLI、ビルドツール、SSR、よく使われるライブラリ、`http.ListenAndServe` (Node.js と Bun) と Cloudflare Workers の fetch handler (workerd) で動く HTTP と Connect の server |
 | `TestStdlibStatus -v` | 標準 library のどの package が lowering でき、何個の関数が stub かを報告する |
 
 `TestTSC` と `TestOxlint` は `npm ci --prefix test` をしていないと skip されます。CI では `GOESM_REQUIRE_TOOLS=1` を設定しているので skip できません。CI は `gofmt -l .` と `go vet ./...` も確認します。
