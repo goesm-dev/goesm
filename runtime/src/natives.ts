@@ -23,7 +23,7 @@ import {
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
   sliceElemRef, sliceLit, sliceToArrayPtr, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt, topString,
-  toPanic, typeArgsName, isASCII, noteASCII,
+  toPanic, typeArgsName, isASCII, noteASCII, setHTTPServer, hostListen, hostBuiltin,
 } from "./index.ts";
 import type { S } from "./index.ts";
 import { fmtFixed, fmtShortest, mayTie, roundToEven, sprintf, tieScale } from "./fmt.ts";
@@ -1246,7 +1246,7 @@ let theFS: any = null;
 // hostPath is node:path for syscall's jsPath.resolve, as wasm_exec_node.js
 // provides it; without one (browsers) paths stay as they are.
 function hostPath(): any {
-  return (globalThis as any).process?.getBuiltinModule?.("path") ?? { resolve: (p: string) => p };
+  return hostBuiltin("path") ?? { resolve: (p: string) => p };
 }
 
 function hostFS(): any {
@@ -1264,6 +1264,15 @@ function nodeFS(fs: any): any {
   for (const name of fsCalls) {
     shim[name] = (...args: any[]) => {
       const cb = args.pop();
+      // Integer flags and modes reach here as numbers that JavaScriptCore
+      // may hold as doubles, which Bun's fs rejects ("The value of "flags"
+      // is out of range") once the code is optimized.
+      if (name === "open") {
+        args[1] |= 0;
+        args[2] |= 0;
+      } else if (name === "mkdir" || name === "chmod" || name === "fchmod") {
+        args[1] |= 0;
+      }
       let r: any;
       try {
         r = name === "write" ? writeSyncAll(fs, args[0], args[1], args[2], args[3], args[4]) : fs[name + "Sync"](...args);
@@ -1456,6 +1465,25 @@ export function native$net$http$dialerOf(dial: any): any {
   return dial?.$dialer ?? null;
 }
 export const native$net$http$dialerOfContext = native$net$http$dialerOf;
+
+// net/http's server on the host (runtime/src/http.ts): hostSetServer
+// receives the js.Func of hostServeJS, hostHandlerOf unwraps the Handler
+// the runtime passes it, and hostListen starts the host's server.
+export function native$net$http$hostSetServer(f: any): void {
+  setHTTPServer(fromRef(f.Value.ref));
+}
+
+export function native$net$http$hostHandlerOf(v: any): any {
+  return fromRef(v.ref);
+}
+
+export function native$net$http$hostListen(
+  id: number, host: string, port: number, h: Iface | null,
+  listening: (ip: string, port: number) => void, done: (msg: string) => void,
+): () => void {
+  return hostListen(id, toJSString(host), port, h, (ip, p) => listening(fromJSString(ip), p),
+    (err) => done(err === undefined ? "" : fromJSString(err.message ?? String(err))));
+}
 
 export function native$os$runtime_beforeExit(_code: number): void {}
 export function native$os$sigpipe(): void {}
