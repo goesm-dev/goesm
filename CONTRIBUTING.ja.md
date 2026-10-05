@@ -42,8 +42,11 @@ go test ./...
 | `TestFetch` | HTTP client が `fetch` を使い、素の `net.Dialer` を持つ Transport でも同様で、独自の dialer は引き続き呼ばれる (`testdata/fetch`、local の server に対して) |
 | `TestUseCase*` | `testdata/usecases` にある [docs/use-cases.ja.md](docs/use-cases.ja.md) のユースケースが native と同じように動く: CLI、ビルドツール、SSR、よく使われるライブラリ、Node.js と Bun の `http.ListenAndServe` と workerd 上の Cloudflare Workers の fetch handler で動く HTTP と Connect の server |
 | `TestStdlibStatus -v` | 標準 library のどの package が lowering でき、何個の関数が stub かを報告する |
+| `TestModuleCache*` | モジュールキャッシュから取り出したモジュールが lowering の結果とバイト単位で一致し、プログラム全体の解析結果が変わったときに影響を受ける依存先を lowering し直す。詳細は ARCHITECTURE.ja.md にある |
 
 `TestTSC` と `TestOxlint` は `npm ci --prefix test` をしていないと skip されます。CI では `GOESM_REQUIRE_TOOLS=1` を設定しているので skip できません。CI は `gofmt -l .` と `go vet ./...` も確認します。
+
+`test/` のテストは、一時ディレクトリにある 1 つのモジュールキャッシュを共有します。そのため、大半のテストは標準ライブラリのモジュールをキャッシュから取り出します。すべてのパッケージを毎回 lowering するには `GOESMCACHE=off` を設定します。実行をまたいでキャッシュを残すには `GOESMCACHE=<dir>` を設定します。
 
 ### otelc
 

@@ -454,7 +454,7 @@ func (fe *funcEmitter) funcLit(lit *ast.FuncLit) string {
 	w := newRawWriter(fe.pe.tab)
 	w.indent = fe.w.indent + 1
 	c := fe.child(w, sig)
-	c.recoverTok = litRecoverTok(lit)
+	c.recoverTok = fe.pe.litRecoverTok(lit)
 	c.async = fe.pe.prog.LitAsync(lit)
 	c.syncOnly = fe.pe.prog.SyncOnly(lit)
 	params := c.paramList(lit.Type.Params, nil)

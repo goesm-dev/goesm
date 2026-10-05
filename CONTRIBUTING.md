@@ -42,8 +42,11 @@ go test ./...
 | `TestFetch` | HTTP clients use `fetch`, also through a Transport with a plain `net.Dialer`, and a custom dialer is still called (`testdata/fetch`, against a local server) |
 | `TestUseCase*` | the use cases of [docs/use-cases.md](docs/use-cases.md) (`testdata/usecases`) behave as natively: command-line tools, a build tool, SSR, popular libraries, an HTTP and Connect server under `http.ListenAndServe` (Node.js and Bun) and as a Cloudflare Workers fetch handler (workerd) |
 | `TestStdlibStatus -v` | reports which standard library packages lower and how many functions are stubs |
+| `TestModuleCache*` | modules taken from the module cache are byte for byte the ones lowering produces, and a change of whole-program facts re-lowers the dependencies it affects (see ARCHITECTURE.md) |
 
 `TestTSC` and `TestOxlint` skip when `npm ci --prefix test` has not been run; CI sets `GOESM_REQUIRE_TOOLS=1` so they cannot be skipped there. CI also checks `gofmt -l .` and `go vet ./...`.
+
+The tests in `test/` share one module cache in a temporary directory, so most of them take the standard library's modules from it. Set `GOESMCACHE=off` to lower every package anew, or `GOESMCACHE=<dir>` to keep the cache between runs.
 
 ### otelc
 

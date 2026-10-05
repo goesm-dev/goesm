@@ -82,11 +82,9 @@ type Options struct {
 func (p *Program) LowerAll(opts Options) []*Module {
 	var out []*Module
 	for _, pkg := range p.Pkgs {
-		if pkg.PkgPath == "unsafe" {
-			continue
+		if m := p.LowerPackage(pkg, opts); m != nil {
+			out = append(out, m)
 		}
-		pe := newPkgEmitter(p, pkg, pkg.PkgPath == opts.Entry)
-		out = append(out, pe.emit())
 	}
 	return out
 }
