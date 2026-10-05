@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"iter"
 	"maps"
+	"runtime"
 	"slices"
 )
 
@@ -77,5 +78,45 @@ func main() {
 	// stop before next.
 	_, s3 := iter.Pull(count(2))
 	s3()
+
+	// runtime.Goexit in the iterator ends the goroutine that called next,
+	// after its deferred calls.
+	done := make(chan bool)
+	go func() {
+		defer close(done)
+		defer fmt.Println("goexit deferred")
+		gn, _ := iter.Pull(func(yield func(int) bool) {
+			yield(7)
+			runtime.Goexit()
+		})
+		fmt.Println(gn())
+		gn()
+		fmt.Println("not reached")
+	}()
+	<-done
+
+	// A consumer and an iterator that block on channels in between.
+	ch := make(chan int)
+	go func() {
+		for i := range 3 {
+			ch <- i * i
+		}
+		close(ch)
+	}()
+	cn, cs := iter.Pull(func(yield func(int) bool) {
+		for v := range ch {
+			if !yield(v) {
+				return
+			}
+		}
+	})
+	for {
+		v, ok := cn()
+		if !ok {
+			break
+		}
+		fmt.Println("from channel", v)
+	}
+	cs()
 	fmt.Println("end")
 }

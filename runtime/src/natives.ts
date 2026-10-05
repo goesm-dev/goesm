@@ -69,6 +69,49 @@ export function native$runtime$SetTraceContextToGLS(v: any): void { getG().trace
 export function native$runtime$SetBaggageContainerToGLS(v: any): void { getG().baggage = v; }
 export const native$runtime$setGLSPropagate = setGLSPropagate;
 
+// ---- iter ----
+
+// The coroutines of iter.Pull (internal/natives/patch/iter). newcoro starts
+// f on a goroutine of its own that waits for the first coroswitch, and
+// coroswitch hands control to the other side by resolving the Promise it
+// waits on, then waits on one of its own: two Promises per value pulled,
+// instead of the channel operations and wait queues of goroutines.
+interface Coro {
+  inside: boolean; // the coroutine is running
+  wakeIn: (() => void) | null; // switches into the coroutine
+  wakeOut: (() => void) | null; // switches out of it
+}
+
+export function native$iter$newcoro(f: (c: Coro) => any): Coro {
+  const c: Coro = { inside: false, wakeIn: null, wakeOut: null };
+  const started = new Promise<void>((resolve) => { c.wakeIn = resolve; });
+  go(async () => {
+    await started;
+    try {
+      await f(c);
+    } finally {
+      // Also on runtime.Goexit: control returns to the last switcher when
+      // the coroutine ends.
+      c.inside = false;
+      const wake = c.wakeOut!;
+      c.wakeOut = null;
+      wake();
+    }
+  });
+  return c;
+}
+
+export function native$iter$coroswitch(c: Coro): Promise<void> {
+  if (c.inside) {
+    c.inside = false;
+    const wake = c.wakeOut!;
+    return new Promise<void>((resolve) => { c.wakeIn = resolve; wake(); });
+  }
+  c.inside = true;
+  const wake = c.wakeIn!;
+  return new Promise<void>((resolve) => { c.wakeOut = resolve; wake(); });
+}
+
 // ---- math and internal/strconv: float bits ----
 
 const scratch = new DataView(new ArrayBuffer(8));

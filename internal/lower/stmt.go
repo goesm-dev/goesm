@@ -115,6 +115,9 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 			}
 			return
 		}
+		if fe.raceNoop(s.X) {
+			return
+		}
 		w.ln("%s%s;", m, fe.expr(s.X))
 	case *ast.DeclStmt:
 		if fe.splitStmt(s, m) {
@@ -488,6 +491,58 @@ func (fe *funcEmitter) discard(m, val string) {
 		return
 	}
 	fe.w.ln("%s%s;", m, val)
+}
+
+// raceNoop reports whether x is a call of an internal/race function, which
+// does nothing without the race detector, whose arguments have no effect:
+// iter.Pull calls race.Acquire(unsafe.Pointer(&pull.racer)) for each value,
+// and taking the address of a field allocates a pointer object.
+func (fe *funcEmitter) raceNoop(x ast.Expr) bool {
+	call, ok := unparen(x).(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	fn := calledFunc(fe.info, call)
+	if fn == nil || fn.Pkg() == nil || fn.Pkg().Path() != "internal/race" {
+		return false
+	}
+	for _, a := range call.Args {
+		if !fe.pureArg(a) {
+			return false
+		}
+	}
+	return true
+}
+
+// pureArg reports whether evaluating e has no effect and cannot panic: a
+// name, a literal, or the address of a variable or of a field of a struct
+// variable, possibly converted.
+func (fe *funcEmitter) pureArg(e ast.Expr) bool {
+	switch e := unparen(e).(type) {
+	case *ast.Ident, *ast.BasicLit:
+		return true
+	case *ast.CallExpr:
+		if tv, ok := fe.info.Types[e.Fun]; ok && tv.IsType() && len(e.Args) == 1 {
+			return fe.pureArg(e.Args[0])
+		}
+	case *ast.UnaryExpr:
+		if e.Op == token.AND {
+			x := unparen(e.X)
+			for {
+				sel, ok := x.(*ast.SelectorExpr)
+				if !ok {
+					break
+				}
+				if s, ok := fe.info.Selections[sel]; !ok || s.Kind() != types.FieldVal || s.Indirect() {
+					return false // through a pointer, which may be nil
+				}
+				x = unparen(sel.X)
+			}
+			_, ok := x.(*ast.Ident)
+			return ok
+		}
+	}
+	return false
 }
 
 var jsIdent = regexp.MustCompile(`^[A-Za-z_$][\w$]*$`)

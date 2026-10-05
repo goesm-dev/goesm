@@ -1010,6 +1010,11 @@ func (fe *funcEmitter) arith(op token.Token, a, b string, t types.Type) string {
 			}
 			return wrap("$rt.mod("+a+", "+b+")", ii)
 		case token.AND, token.OR, token.XOR, token.AND_NOT:
+			if ii.bits == 64 && op == token.AND && (smallMask(a) || smallMask(b)) {
+				// The bits a mask below 2^31 keeps are those of the
+				// int32 that & converts the other operand to.
+				return "(" + a + " & " + b + ")"
+			}
 			if ii.bits == 64 {
 				fn := map[token.Token]string{token.AND: "and64", token.OR: "or64", token.XOR: "xor64", token.AND_NOT: "andNot64"}[op]
 				return "$rt." + fn + "(" + a + ", " + b + ")"
@@ -1121,6 +1126,13 @@ func constShift(op token.Token, a string, n int, ii intInfo) (string, bool) {
 
 // constDivisor reports whether the lowered divisor b is a non-zero integer
 // literal.
+// smallMask reports whether the lowered operand s is an integer constant
+// in [0, 2^31).
+func smallMask(s string) bool {
+	v, err := strconv.ParseInt(strings.Trim(s, "()"), 10, 64)
+	return err == nil && v >= 0 && v < 1<<31
+}
+
 func constDivisor(b string) bool {
 	v, err := strconv.ParseFloat(strings.Trim(b, "()"), 64)
 	return err == nil && v != 0 && v == math.Trunc(v)

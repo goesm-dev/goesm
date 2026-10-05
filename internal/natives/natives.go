@@ -189,6 +189,12 @@ var overrides = map[string]bool{
 
 	"slices.overlaps": true, // compares element addresses
 
+	// iter.Pull's coroutines switch by resolving Promises (see natives.ts);
+	// the Go bodies (patch/iter) only tell the blocking analysis that
+	// coroswitch blocks.
+	"iter.newcoro":    true,
+	"iter.coroswitch": true,
+
 	// IEEE 754 fixes their results; JS builtins are much faster than the
 	// bit manipulation (on BigInt) of their Go bodies. RoundToEven's body
 	// also shifts by a uint difference that wraps around.
