@@ -213,8 +213,8 @@ export function envList(data, lang = "en") {
   const e = data.env;
   const o = data.opts;
   const method = lang === "ja"
-    ? `${data.date.slice(0, 10)} に計測しました。各カーネルについて、${o.warmup} ms 以上ウォームアップしたあと ${o.samples} 回以上かつ ${o.time} ms 以上計測し、その中央値を結果としています。`
-    : `${data.date.slice(0, 10)}; warm-up ≥ ${o.warmup} ms, then the median of ≥ ${o.samples} calls and ≥ ${o.time} ms per kernel`;
+    ? `${data.date.slice(0, 10)} に計測しました。各カーネルについて、${o.warmup} ms 以上ウォームアップしたあと ${o.samples} 回以上かつ ${o.time} ms 以上計測し、その中央値を結果としています。1 回の実行が遅いカーネルは、3 回以上かつ合計 ${10 * o.time / 1000} 秒以上で計測を終えています。`
+    : `${data.date.slice(0, 10)}; warm-up ≥ ${o.warmup} ms, then the median of ≥ ${o.samples} calls and ≥ ${o.time} ms per kernel, or of ≥ 3 calls once ${10 * o.time / 1000} s have passed for slow kernels`;
   return [
     `- ${e.cpu}, ${e.os}`,
     `- goesm ${e.goesm}, ${e.go}`,
