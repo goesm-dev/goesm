@@ -54,8 +54,11 @@ type funcEmitter struct {
 	// fieldLocals maps the range variables whose fields are loaded into
 	// locals to the locals, by field index (see scalarRangeVars).
 	fieldLocals map[*types.Var]map[int]string
-	breakables  []breakable
-	rangeFn     *rangeFuncCtx // the range-over-func body being lowered
+	// promoted maps the fields held in locals during a run of assignments
+	// to the locals (see fieldRun).
+	promoted   map[promoKey]string
+	breakables []breakable
+	rangeFn    *rangeFuncCtx // the range-over-func body being lowered
 	// recoverTok identifies the function being lowered to recover(), which
 	// only recovers when called by the deferred function itself.
 	recoverTok string
