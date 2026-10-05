@@ -16,7 +16,15 @@ func init() {
 		enum export extends false finally for function if import in instanceof new null return super
 		switch this throw true try typeof var void while with yield let static implements interface
 		package private protected public await async eval arguments undefined NaN Infinity of
-		globalThis`) {
+		globalThis` +
+		// TypeScript's primitive type names, which a class cannot take.
+		` any bigint boolean never number object string symbol unknown` +
+		// The JS globals generated code and the runtime's inlined helpers
+		// name unqualified (Number(x) converts an int64 to int).
+		` Number BigInt Math Object Array String Symbol Boolean Error TypeError RangeError Promise
+		Map Set WeakMap WeakRef JSON Reflect Date DataView ArrayBuffer Uint8Array Int8Array
+		Uint16Array Int16Array Uint32Array Int32Array Float32Array Float64Array BigInt64Array
+		BigUint64Array TextEncoder TextDecoder console queueMicrotask setTimeout clearTimeout`) {
 		jsReserved[w] = true
 	}
 }

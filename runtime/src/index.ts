@@ -19,3 +19,4 @@ export * from "./host.ts";
 export * from "./print.ts";
 export * from "./unsafe.ts";
 
+export * from "./http.ts";

@@ -185,6 +185,16 @@ export function reinterpret(p: any, from: Type, to: Type): any {
       },
     });
   }
+  if (from.kind === Kind.Slice && to.kind === Kind.String) {
+    // *(*string)(unsafe.Pointer(&b)) of a []byte b, the zero-copy idiom of
+    // older code: each read takes the bytes as they are then.
+    return { get v() { return bytesToString(p.v); }, set v(x: string) { p.v = stringToBytes(x); } };
+  }
+  if (from.kind === Kind.String && to.kind === Kind.Slice) {
+    // *(*[]byte)(unsafe.Pointer(&s)): Go forbids writing to the bytes, so a
+    // copy cannot be told apart.
+    return { get v() { return stringToBytes(p.v); }, set v(_: any) { readOnly(); } };
+  }
   if (from.kind === Kind.String) {
     // p points to a string variable: {data, len}.
     const [dw, lw] = words(to);

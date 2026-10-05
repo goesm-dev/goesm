@@ -1220,7 +1220,9 @@ func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
 func (fe *funcEmitter) call(e *ast.CallExpr) string {
 	fun := unparen(e.Fun)
 	if sel, ok := unparen(funcIdent(fun)).(*ast.SelectorExpr); ok && fe.info.Selections[sel] != nil {
-		fun = sel // s.M[int](): the method's type arguments are recorded on M
+		if _, inst := fe.info.Instances[sel.Sel]; inst || sel == fun {
+			fun = sel // s.M[int](): the method's type arguments are recorded on M
+		}
 	}
 	if tv, ok := fe.info.Types[fun]; ok && tv.IsType() {
 		return fe.conversion(e, tv.Type)
@@ -2050,7 +2052,8 @@ func (fe *funcEmitter) pointerArith(arg ast.Expr) (p, d string, ok bool) {
 // reinterpretable reports whether goesm can view memory of type from as type
 // to (see runtime/src/unsafe.ts): structs of the same layout, and the header
 // structs that mirror a string ({data, len}), a slice ({data, len, cap}) or
-// an interface ({type, data}), in both directions for strings and slices.
+// an interface ({type, data}), in both directions for strings and slices,
+// and a []byte read as a string or the other way round.
 func reinterpretable(from, to types.Type) bool {
 	fu, tu := under(from), under(to)
 	ptrLike := pointerShaped
@@ -2121,11 +2124,21 @@ func reinterpretable(from, to types.Type) bool {
 		}
 		return fu.Empty() && header(to, ptrLike, ptrLike)
 	case *types.Basic:
-		return fu.Info()&types.IsString != 0 && header(to, ptrLike, isInt)
+		return fu.Info()&types.IsString != 0 && (header(to, ptrLike, isInt) || isByteSlice(tu))
 	case *types.Slice:
-		return header(to, ptrLike, isInt, isInt)
+		return header(to, ptrLike, isInt, isInt) || isByteSlice(fu) && isString(tu)
 	}
 	return false
+}
+
+// isByteSlice reports whether t is a slice of bytes.
+func isByteSlice(t types.Type) bool {
+	s, ok := under(t).(*types.Slice)
+	if !ok {
+		return false
+	}
+	b, ok := under(s.Elem()).(*types.Basic)
+	return ok && b.Kind() == types.Byte
 }
 
 // pointerShaped reports whether a value of type t is one machine pointer.

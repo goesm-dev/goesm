@@ -126,11 +126,17 @@ func (b *Builder) JSON(file string) []byte {
 		vlq(&sb, m.SrcCol-prevSrcCol)
 		prevCol, prevSrc, prevSrcLine, prevSrcCol = m.GenCol, m.Source, m.SrcLine, m.SrcCol
 	}
+	// A module without positions (a package of constants) still has
+	// arrays: Vite's dev server reads sources.length.
+	sources, contents := b.sources, b.contents
+	if sources == nil {
+		sources, contents = []string{}, []string{}
+	}
 	out, _ := json.Marshal(mapJSON{
 		Version:        3,
 		File:           file,
-		Sources:        b.sources,
-		SourcesContent: b.contents,
+		Sources:        sources,
+		SourcesContent: contents,
 		Names:          []string{},
 		Mappings:       sb.String(),
 	})
