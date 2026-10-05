@@ -359,13 +359,23 @@ export function setUnderlying(t: Type, u: Type, ctor?: any): void {
 
 // addMethods registers the method set of t. Keys are method names, qualified
 // with the package path for unexported methods.
+// addMethods registers the methods of t that can be called dynamically
+// (through an interface, a type parameter or reflection): goesm leaves the
+// others out of the table, so that bundlers drop the unused ones. methods is
+// empty for a type all of whose methods were left out.
 export function addMethods(t: Type, methods: Record<string, [(recv: any, ...args: any[]) => any, Type]>): void {
+  if (t.mt === noMethods) t.mt = Object.create({});
   for (const k of Object.keys(methods)) {
     const [fn, type] = methods[k];
     t.methods.set(k, { fn, type });
-    if (t.mt === noMethods) t.mt = Object.create({});
     Object.getPrototypeOf(t.mt)[k] = fn;
   }
+}
+
+// hasMethods reports whether t has methods in Go, including those its
+// method table leaves out.
+export function hasMethods(t: Type): boolean {
+  return t.mt !== noMethods;
 }
 
 // withMethods registers methods promoted into an unnamed struct type (or a

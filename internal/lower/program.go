@@ -99,6 +99,12 @@ type Program struct {
 	linkProvides map[*types.Func]string
 	linkTargets  map[*types.Func]*types.Func
 
+	// ifaceMethods are the methods of the program's interface types, by
+	// name, and allMethods is set when reflection enumerates methods; they
+	// decide which methods method tables list (see methods.go).
+	ifaceMethods map[string][]ifaceMethod
+	allMethods   bool
+
 	// TracksGoroutines is set when the program uses goroutine-local storage
 	// (runtime.GetTraceContextFromGLS and friends): async functions then
 	// restore the running goroutine after every await.
@@ -143,6 +149,7 @@ func NewProgram(fset *token.FileSet, pkgs []*packages.Package, std map[*packages
 	p.analyzeLinknames()
 	p.TracksGoroutines = usesGLS(pkgs)
 	p.analyzeBlocking()
+	p.findDynMethods()
 	return p
 }
 

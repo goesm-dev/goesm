@@ -1710,6 +1710,11 @@ export const native$time$now = wallNow;
 export const native$time$runtimeNow = wallNow;
 export const native$time$runtimeNano = monoNanos;
 
+// time.localOffset (internal/natives/patch/time/zoneinfo_js.go).
+export function native$time$localOffset(): number {
+  return -new Date().getTimezoneOffset();
+}
+
 // ---- time: timers ----
 //
 // time's timers (internal/natives/patch/time) are armed on the host's

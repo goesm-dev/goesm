@@ -11,8 +11,9 @@ import (
 // TestBundleSize builds small libraries minified and checks that the bundle
 // keeps only what they use: package variables with side-effect-free
 // initializers (unicode's tables) and defined types with their methods are
-// declared with pure expressions, which the bundler drops when unused, and
-// the runtime is imported only by name.
+// declared with pure expressions, which the bundler drops when unused, method
+// tables list only the methods that can be called dynamically, and the
+// runtime is imported only by name.
 func TestBundleSize(t *testing.T) {
 	for _, c := range []struct {
 		pkg string
@@ -21,6 +22,9 @@ func TestBundleSize(t *testing.T) {
 		{"./add", 12_000},    // 71 KB when entry modules re-exported the whole runtime as $runtime
 		{"./upper", 70_000},  // 363 KB when unicode's tables and every type were kept
 		{"./sorted", 45_000}, // 133 KB
+		// 158 KB when method tables listed every method and package
+		// variables kept their initializers (internal/cpu, syscall/js).
+		{"./timeonly", 48_000},
 	} {
 		t.Run(c.pkg[2:], func(t *testing.T) {
 			out := t.TempDir()

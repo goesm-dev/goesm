@@ -35,7 +35,7 @@
 // convert more than numbers; like natives.ts, it uses the runtime only
 // through its public module, so split builds share one runtime.
 import {
-  GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, addMethods, box, classTypes, errorType, fromJSString,
+  GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, addMethods, box, classTypes, errorType, fromJSString, hasMethods,
   fromRef, funcOf, goThrown, implementsIface, interfaceOf, makeMap, mapOf, mapRange, mapSet, named, newBytes, plainPanic,
   ptrTo, setUnderlying, sliceOf, toJSString, toRef, types,
 } from "./index.ts";
@@ -144,7 +144,7 @@ function setProp(o: Record<string, any>, k: string, x: any): void {
 // isHandle reports whether the pointer type t crosses to JavaScript as the Go
 // object itself: a pointer to a struct type with methods.
 function isHandle(t: Type): boolean {
-  return t.elem!.kind === Kind.Struct && t.methods.size > 0;
+  return t.elem!.kind === Kind.Struct && hasMethods(t);
 }
 
 // resultToJS converts the result v of type t of an exported Go function for
