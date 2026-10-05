@@ -2,7 +2,7 @@
 // //goesm:import declarations, through syscall/js, and, as the reference,
 // the same calls made from JavaScript itself.
 //
-//	cd bench && go run ../cmd/goesm build -o /tmp/jsimport ./jsimport && node /tmp/jsimport/jsimport.js
+//	go build -o /tmp/goesm ./cmd/goesm && cd bench && /tmp/goesm build -o /tmp/jsimport ./jsimport && node /tmp/jsimport/jsimport.js
 package main
 
 import (

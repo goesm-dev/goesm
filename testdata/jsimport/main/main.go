@@ -38,6 +38,18 @@ func stringify(v any) string
 //goesm:import "./lib.ts" keys
 func ownKeys(m map[string]int) string
 
+//goesm:import "node:path" basename
+func basename(p string) string
+
+//goesm:import "./lib.ts" later
+func laterNotAwaited(ms int, v string) string
+
+//goesm:import "./lib.ts" rejectLater
+func rejectNotAwaited() error
+
+//goesm:import "./lib.ts" throwValue
+func throwValue(v any) error
+
 //goesm:import "./lib.ts" greet
 func greet(name string) string
 
@@ -160,6 +172,27 @@ func main() {
 		fmt.Println(s, s == string(j))
 	}
 	fmt.Println(ownKeys(map[string]int{"__proto__": 1, "a": 2}))
+
+	fmt.Println(basename("/a/b/c.txt"))
+
+	// A Promise returned to a function declared without await panics.
+	for _, f := range []func(){
+		func() { laterNotAwaited(1, "x") },
+		func() { rejectNotAwaited() },
+	} {
+		func() {
+			defer func() { fmt.Println("recovered:", recover()) }()
+			f()
+		}()
+	}
+
+	// A thrown string or null becomes an Error with it as the message.
+	for _, v := range []any{"plain string", nil, 42} {
+		err := throwValue(v)
+		var jerr js.Error
+		errors.As(err, &jerr)
+		fmt.Println(err, jerr.Get("cause"))
+	}
 
 	// runtime.Goexit in a callback ends the goroutine, not as a panic.
 	var wg sync.WaitGroup
