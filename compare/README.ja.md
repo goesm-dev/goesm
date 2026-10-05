@@ -25,30 +25,30 @@ Web アプリが普段は人気の JavaScript ライブラリに任せる処理�
 | 比較対象 | Go パッケージ | goesm gzip | JS gzip | 比 |
 | --- | --- | --- | --- | --- |
 | luxon | `datetime` | 20.7 KiB | 21.7 KiB | 0.96× |
-| neverthrow | `result` | 52.1 KiB | 2.4 KiB | 21.80× |
-| neverthrow (light) | `light/result` | 20.0 KiB | 2.4 KiB | 8.38× |
-| connect-es | `rpc` | 1239.3 KiB | 32.9 KiB | 37.72× |
-| connect-es (light) | `light/rpc` | 13.9 KiB | 32.9 KiB | 0.42× |
-| react | `render` | 313.9 KiB | 64.3 KiB | 4.88× |
-| react (light) | `light/render` | 15.4 KiB | 64.3 KiB | 0.24× |
-| vitepress | `markdown` | 214.9 KiB | 40.4 KiB | 5.32× |
-| astro | `markdown` | 214.9 KiB | 47.2 KiB | 4.55× |
+| neverthrow | `result` | 48.9 KiB | 2.4 KiB | 20.48× |
+| neverthrow (light) | `light/result` | 20.0 KiB | 2.4 KiB | 8.39× |
+| connect-es | `rpc` | 1239.0 KiB | 32.9 KiB | 37.71× |
+| connect-es (light) | `light/rpc` | 14.0 KiB | 32.9 KiB | 0.42× |
+| react | `render` | 313.8 KiB | 64.3 KiB | 4.88× |
+| react (light) | `light/render` | 15.1 KiB | 64.3 KiB | 0.23× |
+| vitepress | `markdown` | 162.8 KiB | 40.4 KiB | 4.03× |
+| astro | `markdown` | 162.8 KiB | 47.2 KiB | 3.45× |
 | vue | `reactive` | 6.4 KiB | 5.3 KiB | 1.22× |
-| tailwind | `utility` | 69.3 KiB | 72.2 KiB | 0.96× |
+| tailwind | `utility` | 69.4 KiB | 72.2 KiB | 0.96× |
 
 | 比較対象 | node 26.10.0 goesm | node 26.10.0 JS | 比 | bun 1.4.2 goesm | bun 1.4.2 JS | 比 |
 | --- | --- | --- | --- | --- | --- | --- |
-| luxon | 2.3 ms | 9.1 ms | 0.25× | 4.5 ms | 8.0 ms | 0.55× |
-| neverthrow | 0.61 ms | 0.51 ms | 1.19× | 0.68 ms | 0.56 ms | 1.21× |
-| neverthrow (light) | 0.62 ms | 0.50 ms | 1.23× | 0.68 ms | 0.55 ms | 1.24× |
-| connect-es | 20 ms | 2.6 ms | 7.88× | 24 ms | 2.1 ms | 11.15× |
-| connect-es (light) | 2.8 ms | 2.6 ms | 1.09× | 3.3 ms | 2.3 ms | 1.44× |
-| react | 3.7 ms | 1.7 ms | 2.14× | 3.4 ms | 2.0 ms | 1.71× |
-| react (light) | 0.20 ms | 1.7 ms | 0.12× | 0.21 ms | 2.0 ms | 0.11× |
-| vitepress | 0.42 ms | 0.24 ms | 1.76× | 0.62 ms | 0.15 ms | 4.12× |
-| astro | 0.42 ms | 2.1 ms | 0.20× | 0.54 ms | 2.5 ms | 0.21× |
-| vue | 6.2 ms | 6.4 ms | 0.97× | 6.2 ms | 5.8 ms | 1.08× |
-| tailwind | 2.4 ms | 4.2 ms | 0.57× | 3.1 ms | 3.6 ms | 0.84× |
+| luxon | 2.4 ms | 8.9 ms | 0.27× | 4.5 ms | 8.0 ms | 0.57× |
+| neverthrow | 0.58 ms | 0.50 ms | 1.17× | 0.69 ms | 0.58 ms | 1.20× |
+| neverthrow (light) | 0.57 ms | 0.52 ms | 1.09× | 0.76 ms | 0.57 ms | 1.35× |
+| connect-es | 20 ms | 2.7 ms | 7.64× | 23 ms | 2.1 ms | 10.97× |
+| connect-es (light) | 1.8 ms | 2.6 ms | 0.70× | 1.4 ms | 2.0 ms | 0.71× |
+| react | 3.0 ms | 1.7 ms | 1.74× | 3.2 ms | 2.1 ms | 1.56× |
+| react (light) | 0.20 ms | 1.7 ms | 0.12× | 0.23 ms | 2.0 ms | 0.12× |
+| vitepress | 0.41 ms | 0.23 ms | 1.79× | 0.66 ms | 0.15 ms | 4.46× |
+| astro | 0.38 ms | 2.0 ms | 0.19× | 0.56 ms | 2.7 ms | 0.21× |
+| vue | 6.2 ms | 6.5 ms | 0.96× | 6.4 ms | 5.8 ms | 1.11× |
+| tailwind | 2.5 ms | 4.5 ms | 0.56× | 3.5 ms | 3.7 ms | 0.94× |
 <!-- compare:end -->
 
 サイズは minify した ES モジュールのバンドルを gzip のレベル 9 で圧縮したものである。時間は、ウォームアップ後に処理を 1 回実行した時間の中央値である。connect-es の処理では、エンコード済みの応答を返す `fetch` を同じプロセス内に置く。このため、計測するのはクライアントの処理だけ、すなわちリクエストのエンコード、プロトコルの処理、応答のデコードである。

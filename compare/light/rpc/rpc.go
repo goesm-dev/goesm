@@ -27,7 +27,7 @@ func List(baseURL, owner string, limit int) (Summary, error) {
 	// ListTasksRequest: owner = 1, limit = 2.
 	req := appendString(nil, 1, owner)
 	if limit != 0 {
-		req = appendVarint(appendVarint(req, 2<<3|0), uint64(int64(int32(limit))))
+		req = appendInt32(appendVarint(req, 2<<3|0), int32(limit))
 	}
 	res, err := post(baseURL+"/task.v1.TaskService/ListTasks", req)
 	if err != nil {
@@ -35,18 +35,18 @@ func List(baseURL, owner string, limit int) (Summary, error) {
 	}
 	var s Summary
 	// ListTasksResponse: repeated Task tasks = 1.
-	err = fields(res, func(num int, typ byte, b []byte, _ uint64) error {
+	err = fields(res, func(num int, typ byte, b []byte, _ bool) error {
 		if num != 1 || typ != 2 {
 			return nil
 		}
 		first := s.Count == 0
 		s.Count++
 		// Task: title = 2, done = 3, repeated tags = 5.
-		return fields(b, func(num int, typ byte, b []byte, v uint64) error {
+		return fields(b, func(num int, typ byte, b []byte, set bool) error {
 			switch {
 			case num == 2 && typ == 2 && first:
 				s.First = string(b)
-			case num == 3 && typ == 0 && v != 0:
+			case num == 3 && typ == 0 && set:
 				s.Done++
 			case num == 5 && typ == 2:
 				s.Tags++
@@ -59,7 +59,10 @@ func List(baseURL, owner string, limit int) (Summary, error) {
 
 var errProto = errors.New("rpc: malformed protobuf message")
 
-func appendVarint(b []byte, v uint64) []byte {
+// Like protobuf-es, the code reads and writes tags and lengths as 32-bit
+// varints, and needs no 64-bit arithmetic for the fields it reads.
+
+func appendVarint(b []byte, v uint32) []byte {
 	for v >= 0x80 {
 		b = append(b, byte(v)|0x80)
 		v >>= 7
@@ -67,38 +70,71 @@ func appendVarint(b []byte, v uint64) []byte {
 	return append(b, byte(v))
 }
 
+// appendInt32 appends v as protobuf encodes an int32: a negative one as the
+// ten bytes of its sign extension to 64 bits.
+func appendInt32(b []byte, v int32) []byte {
+	if v >= 0 {
+		return appendVarint(b, uint32(v))
+	}
+	u := uint64(int64(v))
+	for u >= 0x80 {
+		b = append(b, byte(u)|0x80)
+		u >>= 7
+	}
+	return append(b, byte(u))
+}
+
 func appendString(b []byte, num int, s string) []byte {
-	b = appendVarint(b, uint64(num)<<3|2)
-	b = appendVarint(b, uint64(len(s)))
+	b = appendVarint(b, uint32(num)<<3|2)
+	b = appendVarint(b, uint32(len(s)))
 	return append(b, s...)
 }
 
-func varint(b []byte) (uint64, int) {
-	var v uint64
-	for i := 0; i < len(b) && i < 10; i++ {
-		v |= uint64(b[i]&0x7f) << (7 * i)
-		if b[i] < 0x80 {
+// varint32 reads a varint that must fit in 32 bits, such as a tag or a
+// length.
+func varint32(b []byte) (uint32, int) {
+	var v uint32
+	for i := 0; i < len(b) && i < 5; i++ {
+		c := b[i]
+		if i == 4 && c > 0x0f {
+			return 0, -1
+		}
+		v |= uint32(c&0x7f) << (7 * i)
+		if c < 0x80 {
 			return v, i + 1
 		}
 	}
 	return 0, -1
 }
 
+// skipVarint reads a varint of up to 64 bits and reports whether it is
+// nonzero, which is all the code needs of a bool's or an enum's value.
+func skipVarint(b []byte) (nonzero bool, n int) {
+	for i := 0; i < len(b) && i < 10; i++ {
+		nonzero = nonzero || b[i]&0x7f != 0
+		if b[i] < 0x80 {
+			return nonzero, i + 1
+		}
+	}
+	return false, -1
+}
+
 // fields calls f with each field of the message b: its number, its wire
-// type, and its bytes (length-delimited fields) or its value (varints).
-func fields(b []byte, f func(num int, typ byte, b []byte, v uint64) error) error {
+// type, and its bytes (length-delimited fields) or whether its value is
+// nonzero (varints).
+func fields(b []byte, f func(num int, typ byte, b []byte, set bool) error) error {
 	for len(b) > 0 {
-		tag, n := varint(b)
+		tag, n := varint32(b)
 		if n < 0 {
 			return errProto
 		}
 		b = b[n:]
 		num, typ := int(tag>>3), byte(tag&7)
 		var val []byte
-		var v uint64
+		var set bool
 		switch typ {
 		case 0:
-			if v, n = varint(b); n < 0 {
+			if set, n = skipVarint(b); n < 0 {
 				return errProto
 			}
 		case 1, 5:
@@ -107,8 +143,8 @@ func fields(b []byte, f func(num int, typ byte, b []byte, v uint64) error) error
 				n = 4
 			}
 		case 2:
-			l, m := varint(b)
-			if m < 0 || l > uint64(len(b)-m) {
+			l, m := varint32(b)
+			if m < 0 || int64(l) > int64(len(b)-m) {
 				return errProto
 			}
 			val, n = b[m:m+int(l)], m+int(l)
@@ -119,7 +155,7 @@ func fields(b []byte, f func(num int, typ byte, b []byte, v uint64) error) error
 			return errProto
 		}
 		b = b[n:]
-		if err := f(num, typ, val, v); err != nil {
+		if err := f(num, typ, val, set); err != nil {
 			return err
 		}
 	}
