@@ -1244,6 +1244,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 			return fe.unsafeCall(e, b.Name())
 		}
 	}
+	if s, ok := fe.sprintf(e); ok {
+		return s
+	}
 	sig := under(fe.info.TypeOf(e.Fun)).(*types.Signature)
 	args := fe.args(e, sig)
 	var callee string

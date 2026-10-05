@@ -18,4 +18,5 @@ export * from "./complex.ts";
 export * from "./host.ts";
 export * from "./print.ts";
 export * from "./unsafe.ts";
+export { fmtF, fmtShortest } from "./fmt.ts";
 

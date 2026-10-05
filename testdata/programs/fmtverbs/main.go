@@ -106,6 +106,7 @@ func main() {
 	k, err = fmt.Sscan("7 8.5 word", &i, new(float64), &s)
 	fmt.Println(k, err, i, s)
 	sprintfMatrix()
+	loweredSprintf()
 }
 
 type plainInt int
@@ -136,4 +137,37 @@ func sprintfMatrix() {
 	}
 	fmt.Println(fmt.Sprintf("%d:%s:%.2f:%x|%v", 7, "item", 7.0/3, 7*31, false))
 	fmt.Println(fmt.Sprintf("%d %d", 1), fmt.Sprintf("%d", 1, 2), fmt.Sprintf("no verbs"), fmt.Sprintf("%s-%s", "a", "b"))
+}
+
+// loweredSprintf calls Sprintf with constant formats on variables of
+// predeclared types, which goesm lowers to string concatenation, at the
+// values where JS formatting differs from Go's.
+func loweredSprintf() {
+	for _, i := range []int{0, 1, -1, 255, -255, 1<<31 - 1, -1 << 31, 1<<53 - 1, -(1<<53 - 1), 1 << 53, 1<<53 + 2, -1 << 60} {
+		fmt.Println(fmt.Sprintf("%d|%v|%x|%X", i, i, i, i), fmt.Sprintf("[%d]", i))
+	}
+	for _, u := range []uint{0, 7, 1<<53 - 1, 1 << 53, 1 << 63} {
+		fmt.Println(fmt.Sprintf("%d %x %X", u, u, u), fmt.Sprintf("%v", uintptr(u)))
+	}
+	for _, i := range []int64{0, -1, math.MinInt64, math.MaxInt64} {
+		u := uint64(i)
+		fmt.Println(fmt.Sprintf("%d %x %X %v", i, i, i, i), fmt.Sprintf("%d %x %X %v", u, u, u, u))
+	}
+	i8, i16, i32 := int8(-128), int16(-300), int32(math.MinInt32)
+	u8, u16, u32 := uint8(255), uint16(65535), uint32(math.MaxUint32)
+	r, b := rune('世'), byte('A')
+	fmt.Println(fmt.Sprintf("%d %x %d %X %d %x|%v %x %v %X %d %x|%d %v %x", i8, i8, i16, i16, i32, i32, u8, u8, u16, u16, u32, u32, r, b, b))
+	for _, f := range []float64{0, math.Copysign(0, -1), 0.125, 0.375, 2.675, -1.5, 1.005, 1e20, 1e21, -1e21, 1e-7, 123456789, 1.0 / 3, 5e-324, math.MaxFloat64, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		fmt.Println(fmt.Sprintf("%v|%f|%F|%.0f|%.2f|%.1f", f, f, f, f, f, f), fmt.Sprintf("%.20f", f))
+	}
+	for _, s := range []string{"", "héllo", "日本", "a%b", "\xff\x00"} {
+		t := s == ""
+		fmt.Println(fmt.Sprintf("<%s|%v|%t|%v>", s, s, t, !t))
+	}
+	n := 0
+	next := func() int { n++; return n }
+	fmt.Println(fmt.Sprintf("%d %d %d", next(), next()*10, next()), fmt.Sprintf("%d%d", n, n), fmt.Sprintf("%v%v", true, n))
+	const c, h, neg = 12345678901234, 0xbeef, -42
+	fmt.Println(fmt.Sprintf("%d %x %X %v %d %x %s %t %v", c, h, h, 'a', neg, neg, "lit%", false, 1.5))
+	fmt.Println(fmt.Sprintf("100%%"), fmt.Sprintf("%d%%", n), fmt.Sprintf("%.2f%%", 99.5))
 }
