@@ -315,13 +315,24 @@ function errorMessage(e: any): string {
 // jsError converts the exception e thrown by JavaScript into a Go error of
 // type errType (js.Error) or of the runtime's own type. A Go panic, a
 // Goexit or an exit raised by Go code called back from JavaScript keeps
-// unwinding.
+// unwinding. A thrown value that is not an object, such as a string or
+// null, is wrapped in an Error with it as the message (and the cause), since
+// js.Error's Error method reads the message property.
 export function jsError(e: unknown, errType: Type | null): Iface {
   if (e instanceof GoPanic || e instanceof Goexit || e instanceof ProgramExit) throw e;
+  if (e === null || (typeof e !== "object" && typeof e !== "function")) e = new Error(String(e), { cause: e });
   if (errType === null) return new Iface(jsErrorT(), e);
   const v = errType.zero();
   v.Value.ref = toRef(e);
   return box(errType, v)!;
+}
+
+// notAwaited panics for the Promise p, returned to a function imported
+// without await. The Promise's rejection, if any, is handled here so that it
+// is not also reported as unhandled.
+export function notAwaited(p: Promise<unknown>, msg: string): never {
+  p.catch(() => {});
+  plainPanic(msg);
 }
 
 // jsPanic is the panic of a JavaScript exception in a call whose Go
