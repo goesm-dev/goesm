@@ -520,6 +520,14 @@ func (pe *pkgEmitter) emitJSImportFunc(fd *ast.FuncDecl, fn *types.Func, d *jsIm
 		w.ln("  $jsabi.jsPanic($e, %s);", errT)
 	}
 	w.ln("}")
+	if !d.await && (nres > 1 || hasErr || nres == 1 && !isJSValue(results.At(0).Type())) {
+		// A function that returns a Promise needs await; without it, the
+		// Promise would convert to a meaningless value (or hide a
+		// rejection) without notice. A js.Value result can hold a Promise
+		// on purpose, and a function without results may be left running.
+		msg := fmt.Sprintf("goesm: %s.%s imported from %q returned a Promise; mark its //goesm:import directive with await", pe.pkg.Types.Name(), fn.Name(), d.spec)
+		w.ln("if (typeof $r === \"object\" && $r instanceof Promise) $jsabi.notAwaited($r, %s);", jsStringLit(msg))
+	}
 	if hasErr {
 		conv = append(conv, "null")
 	}

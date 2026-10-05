@@ -28,5 +28,11 @@ namespace 1.2.3
 {"Secret":"s","N":3} true
 {"__proto__":{"a":1}} true
 __proto__,a true
+c.txt
+recovered: goesm: main.laterNotAwaited imported from "./lib.ts" returned a Promise; mark its //goesm:import directive with await
+recovered: goesm: main.rejectNotAwaited imported from "./lib.ts" returned a Promise; mark its //goesm:import directive with await
+JavaScript error: plain string plain string
+JavaScript error: null <null>
+JavaScript error: 42 <number: 42>
 goroutine ended by Goexit
 recovered: JavaScript error: not a price: x

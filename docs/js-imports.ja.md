@@ -30,9 +30,9 @@ func Label(price int) string {
 //goesm:import "<モジュール>" [<エクスポート名>] [await]
 ```
 
-- **モジュール**は import の指定子です。`./` か `../` で始まるパスは Go のファイルからの相対パスで、ファイルが存在しなければなりません。goesm は、生成したモジュールの位置から見た相対パスに書き換えて出力します。`chart.js` や `node:path` のようなそれ以外の指定子はバンドラーが解決し、その際は Go パッケージのディレクトリにあるファイルからの import と同じ扱いになります。
+- **モジュール**は import の指定子です。`./` か `../` で始まるパスは Go のファイルからの相対パスで、ファイルが存在しなければなりません。goesm は、生成したモジュールの位置から見た相対パスに書き換えて出力します。`chart.js` のようなそれ以外の指定子はパッケージを指します。`goesm build` は、実行したディレクトリとその親ディレクトリにある `node_modules` からパッケージを探します。`goesm emit-ts` の出力では指定子がそのまま残り、利用側のバンドラーが解決します。`node:path`、`bun:sqlite`、`cloudflare:sockets` のように JavaScript のランタイムに組み込まれたモジュールは、`goesm build` の出力でも import のまま残り、出力を実行する環境で解決されます。
 - **エクスポート名**は取り込むエクスポートの名前です。`default` を書くか何も書かなければデフォルトエクスポートを、`*` を書けばモジュールの名前空間オブジェクトを取り込みます。
-- **await** は、Promise を返す関数に付けます。Go からはチャネルの受信と同じく Promise が決着するまでブロックする関数として呼べ、その関数を呼ぶ側の関数も JavaScript では非同期になります。
+- **await** は、Promise を返す関数に付けます。Go からはチャネルの受信と同じく Promise が決着するまでブロックする関数として呼べ、その関数を呼ぶ側の関数も JavaScript では非同期になります。Promise を返す関数には `await` が必要です。付けずに宣言すると、Promise が返った時点で呼び出しが panic します。ただし、戻り値が `js.Value` の場合は Promise をそのまま受け取り、戻り値がない場合は Promise を待たずに戻ります。
 
 ```go
 //goesm:import "chart.js" Chart
@@ -69,7 +69,7 @@ var version string
 
 ## エラー
 
-最後の戻り値が `error` の関数では、JavaScript の関数が投げた例外と Promise の reject がその error として返り、ほかの戻り値はゼロ値になります。正常に戻った場合の error は nil です。`error` の戻り値がない関数では、例外は panic になり、`recover` で止められます。どちらの場合も、Go パッケージが `syscall/js` を import していればエラーは `js.Error` になり、`errors.As` で投げられた値を取り出せます。import していない場合も、メッセージが同じ `JavaScript error: <メッセージ>` のエラーになります。
+最後の戻り値が `error` の関数では、JavaScript の関数が投げた例外と Promise の reject がその error として返り、ほかの戻り値はゼロ値になります。正常に戻った場合の error は nil です。`error` の戻り値がない関数では、例外は panic になり、`recover` で止められます。どちらの場合も、Go パッケージが `syscall/js` を import していればエラーは `js.Error` になり、`errors.As` で投げられた値を取り出せます。import していない場合も、メッセージが同じ `JavaScript error: <メッセージ>` のエラーになります。文字列や `null` のようにオブジェクトでない値が投げられた場合は、その値を文字列にしたものをメッセージとし、元の値を `cause` に持つ `Error` に包みます。
 
 ```go
 //goesm:import "./lib.ts" parsePrice
@@ -95,12 +95,13 @@ if errors.As(err, &jerr) {
 | `total(struct) int` | 7.3 ns | 5.3 ns | 840 ns |
 | `sum([]float64) float64`、8 要素 | 17 ns | 37 ns | 1,406 ns |
 
-計測環境は 4 vCPU の Intel Xeon 2.80 GHz のクラウド VM 上の Node.js 22 で、Bun でもほぼ同じ結果になります。ASCII 以外の文字を含む文字列は呼び出しのたびに UTF-8 と UTF-16 の間で変換され、これが残っているコストです。スライスは要素ごとにコピーされます。
+計測環境は 4 vCPU の Intel Xeon 2.80 GHz のクラウド VM 上の Node.js 22 です。Bun では、数値と文字列の呼び出しはほぼ同じ時間で、構造体とスライスの呼び出しは約 2 倍の時間がかかります。ASCII 以外の文字を含む文字列は呼び出しのたびに UTF-8 と UTF-16 の間で変換され、これが残っているコストです。スライスは要素ごとにコピーされます。
 
 ## 制限
 
 - `//goesm:import` を含むパッケージは goesm でしかビルドできません。`go build` は本体のない関数をエラーにします。`go vet` と gopls はそのまま受け付けます。
 - `goesm build` は esbuild でバンドルするので、`.ts`、`.js`、`.mjs` は扱えますが `.vue` は扱えません。Vue コンポーネントは、Vite でビルドする gosfc から使います。
 - Go に返された JavaScript の関数は `js.Value` になり、`Invoke` で呼びます。
+- JavaScript に渡した Go の関数がブロックする場合、つまりスリープやチャネルの待機、`await` を付けた import の呼び出しを含む場合、その関数は JavaScript に Promise を返します。`xs.map(f)` のように結果を await せずに呼ぶ JavaScript のコードは、値の代わりに Promise を受け取ります。
 - 生成されるモジュールでは、取り込んだ関数の TypeScript の型は `any` です。
 - Go の宣言は手で書きます。`.d.ts` から生成する仕組みはありません。

@@ -48,3 +48,14 @@ func TestJSImportDiagnostics(t *testing.T) {
 		}
 	}
 }
+
+// A module that esbuild cannot resolve is reported as the user's mistake,
+// not as a goesm bug.
+func TestJSImportUnresolved(t *testing.T) {
+	de := buildErr(t, "./jsimportresolve")
+	out := de.Error()
+	want := `example.com/diag/jsimportresolve: cannot resolve module "no-such-package" of a //goesm:import directive`
+	if !strings.Contains(out, want) || strings.Contains(out, "goesm bug") {
+		t.Errorf("diagnostics = %s\nwant %q and no internal error", out, want)
+	}
+}

@@ -96,3 +96,7 @@ export function stringify(v: unknown): string {
 export function keys(m: Record<string, number>): string {
   return Object.keys(m).sort().join(",") + " " + (Object.getPrototypeOf(m) === Object.prototype);
 }
+
+export function throwValue(v: unknown): void {
+  throw v;
+}
