@@ -195,7 +195,35 @@ func loweredSprintf() {
 	fmt.Println(e4, errors.Unwrap(e4) == nil)
 	fmt.Println(e5, errors.Is(e5, sentinel), fmt.Sprintf("%T %T %T", e1, e2, e3))
 	fmt.Println(fmt.Errorf("%w: %v", nilErr, red), fmt.Errorf("%s", panicky{}))
+
+	// Each method is called once, also when a later verb or the argument
+	// count leaves the format to fmt's own code.
+	for _, f := range []string{"%v", "%v %q", "%v %v", "%v|%-12s|%d", "%w"} {
+		n := 0
+		s := "-" // %w of a non-error prints its address
+		if f != "%w" {
+			s = fmt.Sprintf(f, once{&n}, once{&n}, 7)
+		}
+		e := fmt.Errorf(f, onceErr{&n})
+		fmt.Println(s, "/", e, n)
+	}
 }
+
+// once and onceErr count the calls of their method, which panics the first
+// time.
+type once struct{ n *int }
+
+func (o once) String() string {
+	*o.n++
+	if *o.n == 1 {
+		panic("first")
+	}
+	return fmt.Sprint("call ", *o.n)
+}
+
+type onceErr struct{ n *int }
+
+func (o onceErr) Error() string { return once(o).String() }
 
 type panicky struct{}
 

@@ -541,10 +541,11 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	w.indent++
 	pe.byteBools, pe.byteBoolMakes = byteBools(pe.info, fd.Body)
 	pe.inBounds = inBoundsIndices(pe.info, fd.Body)
+	pe.scalar = scalarRangeVars(pe.info, fd.Body)
 	pe.split = split64Vars(pe.info, fd.Body, pe.prog.boxed)
 	pe.strBytes, pe.strMarshal = stringBytesVars(pe.info, fd.Body, pe.prog.boxed)
 	fe.funcBody(fd.Recv, fd.Type, fd.Body, sig)
-	pe.byteBools, pe.byteBoolMakes, pe.inBounds, pe.split = nil, nil, nil, nil
+	pe.byteBools, pe.byteBoolMakes, pe.inBounds, pe.split, pe.scalar = nil, nil, nil, nil, nil
 	pe.strBytes, pe.strMarshal = nil, nil
 	w.indent--
 	w.ln("}")

@@ -13,7 +13,7 @@
 import { Iface } from "./iface.ts";
 import { runtimePanic } from "./panic.ts";
 import { arrayElemPtr, fieldPtr, fieldPtrTarget, indexPtrTarget } from "./ptr.ts";
-import { elemOrigins, Slice } from "./slice.ts";
+import { elemOrigins, reach, Slice } from "./slice.ts";
 import { bytesToString, stringToBytes } from "./string.ts";
 import { alignOf, ctorTypes, isAggregate, Kind, sizeOf, type Type } from "./types.ts";
 
@@ -77,6 +77,7 @@ export function unsafeSliceFrom(p: any, n: number): any {
   const at = indexPtrTarget(p) ?? (typeof p === "object" ? elemOrigins.get(p) : undefined);
   if (at !== undefined) {
     if (at.i + n > at.a.length) runtimePanic("unsafe.Slice: len out of range (beyond the underlying array)");
+    reach(at.a, at.i, at.i + n);
     return new Slice(at.a, at.i, n, n);
   }
   if (n === 1) {
@@ -107,8 +108,14 @@ function pointerShaped(t: Type): boolean {
 }
 
 // The non-zero-size fields of a struct, which carry its layout.
+const wordsOf = new WeakMap<Type, { prop: string; type: Type }[]>();
 function words(t: Type): { prop: string; type: Type }[] {
-  return t.fields.filter((f) => !zeroSize(f.type)).map((f) => ({ prop: f.prop, type: f.type }));
+  let w = wordsOf.get(t);
+  if (w === undefined) {
+    w = t.fields.filter((f) => !zeroSize(f.type)).map((f) => ({ prop: f.prop, type: f.type }));
+    wordsOf.set(t, w);
+  }
+  return w;
 }
 
 function zeroSize(t: Type): boolean {
@@ -139,17 +146,33 @@ function fromData(t: Type, d: any): any {
   return d === null ? t.zero() : d.v;
 }
 
-// view is an object of To's struct class whose fields are accessors.
-function view(to: Type, accessors: Record<string, PropertyDescriptor>): any {
-  const o = Object.create(to.ctor.prototype);
-  for (const f of to.fields) {
-    if (!(f.prop in accessors)) {
-      const z = f.type.zero();
-      accessors[f.prop] = { get: () => z, set: () => {} };
+// A view is an object of To's struct class whose fields are accessors of
+// the value $p points to. The views of one kind (key) as one type share a
+// class, which accessors() makes once: the accessors are methods of its
+// prototype, reading this.$p.
+const viewCtors = new WeakMap<Type, Map<unknown, new (p: any) => any>>();
+function view(to: Type, key: unknown, p: any, accessors: () => Record<string, PropertyDescriptor>): any {
+  let m = viewCtors.get(to);
+  if (m === undefined) viewCtors.set(to, (m = new Map()));
+  let C = m.get(key);
+  if (C === undefined) {
+    const acc = accessors();
+    for (const f of to.fields) {
+      if (!(f.prop in acc)) {
+        const z = f.type.zero();
+        acc[f.prop] = { get: () => z, set: () => {} };
+      }
     }
+    const proto = Object.create(to.ctor.prototype);
+    for (const k of Object.keys(acc)) Object.defineProperty(proto, k, { ...acc[k], enumerable: true });
+    C = function (this: any, p: any) {
+      this.$p = p;
+      this.$d = null;
+    } as any;
+    C!.prototype = proto;
+    m.set(key, C!);
   }
-  for (const k of Object.keys(accessors)) Object.defineProperty(o, k, { ...accessors[k], enumerable: true });
-  return o;
+  return new C!(p);
 }
 
 // reinterpret is (*To)(unsafe.Pointer(p)) for p of type *From, with From and
@@ -159,12 +182,14 @@ export function reinterpret(p: any, from: Type, to: Type): any {
   if (from.kind === Kind.Struct && to.kind === Kind.Struct) {
     const fw = words(from), tw = words(to);
     if (fw.every((w, i) => w.prop === tw[i].prop)) return p;
-    const acc: Record<string, PropertyDescriptor> = {};
-    tw.forEach((w, i) => {
-      const k = fw[i].prop;
-      acc[w.prop] = { get: () => p[k], set: (x: any) => { p[k] = x; } };
+    return view(to, from, p, () => {
+      const acc: Record<string, PropertyDescriptor> = {};
+      tw.forEach((w, i) => {
+        const k = fw[i].prop;
+        acc[w.prop] = { get(this: any) { return this.$p[k]; }, set(this: any, x: any) { this.$p[k] = x; } };
+      });
+      return acc;
     });
-    return view(to, acc);
   }
   if (from.kind === Kind.Interface) {
     // p points to an interface variable: {type, data}.
@@ -173,16 +198,18 @@ export function reinterpret(p: any, from: Type, to: Type): any {
         get: (t, k) => (k === "0" ? p.v?.t ?? null : k === "1" ? ifaceData(p.v) : Reflect.get(t, k)),
       });
     }
-    const [tw, dw] = words(to);
-    return view(to, {
-      [tw.prop]: {
-        get: () => (p.v === null ? null : p.v.t),
-        set: (t: Type | null) => { p.v = t === null ? null : new Iface(t, p.v === null ? t.zero() : p.v.v); },
-      },
-      [dw.prop]: {
-        get: () => ifaceData(p.v),
-        set: (d: any) => { if (p.v !== null) p.v = new Iface(p.v.t, fromData(p.v.t, d)); },
-      },
+    return view(to, Kind.Interface, p, () => {
+      const [tw, dw] = words(to);
+      return {
+        [tw.prop]: {
+          get(this: any) { const v = this.$p.v; return v === null ? null : v.t; },
+          set(this: any, t: Type | null) { const p = this.$p; p.v = t === null ? null : new Iface(t, p.v === null ? t.zero() : p.v.v); },
+        },
+        [dw.prop]: {
+          get(this: any) { return ifaceData(this.$p.v); },
+          set(this: any, d: any) { const p = this.$p; if (p.v !== null) p.v = new Iface(p.v.t, fromData(p.v.t, d)); },
+        },
+      };
     });
   }
   if (from.kind === Kind.Slice && to.kind === Kind.String) {
@@ -197,22 +224,24 @@ export function reinterpret(p: any, from: Type, to: Type): any {
   }
   if (from.kind === Kind.String) {
     // p points to a string variable: {data, len}.
-    const [dw, lw] = words(to);
-    let data: any = null;
-    return view(to, {
-      [dw.prop]: { get: () => stringData(p.v), set: (d: any) => { data = d; } },
-      [lw.prop]: { get: () => p.v.length, set: (n: number) => { p.v = unsafeStringFrom(data, Number(n)); } },
+    // The data pointer written is kept in $d until the length is.
+    return view(to, Kind.String, p, () => {
+      const [dw, lw] = words(to);
+      return {
+        [dw.prop]: { get(this: any) { return stringData(this.$p.v); }, set(this: any, d: any) { this.$d = d; } },
+        [lw.prop]: { get(this: any) { return this.$p.v.length; }, set(this: any, n: number) { this.$p.v = unsafeStringFrom(this.$d, Number(n)); } },
+      };
     });
   }
   if (from.kind === Kind.Slice) {
     // p points to a slice variable: {data, len, cap}.
-    const [dw, lw, cw] = words(to);
-    const len = () => (p.v === null ? 0 : p.v.$length);
-    const cap = () => (p.v === null ? 0 : p.v.$capacity);
-    return view(to, {
-      [dw.prop]: { get: () => (p.v === null || cap() === 0 ? null : dataOf(p.v, from.elem!)), set: () => { readOnly(); } },
-      [lw.prop]: { get: len, set: () => { readOnly(); } },
-      [cw.prop]: { get: cap, set: () => { readOnly(); } },
+    return view(to, from, p, () => {
+      const [dw, lw, cw] = words(to);
+      return {
+        [dw.prop]: { get(this: any) { const v = this.$p.v; return v === null || v.$capacity === 0 ? null : dataOf(v, from.elem!); }, set: readOnly },
+        [lw.prop]: { get(this: any) { const v = this.$p.v; return v === null ? 0 : v.$length; }, set: readOnly },
+        [cw.prop]: { get(this: any) { const v = this.$p.v; return v === null ? 0 : v.$capacity; }, set: readOnly },
+      };
     });
   }
   if (from.kind === Kind.Struct && (to.kind === Kind.Slice || to.kind === Kind.String)) {
@@ -472,32 +501,64 @@ function wrapsPointers(t: Type, field: Type): boolean {
 
 const wrappedArrays = new WeakMap<any[], any[]>();
 const unwrapped = new WeakMap<any[], any[]>();
+const wrappedPtrs = new WeakMap<object, Map<Type, any>>();
+
+// index returns the array index k names, or -1.
+function index(k: string | symbol): number {
+  if (typeof k !== "string") return -1;
+  const c = k.charCodeAt(0);
+  if (c < 48 || c > 57) return -1;
+  const i = +k;
+  return Number.isInteger(i) && String(i) === k ? i : -1;
+}
+
+// slotViews returns the class of the elements of a wrapped array of w:
+// objects of w's struct class whose field prop is the slot $t[$i] (append
+// assigns into the element at the slice's length when it has room).
+const slotViewCtors = new WeakMap<Type, new (t: any[], i: number) => any>();
+function slotViews(w: Type): new (t: any[], i: number) => any {
+  let C = slotViewCtors.get(w);
+  if (C === undefined) {
+    const prop = words(w)[0].prop;
+    const proto = Object.create(w.ctor.prototype);
+    for (const f of w.fields) {
+      if (f.prop === prop) continue;
+      const z = f.type.zero();
+      Object.defineProperty(proto, f.prop, { get: () => z, set: () => {}, enumerable: true });
+    }
+    Object.defineProperty(proto, prop, {
+      get(this: any) { return this.$t[this.$i] ?? null; },
+      set(this: any, x: any) { this.$t[this.$i] = x; },
+      enumerable: true,
+    });
+    C = function (this: any, t: any[], i: number) {
+      this.$t = t;
+      this.$i = i;
+    } as any;
+    C!.prototype = proto;
+    slotViewCtors.set(w, C!);
+  }
+  return C!;
+}
 
 function wrappedSlicePtr(fp: { v: any }, w: Type): any {
+  let m = wrappedPtrs.get(fp);
+  if (m === undefined) wrappedPtrs.set(fp, (m = new Map()));
+  let r = m.get(w);
+  if (r !== undefined) return r;
   const prop = words(w)[0].prop;
+  const Slot = slotViews(w);
   const wrapArray = (a: any[]): any[] => {
     let v = wrappedArrays.get(a);
     if (v === undefined) {
       v = new Proxy(a, {
         get: (t, k, r) => {
-          if (typeof k === "string" && /^\d+$/.test(k)) {
-            // The element is a view of the slot too: append assigns into
-            // the element at the slice's length when it has room.
-            const i = Number(k);
-            const o = w.zero();
-            Object.defineProperty(o, prop, {
-              get: () => t[i] ?? null,
-              set: (x) => {
-                t[i] = x;
-              },
-              enumerable: true,
-            });
-            return o;
-          }
-          return Reflect.get(t, k, r);
+          const i = index(k);
+          return i >= 0 ? new Slot(t, i) : Reflect.get(t, k, r);
         },
         set: (t, k, x) => {
-          if (typeof k === "string" && /^\d+$/.test(k)) t[Number(k)] = x === undefined ? null : x[prop];
+          const i = index(k);
+          if (i >= 0) t[i] = x === undefined || x === null ? null : x[prop];
           else Reflect.set(t, k, x);
           return true;
         },
@@ -507,7 +568,7 @@ function wrappedSlicePtr(fp: { v: any }, w: Type): any {
     }
     return v;
   };
-  return {
+  r = {
     get v(): any {
       const s: Slice<any> | null = fp.v;
       return s === null ? null : new Slice(wrapArray(s.$array), s.$offset, s.$length, s.$capacity);
@@ -517,8 +578,19 @@ function wrappedSlicePtr(fp: { v: any }, w: Type): any {
         fp.v = null;
         return;
       }
-      const a = unwrapped.get(s.$array) ?? s.$array.map((x: any) => (x === undefined || x === null ? null : x[prop]));
+      let a = unwrapped.get(s.$array);
+      if (a === undefined) {
+        // Elements not made yet (see spare in slice.ts) are nil pointers.
+        const b = s.$array;
+        a = new Array(b.length);
+        for (let i = 0; i < b.length; i++) {
+          const x = b[i];
+          a[i] = x === undefined || x === null ? null : x[prop];
+        }
+      }
       fp.v = new Slice(a, s.$offset, s.$length, s.$capacity);
     },
   };
+  m.set(w, r);
+  return r;
 }

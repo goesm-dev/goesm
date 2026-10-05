@@ -47,8 +47,33 @@ export function makeSlice<T = any>(len: number, cap: number | undefined, zero: (
   if (!(cap >= len && cap <= maxSliceLen)) runtimePanic("makeslice: cap out of range");
   if (zero === (zeroByte as any)) return new Slice(newBytes(cap) as any, 0, len, cap);
   const arr = new Array<T>(cap);
-  fillZero(arr, 0, cap, zero);
+  fillZero(arr, 0, len, zero);
+  if (cap > len) {
+    if (len > 0 && typeof arr[0] === "object" && arr[0] !== null) spare(arr, zero);
+    else if (len === 0 && isObject(zero())) spare(arr, zero);
+    else fillZero(arr, len, cap, zero);
+  }
   return new Slice(arr, 0, len, cap);
+}
+
+const isObject = (z: unknown) => typeof z === "object" && z !== null;
+
+// The elements of a backing array of aggregates (struct and array objects)
+// beyond the length of every slice of it are made when a slice first
+// reaches them, by slice, append or unsafe.Slice: append(make([]T, 0, n),
+// ...) and growing slices of structs then make each element once, where
+// zero values for the spare capacity would be made and then overwritten.
+// spare marks such an array with the function making its zero elements.
+function spare<T>(arr: T[], zero: () => T): void {
+  (arr as any).$zero = zero;
+}
+
+// reach makes the missing elements arr[from:to] of an array that spare
+// marked.
+export function reach<T>(arr: T[], from: number, to: number): void {
+  const zero = (arr as any).$zero as (() => T) | undefined;
+  if (zero === undefined) return;
+  for (let i = from; i < to; i++) if (arr[i] === undefined) arr[i] = zero();
 }
 
 // newBytes returns n zero bytes. V8 keeps the store of a Uint8Array of at
@@ -124,6 +149,7 @@ export function slice<T = any>(s: S<T>, lo?: number, hi?: number, max?: number):
   const m = max ?? c;
   if (l < 0 || h < l || m < h || m > c) sliceError(l, h, max, c);
   if (s === null) return null;
+  if (h > s.$length) reach(s.$array, s.$offset + s.$length, s.$offset + h);
   return new Slice(s.$array, s.$offset + l, h - l, m - l);
 }
 
@@ -218,7 +244,9 @@ export function append<T = any>(s: S<T>, vals: T[], zero: () => T, et?: Type): S
   if (s !== null && newLen <= c) {
     for (let i = 0; i < vals.length; i++) {
       const j = s.$offset + n + i;
-      if (agg) assign(et!, s.$array[j], vals[i]);
+      const o = s.$array[j];
+      // An element not made yet (see spare) takes the copy.
+      if (agg && o !== undefined) assign(et!, o, vals[i]);
       else s.$array[j] = vals[i];
     }
     return new Slice(s.$array, s.$offset, newLen, c);
@@ -245,7 +273,8 @@ function grown<T>(s: S<T>, newLen: number, zero: () => T, et?: Type): Slice<T> {
     const v = s!.$array[s!.$offset + i];
     arr[i] = agg ? copy(et!, v) : v;
   }
-  fillZero(arr, newLen, newCap, zero);
+  if (agg) spare(arr, zero);
+  else fillZero(arr, newLen, newCap, zero);
   return new Slice(arr, 0, newLen, newCap);
 }
 
@@ -257,6 +286,22 @@ export function append1<T = any>(s: S<T>, v: T, zero: () => T): Slice<T> {
     return new Slice(s.$array, s.$offset, s.$length + 1, s.$capacity);
   }
   const r = grown(s, (s === null ? 0 : s.$length) + 1, zero);
+  r.$array[r.$length - 1] = v;
+  return r;
+}
+
+// appendNew1 is append(s, v) for a value v of element type et (an aggregate
+// or a type parameter) made for the call alone: a literal, or a copy the
+// caller made. It is not copied again.
+export function appendNew1<T = any>(s: S<T>, v: T, zero: () => T, et: Type): Slice<T> {
+  if (s !== null && s.$length < s.$capacity) {
+    const j = s.$offset + s.$length;
+    const o = s.$array[j];
+    if (o !== undefined && isAggregate(et)) assign(et, o, v);
+    else s.$array[j] = v;
+    return new Slice(s.$array, s.$offset, s.$length + 1, s.$capacity);
+  }
+  const r = grown(s, (s === null ? 0 : s.$length) + 1, zero, et);
   r.$array[r.$length - 1] = v;
   return r;
 }
@@ -406,6 +451,7 @@ export function unsafeSlice<T = any>(x: S<T> | T[] | null, i: number, n: number,
   }
   if (checked && (i < 0 || i >= len)) indexPanic(i, len);
   if (i + n > c) runtimePanic("unsafe.Slice: len out of range (beyond the underlying array)");
+  reach(arr, off + i, off + i + n);
   return new Slice(arr, off + i, n, n);
 }
 
@@ -414,6 +460,7 @@ export function unsafeSlice<T = any>(x: S<T> | T[] | null, i: number, n: number,
 export function sliceData<T = any>(s: S<T>, aggregate: boolean): any {
   if (s === null || s.$capacity === 0) return null;
   if (aggregate) {
+    reach(s.$array, s.$offset, s.$offset + 1);
     const e: any = s.$array[s.$offset];
     elemOrigins.set(e, { a: s.$array, i: s.$offset });
     return e;

@@ -305,3 +305,131 @@ func madeLenIndices(n int) []string {
 		}),
 	)
 }
+
+// LenVarIndices indexes slices in loops bounded by a variable set to their
+// length (n := len(s); for i := range n), next to loops that look alike but
+// may go out of range, which must still panic.
+func LenVarIndices() []string {
+	s := []byte("a<b>&c")
+	n := len(s)
+	esc := 0
+	for i := range n {
+		if s[i] == '<' || s[i] == '>' || s[i] == '&' {
+			esc++
+		}
+	}
+	sum := 0
+	for i := 0; i < n; i++ {
+		sum += int(s[i])
+	}
+	for i := range len(s) {
+		sum += int(s[i])
+	}
+	out := []string{itoa(esc), itoa(sum)}
+	return append(out,
+		catch(func() {
+			t := s
+			m := len(t)
+			m++
+			for i := range m {
+				_ = t[i]
+			}
+		}),
+		catch(func() {
+			t := s
+			m := len(t)
+			t = t[:2]
+			for i := 0; i < m; i++ {
+				_ = t[i]
+			}
+		}),
+		catch(func() {
+			t := s
+			m := len(t)
+			for i := range m {
+				_ = t[i+1]
+			}
+		}),
+		catch(func() {
+			m := len(s)
+			u := s[:1]
+			for i := range m {
+				_ = u[i]
+			}
+		}),
+	)
+}
+
+// TableIndices indexes arrays with bytes and masked integers, which cannot
+// go out of range of a [256]T, next to tables too short for them, which must
+// still panic.
+func TableIndices() []string {
+	var table [256]int
+	for i := range table {
+		table[i] = i * 3
+	}
+	sum := 0
+	for _, c := range []byte("héllo\xff") {
+		sum += table[c]
+	}
+	for _, x := range []int{-1, 300, 7, -256} {
+		sum += table[x&0xff]
+		table[x&255]++
+	}
+	var t16 [1 << 16]bool
+	t16[uint16(65535)] = true
+	out := []string{itoa(sum), itoa(table[255]), itoa(table[44])}
+	if t16[65535] {
+		out = append(out, "t16")
+	}
+	var short [100]int
+	return append(out,
+		catch(func() {
+			b := byte(200)
+			_ = short[b]
+		}),
+		catch(func() {
+			x := 1000
+			short[x&0x7f] = 1
+		}),
+	)
+}
+
+// ArrayLoopIndices indexes arrays with the indices of loops over arrays and
+// up to constants, next to arrays too short for them, which must still
+// panic.
+func ArrayLoopIndices() []string {
+	var a, b [8]int
+	var c [4]int
+	for i := range a {
+		a[i] = i
+		b[i] = a[i] * 2
+	}
+	p := &b
+	sum := 0
+	for i := 0; i < 8; i++ {
+		sum += p[i]
+	}
+	for i := range 4 {
+		c[i] = a[i] + b[i]
+	}
+	out := []string{itoa(sum), itoa(c[3])}
+	return append(out,
+		catch(func() {
+			for i := range a {
+				c[i] = i
+			}
+		}),
+		catch(func() {
+			for i := 0; i < 8; i++ {
+				_ = c[i]
+			}
+		}),
+		catch(func() {
+			var q *[8]int
+			for i := range 8 {
+				_ = q[i]
+			}
+		}),
+	)
+}

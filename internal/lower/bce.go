@@ -13,14 +13,19 @@ import (
 //	for i := range s { ... s[i] ... }
 //	for i := lo; i < len(s); i++ { ... s[i] ... }   // lo >= 0, i += c (c >= 0)
 //	s := make([]T, n); for i := lo; i < n; i++ { ... s[i] ... }
+//	n := len(s); for i := range n { ... s[i] ... }   // or i < n as above
 //
 // s is a local slice or string variable that the function never assigns or
 // addresses after declaring it (a slice's header and a string never change,
 // so len(s) is fixed), and i is not assigned in the body either. The bound
 // n of the third form is a constant or such a local integer variable, the
-// length s was made with. lo and c are non-negative when they are a
-// constant, len(x), a range index or such a loop variable, or a sum or (for
-// an int, a JS number that does not wrap) a product of those.
+// length s was made with; in the fourth, n is such a variable set to len(s).
+// lo and c are non-negative when they are a constant, len(x), a range index
+// or such a loop variable, or a sum or (for an int, a JS number that does not
+// wrap) a product of those.
+//
+// An array element a[i] needs no bounds check either where i ranges over an
+// array or counts up to a constant, and a is at least as long.
 func inBoundsIndices(info *types.Info, body *ast.BlockStmt) map[*ast.IndexExpr]bool {
 	if body == nil {
 		return nil
@@ -117,7 +122,29 @@ func inBoundsIndices(info *types.Info, body *ast.BlockStmt) map[*ast.IndexExpr]b
 	// constant or a fixed local integer variable, so len(s) == n wherever
 	// s is in scope.
 	madeLen := map[*types.Var]ast.Expr{}
+	// The fixed local integer variables set by n := len(s) for a fixed s.
+	lenOf := map[*types.Var]*types.Var{}
+	// lenArg returns s in len(s) for a fixed s.
+	lenArg := func(e ast.Expr) *types.Var {
+		call, ok := ast.Unparen(e).(*ast.CallExpr)
+		if !ok || len(call.Args) != 1 {
+			return nil
+		}
+		if id, ok := ast.Unparen(call.Fun).(*ast.Ident); !ok || info.Uses[id] != types.Universe.Lookup("len") {
+			return nil
+		}
+		if s := varOf(call.Args[0]); fixed(s) {
+			return s
+		}
+		return nil
+	}
 	made := func(lhs, rhs ast.Expr) {
+		if n := varOf(lhs); local(n) && len(assigned[n]) == 0 && isInt(n) {
+			if s := lenArg(rhs); s != nil {
+				lenOf[n] = s
+				return
+			}
+		}
 		s := varOf(lhs)
 		call, ok := ast.Unparen(rhs).(*ast.CallExpr)
 		if !ok || len(call.Args) < 2 || !fixed(s) {
@@ -175,6 +202,18 @@ func inBoundsIndices(info *types.Info, body *ast.BlockStmt) map[*ast.IndexExpr]b
 			return true
 		})
 	}
+	// markArrays marks the indices a[i] in body of arrays a (or pointers to
+	// arrays) at least max+1 long, for an i that is at most max.
+	markArrays := func(body ast.Node, i *types.Var, max int64) {
+		ast.Inspect(body, func(n ast.Node) bool {
+			if ix, ok := n.(*ast.IndexExpr); ok && varOf(ix.Index) == i {
+				if a, ok := arrayType(info.TypeOf(ix.X)); ok && a.Len() > max {
+					out[ix] = true
+				}
+			}
+			return true
+		})
+	}
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.RangeStmt:
@@ -195,7 +234,18 @@ func inBoundsIndices(info *types.Info, body *ast.BlockStmt) map[*ast.IndexExpr]b
 				return true
 			}
 			nonneg[k] = true
+			if a, ok := arrayType(info.TypeOf(n.X)); ok {
+				markArrays(n.Body, k, a.Len()-1)
+			} else if tv := info.Types[n.X]; tv.Value != nil {
+				if c, ok := constant.Int64Val(constant.ToInt(tv.Value)); ok {
+					markArrays(n.Body, k, c-1)
+				}
+			}
 			if s := varOf(n.X); fixed(s) {
+				mark(n.Body, s, k)
+			} else if s := lenOf[s]; s != nil { // for i := range n, n = len(s)
+				mark(n.Body, s, k)
+			} else if s := lenArg(n.X); s != nil { // for i := range len(s)
 				mark(n.Body, s, k)
 			}
 		case *ast.ForStmt:
@@ -229,6 +279,15 @@ func inBoundsIndices(info *types.Info, body *ast.BlockStmt) map[*ast.IndexExpr]b
 			if !ok || cond.Op != token.LSS || varOf(cond.X) != i {
 				return true
 			}
+			if tv := info.Types[cond.Y]; tv.Value != nil {
+				if c, ok := constant.Int64Val(constant.ToInt(tv.Value)); ok {
+					markArrays(n.Body, i, c-1)
+				}
+			}
+			if s := lenOf[varOf(cond.Y)]; s != nil {
+				mark(n.Body, s, i)
+				return true
+			}
 			if varOf(cond.Y) != nil || info.Types[cond.Y].Value != nil {
 				for s := range madeLen {
 					if sameLen(s, cond.Y) {
@@ -237,14 +296,7 @@ func inBoundsIndices(info *types.Info, body *ast.BlockStmt) map[*ast.IndexExpr]b
 				}
 				return true
 			}
-			call, ok := ast.Unparen(cond.Y).(*ast.CallExpr)
-			if !ok || len(call.Args) != 1 {
-				return true
-			}
-			if id, ok := ast.Unparen(call.Fun).(*ast.Ident); !ok || info.Uses[id] != types.Universe.Lookup("len") {
-				return true
-			}
-			if s := varOf(call.Args[0]); fixed(s) {
+			if s := lenArg(cond.Y); s != nil {
 				mark(n.Body, s, i)
 			}
 		}
@@ -254,4 +306,13 @@ func inBoundsIndices(info *types.Info, body *ast.BlockStmt) map[*ast.IndexExpr]b
 		return nil
 	}
 	return out
+}
+
+// arrayType returns the array type of t, an array or a pointer to one.
+func arrayType(t types.Type) (*types.Array, bool) {
+	if p, ok := under(t).(*types.Pointer); ok {
+		t = p.Elem()
+	}
+	a, ok := under(t).(*types.Array)
+	return a, ok
 }

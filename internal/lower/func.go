@@ -48,8 +48,11 @@ type funcEmitter struct {
 	// sharedRangeVars are the variables of range clauses in files before Go
 	// 1.22, declared once around their loop.
 	sharedRangeVars map[*types.Var]bool
-	breakables      []breakable
-	rangeFn         *rangeFuncCtx // the range-over-func body being lowered
+	// fieldLocals maps the range variables whose fields are loaded into
+	// locals to the locals, by field index (see scalarRangeVars).
+	fieldLocals map[*types.Var]map[int]string
+	breakables  []breakable
+	rangeFn     *rangeFuncCtx // the range-over-func body being lowered
 	// recoverTok identifies the function being lowered to recover(), which
 	// only recovers when called by the deferred function itself.
 	recoverTok string
@@ -66,6 +69,8 @@ func (pe *pkgEmitter) newFuncEmitter(w *writer, sig *types.Signature) *funcEmitt
 		override: map[ast.Expr]string{},
 		tmpN:     &n,
 		sig:      sig,
+
+		fieldLocals: map[*types.Var]map[int]string{},
 	}
 }
 
@@ -73,7 +78,7 @@ func (fe *funcEmitter) child(w *writer, sig *types.Signature) *funcEmitter {
 	return &funcEmitter{
 		pe: fe.pe, info: fe.info, w: w, file: fe.file,
 		names: fe.names, used: fe.used, override: fe.override, tmpN: fe.tmpN,
-		tp: fe.tp, sig: sig,
+		tp: fe.tp, sig: sig, fieldLocals: fe.fieldLocals,
 	}
 }
 
@@ -134,6 +139,9 @@ func (fe *funcEmitter) nameOf(obj types.Object) string {
 func (fe *funcEmitter) boxed(v *types.Var) bool { return fe.pe.prog.boxed[v] }
 
 func (fe *funcEmitter) varRef(v *types.Var) string {
+	if fe.fieldLocals[v] != nil {
+		fe.errorf(v.Pos(), "internal error: %s, whose fields are locals, used as a whole", v.Name())
+	}
 	n := fe.nameOf(v)
 	if fe.boxed(v) {
 		return n + ".v"
