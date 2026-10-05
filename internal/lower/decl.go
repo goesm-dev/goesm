@@ -336,7 +336,8 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 	w.ln("constructor(%s) { %s }", strings.Join(params, ", "), strings.Join(assigns, " "))
 	w.ln("$clone($t?: $rt.Type): %s { return new %s(%s); }", self, name, strings.Join(clones, ", "))
 	w.ln("$set(o: %s, $t?: $rt.Type): void { %s }", self, strings.Join(sets, " "))
-	// Exported methods are also reachable as JS methods for convenience.
+	// Exported methods are also reachable as JS methods for convenience; in
+	// the entry package, through the export wrappers (jsexport.go).
 	if named != nil && !generic {
 		ms := types.NewMethodSet(types.NewPointer(named))
 		for i := 0; i < ms.Len(); i++ {
@@ -345,13 +346,30 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 			if !fn.Exported() || len(sel.Index()) != 1 || fn.Signature().TypeParams().Len() > 0 || isFieldName(s, fn.Name()) {
 				continue
 			}
+			sig := fn.Signature()
+			if pe.isEntry && pe.withBody[fn] {
+				var params, args []string
+				for j := 0; j < sig.Params().Len(); j++ {
+					a := fmt.Sprintf("a%d", j)
+					if sig.Variadic() && j == sig.Params().Len()-1 {
+						params = append(params, "..."+a+": "+pe.jsTS(sig.Params().At(j).Type().(*types.Slice).Elem(), true, nil)+"[]")
+						args = append(args, "..."+a)
+						continue
+					}
+					params = append(params, a+": "+pe.jsTS(sig.Params().At(j).Type(), true, nil))
+					args = append(args, a)
+				}
+				ret := pe.exportResultTS(sig, pe.prog.IsAsync(fn))
+				w.ln("%s(%s): %s { return %s(%s); }", jsPropName(fn.Name()), strings.Join(params, ", "), ret, pe.wrapperName(pe.methodFuncName(fn)), strings.Join(append([]string{"this"}, args...), ", "))
+				continue
+			}
 			var params, args []string
-			for j := 0; j < fn.Signature().Params().Len(); j++ {
+			for j := 0; j < sig.Params().Len(); j++ {
 				a := fmt.Sprintf("a%d", j)
-				params = append(params, a+": "+pe.tsType(fn.Signature().Params().At(j).Type(), tp))
+				params = append(params, a+": "+pe.tsType(sig.Params().At(j).Type(), tp))
 				args = append(args, a)
 			}
-			ret := pe.resultTSType(fn.Signature(), tp)
+			ret := pe.resultTSType(sig, tp)
 			if pe.prog.IsAsync(fn) {
 				ret = "Promise<" + ret + ">"
 			}
@@ -525,38 +543,8 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 		if fd.Recv != nil {
 			exported = name
 		}
-		pe.exportWrapper(name, exported, params, ret, fe.async)
+		pe.exportWrapper(fn, name, exported, fe.async)
 	}
-}
-
-// exportWrapper emits and exports, as exported, the function JS calls for
-// the entry package's function name. Go code dereferences pointers without
-// an explicit nil check (nilChecked), so a nil pointer is a JS TypeError
-// until something converts it; the wrapper does, so that a panic reaches JS
-// as a GoPanic. Go callers call name itself, and V8 inlines name into the
-// wrapper.
-func (pe *pkgEmitter) exportWrapper(name, exported string, params []string, ret string, async bool) {
-	var args []string
-	for _, p := range params {
-		n, _, _ := strings.Cut(p, ": ")
-		args = append(args, n)
-	}
-	call := fmt.Sprintf("%s(%s)", name, strings.Join(args, ", "))
-	kw := ""
-	if async {
-		kw, call = "async ", "await "+call
-	}
-	w := pe.funcs
-	js := pe.fresh(name + "$js")
-	w.ln("%sfunction %s(%s): %s {", kw, js, strings.Join(params, ", "), ret)
-	w.ln("  try {")
-	w.ln("    return %s;", call)
-	w.ln("  } catch (e) {")
-	w.ln("    throw $rt.toPanic(e);")
-	w.ln("  }")
-	w.ln("}")
-	pe.export(js, exported)
-	pe.wrappers[name] = js
 }
 
 // panicwrapMsg is Go's panic message for a value method called through a nil

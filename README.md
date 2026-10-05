@@ -38,16 +38,16 @@ func Discount(total, percent int) int {
 ```
 
 ```ts
-import { Discount, Item, Total, $runtime as rt } from "./goesm-ts/example.com/app/cart.ts";
+import { Discount, Total } from "./goesm-ts/example.com/app/cart.ts";
 
-const items = rt.sliceLit([new Item(rt.fromJSString("apple"), 120, 3), new Item(rt.fromJSString("bread"), 250, 1)]);
+const items = [{ Name: "りんご", Price: 120, Quantity: 3 }, { Name: "bread", Price: 250, Quantity: 1 }];
 Total(items);          // 610
 Discount(2408, 15);    // 2046: Go's integer division, not 2046.8
 ```
 
 ## Why goesm
 
-- **Go functions are JavaScript functions.** There is no WebAssembly instance, no `wasm_exec.js`, no asynchronous instantiation and no value marshalling through `syscall/js`: calling `Discount` costs what calling any JS function costs, and numbers, booleans and structs cross the boundary as they are.
+- **Go functions are JavaScript functions.** There is no WebAssembly instance, no `wasm_exec.js`, no asynchronous instantiation and no value marshalling through `syscall/js`: calling `Discount` costs what calling any JS function costs. Numbers and booleans cross the boundary as they are, and strings, arrays and objects are converted to Go's values by the types of the declaration.
 - **One ES module per Go package.** The output is a tree of TypeScript modules that import each other with relative `.ts` specifiers, so the host's bundler does tree shaking, code splitting, minification and source maps (back to the `.go` files), and TypeScript sees the Go API's types.
 - **Go stays Go.** goesm uses the Go toolchain itself (go/packages, go/types) as the frontend: `go.mod`, `go.work`, `gopls`, `go vet` and `go test` keep working on the same code, and there is no goesm-specific syntax; the one directive, `//goesm:import`, is for code that calls JavaScript. The standard library is compiled from Go's own source.
 - **Checked against native Go.** Every fixture's results are compared with `go run`, and Go's own test suite (`$GOROOT/test`) runs through goesm.
@@ -65,8 +65,7 @@ The proof of concept compiles most of the Go language and a good part of the sta
 Not there yet (details in [ARCHITECTURE.md §11](ARCHITECTURE.md#11-implemented--not-implemented--differences-from-native-go)):
 
 - `int` and `uint` are JS numbers: exact below 2^53, but they do not wrap on 64-bit overflow. `int64` and `uint64` are exact (BigInt).
-- There is no JS calling ABI for JavaScript calling Go yet: Go strings and slices are runtime objects, converted by hand with the runtime each module re-exports (`rt.fromJSString`, `rt.sliceLit`, `rt.toArray`, ...). Functions that may block return Promises.
-- Goroutine-local `recover` state, deadlock detection while the host has pending work, DOM bindings.
+- Goroutine-local `recover` state, and deadlock detection while the host has pending work.
 
 ## Install
 
@@ -140,12 +139,12 @@ goesm keeps the TypeScript module of every package it lowers in a cache, `goesm/
 
 ### Calling Go from JavaScript
 
-- Exported functions and types are exports of the package's module, with their Go types in TypeScript (`Total(items: $rt.S<Item>): number`).
-- Numbers and booleans are JS numbers and booleans; `int64` / `uint64` are BigInts. Structs are classes with positional constructors (`new Item(name, price, quantity)`).
-- Go strings are byte strings: `rt.fromJSString(s)` in, `rt.toJSString(s)` out. Slices: `rt.sliceLit([...])` in, `rt.toArray(s)` out. Multiple results come back as an array, and an `error` as a Go interface value.
+- The exported functions of the package you build are exports of its module. They take and return JavaScript values, converted by the Go types: a string is a JS string, a slice an array, a struct a plain object named as `encoding/json` names its fields, and `int64` / `uint64` a BigInt. TypeScript sees those types (`Total(items: Array<{ Name?: string; Price?: number; Quantity?: number }> | null): number`).
+- A pointer to a struct type with methods is the Go object itself, whose methods JavaScript calls (`cart.Add(item)`).
+- Several results come back as an array. A final `error` result is thrown as a `GoError`, which is the Go error again when it is passed back to Go.
 - A function that may block (channel operations, `time.Sleep`, waiting on a mutex) is an `async function` and returns a Promise; the others are synchronous.
 
-`rt` is the runtime, which every module re-exports as `$runtime`. [examples/](examples) has runnable examples (the cart, standard library use, goroutines) with the JavaScript that calls them.
+[docs/js-exports.md](docs/js-exports.md) has the details. [examples/](examples) has runnable examples (the cart, standard library use, goroutines) with the JavaScript that calls them.
 
 ### Calling JavaScript from Go
 
@@ -172,8 +171,8 @@ log.Fatal(http.ListenAndServe(":8080", api.Handler()))
 
 ```ts
 // Cloudflare Workers (and Deno.serve, Bun.serve, service workers): a fetch handler.
-import { Handler, $runtime as rt } from "./goesm-ts/example.com/app/api.ts";
-export default { fetch: rt.fetchHandler(Handler()) };
+import { Handler } from "./goesm-ts/example.com/app/api.ts";
+export default { fetch: Handler() }; // an http.Handler result is a fetch handler
 ```
 
 Each request runs in its own goroutine, its body read in full first; the response is sent when the handler returns, or streams from its first flush (Server-Sent Events, Connect's server streaming). Under Workers, `os.Getenv` reads the Worker's text bindings and secrets with the `nodejs_compat` flag. The HTTP client is `fetch`. [docs/use-cases.md](docs/use-cases.md) lists what is supported where.

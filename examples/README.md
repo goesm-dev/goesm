@@ -22,12 +22,10 @@ node cart/index.mjs        # or: bun cart/index.mjs
 
 `goesm build` prints how many standard library functions are still stubs (functions goesm cannot lower yet; they panic if called). None of them is reached by these examples. `-v` lists them.
 
-## What the JS side has to do today
+## Calling the Go code
 
-There is no JS calling ABI yet (see ARCHITECTURE.md §7), so `index.mjs` converts values by hand with the runtime each module re-exports as `$runtime`:
+`index.mjs` calls the exported Go functions with ordinary JavaScript values ([docs/js-exports.md](../docs/js-exports.md)):
 
-* Go strings are byte strings: `rt.fromJSString(s)` in, `rt.toJSString(s)` out.
-* Slices: `rt.sliceLit([...])` in, `rt.toArray(s)` out.
-* Structs are classes with positional constructors: `new cart.Item(name, price, quantity)`.
-* Multiple results come back as an array, an `error` as a Go interface value (`rt.icall(err, "Error")`).
+* Strings are JS strings, slices are arrays, and structs are plain objects: `cart.Total([{ Name: "apple", Price: 120, Quantity: 3 }])`.
+* Several results come back as an array, and a final `error` result is thrown as a `GoError`, which is the Go error again when passed back (`ts.IsEmpty(err)`).
 * Functions that may block (channel operations, mutex waits) are `async` and return a Promise.

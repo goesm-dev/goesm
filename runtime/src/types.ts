@@ -246,6 +246,11 @@ export function structOf(fields: Field[], ctor: any): Type {
 // class whose types differ in layout (instances of a generic type) has none.
 export const ctorTypes = new WeakMap<object, Type | null>();
 
+// The defined type of the objects a class makes, when one type has the
+// class (instances of a generic type share theirs): the type of a Go
+// object JavaScript passes back to Go (runtime/src/jsabi.ts).
+export const classTypes = new WeakMap<object, Type | null>();
+
 function registerCtor(ctor: any, t: Type): void {
   if (ctor === null || ctor === undefined) return;
   const old = ctorTypes.get(ctor);
@@ -342,6 +347,10 @@ export function setUnderlying(t: Type, u: Type, ctor?: any): void {
   if (u.kind === Kind.Struct) {
     t.ctor = ctor ?? u.ctor;
     registerCtor(t.ctor, t);
+    if (t.ctor !== null && t.ctor !== undefined) {
+      const old = classTypes.get(t.ctor);
+      classTypes.set(t.ctor, old === undefined || old === t ? t : null);
+    }
     t.zero = structZero(t);
   } else {
     t.zero = u.zero;

@@ -38,16 +38,16 @@ func Discount(total, percent int) int {
 ```
 
 ```ts
-import { Discount, Item, Total, $runtime as rt } from "./goesm-ts/example.com/app/cart.ts";
+import { Discount, Total } from "./goesm-ts/example.com/app/cart.ts";
 
-const items = rt.sliceLit([new Item(rt.fromJSString("apple"), 120, 3), new Item(rt.fromJSString("bread"), 250, 1)]);
+const items = [{ Name: "りんご", Price: 120, Quantity: 3 }, { Name: "bread", Price: 250, Quantity: 1 }];
 Total(items);          // 610
 Discount(2408, 15);    // 2046: Go の整数除算。2046.8 ではない
 ```
 
 ## goesm を使う理由
 
-- **Go の関数がそのまま JavaScript の関数になります。** WebAssembly のインスタンスも、`wasm_exec.js` も、非同期のインスタンス化も、`syscall/js` 経由の値の変換もありません。`Discount` の呼び出しコストは普通の JS 関数の呼び出しと同じです。数値、真偽値、構造体は、変換されずにそのまま境界を越えます。
+- **Go の関数がそのまま JavaScript の関数になります。** WebAssembly のインスタンスも、`wasm_exec.js` も、非同期のインスタンス化も、`syscall/js` 経由の値の変換もありません。`Discount` の呼び出しコストは普通の JS 関数の呼び出しと同じです。数値と真偽値は変換されずにそのまま境界を越え、文字列、配列、オブジェクトは宣言の型に従って Go の値に変換されます。
 - **Go パッケージ 1 つが ES モジュール 1 つになります。** 出力は、相対 `.ts` 指定子で互いを import する TypeScript モジュールのツリーです。tree shaking、コード分割、minify、`.go` ファイルを指すソースマップの生成は、ホストのバンドラーが受け持ちます。TypeScript からは Go の API の型が見えます。
 - **Go は Go のままです。** goesm は、Go のツールチェーンの go/packages と go/types をそのままフロントエンドとして使います。同じコードに対して `go.mod`、`go.work`、`gopls`、`go vet`、`go test` がそのまま使えます。goesm 独自の構文はありません。独自のディレクティブは `//goesm:import` だけで、JavaScript を呼ぶコードだけが使います。標準ライブラリも Go 自身のソースからコンパイルします。
 - **ネイティブ Go と突き合わせて検証しています。** すべてのフィクスチャの結果を `go run` の結果と比較しています。Go 自身のテストスイートである `$GOROOT/test` も goesm で実行しています。
@@ -65,8 +65,7 @@ PoC は Go 言語の大部分と、標準ライブラリのかなりの部分を
 まだできないことは次のとおりです。詳細は [ARCHITECTURE.ja.md §11](ARCHITECTURE.ja.md) にあります。
 
 - `int` と `uint` は JS の number です。2^53 未満では正確ですが、64 ビットのオーバーフローで折り返しません。`int64` と `uint64` は BigInt で表すので正確です。
-- JavaScript から Go を呼ぶときの ABI はまだありません。Go の文字列とスライスはランタイムのオブジェクトなので、呼び出し側が変換する必要があります。変換には、各モジュールが再 export しているランタイムの `rt.fromJSString`、`rt.sliceLit`、`rt.toArray` などを使います。ブロックしうる関数は Promise を返します。
-- goroutine ごとの `recover` の状態、ホストに保留中の処理があるときのデッドロック検出、DOM バインディングは、まだ実装していません。
+- goroutine ごとの `recover` の状態と、ホストに保留中の処理があるときのデッドロック検出は、まだ実装していません。
 
 ## インストール
 
@@ -140,12 +139,12 @@ goesm は、変換した各パッケージの TypeScript モジュールをキ�
 
 ### JavaScript から Go を呼ぶ
 
-- export された関数と型は、パッケージのモジュールの export になります。TypeScript の型も Go の型に対応していて、たとえば `Total` の型は `Total(items: $rt.S<Item>): number` です。
-- 数値と真偽値は JS の number と boolean、`int64` / `uint64` は BigInt です。構造体は、フィールドを順に受け取るコンストラクタを持つクラスで、`new Item(name, price, quantity)` のように作ります。
-- Go の文字列はバイト列です。渡すときは `rt.fromJSString(s)`、受け取るときは `rt.toJSString(s)` を使います。スライスは `rt.sliceLit([...])` で渡し、`rt.toArray(s)` で受け取ります。複数の戻り値は配列として返ります。`error` は Go のインターフェース値として返ります。
+- ビルドしたパッケージの export された関数は、そのモジュールの export になります。引数と戻り値は JavaScript の値で、Go の型に従って変換されます。文字列は JS の文字列、スライスは配列、構造体は `encoding/json` と同じ名前のフィールドを持つプレーンオブジェクト、`int64` / `uint64` は BigInt です。TypeScript にもこの型が見えます。たとえば `Total` の型は `Total(items: Array<{ Name?: string; Price?: number; Quantity?: number }> | null): number` です。
+- メソッドを持つ構造体型へのポインタは Go のオブジェクトそのもので、JavaScript からそのメソッドを呼べます (`cart.Add(item)`)。
+- 複数の戻り値は配列として返ります。最後の戻り値の `error` は `GoError` として投げられ、Go に渡し直すと元の Go のエラーに戻ります。
 - チャネル操作、`time.Sleep`、ミューテックスの待ちのようにブロックしうる関数は、Promise を返す `async function` になります。それ以外の関数は同期関数です。
 
-`rt` はランタイムで、すべてのモジュールが `$runtime` として再 export しています。[examples/](examples) には、呼び出し側の JavaScript と組み合わせて実行できる例があります。
+詳しくは [docs/js-exports.ja.md](docs/js-exports.ja.md) を参照してください。[examples/](examples) には、呼び出し側の JavaScript と組み合わせて実行できる例があります。
 
 ### Go から JavaScript を呼ぶ
 
@@ -172,8 +171,8 @@ log.Fatal(http.ListenAndServe(":8080", api.Handler()))
 
 ```ts
 // Cloudflare Workers、Deno.serve、Bun.serve、Service Worker では、fetch ハンドラとして公開する。
-import { Handler, $runtime as rt } from "./goesm-ts/example.com/app/api.ts";
-export default { fetch: rt.fetchHandler(Handler()) };
+import { Handler } from "./goesm-ts/example.com/app/api.ts";
+export default { fetch: Handler() }; // 戻り値の http.Handler は fetch ハンドラになる
 ```
 
 各リクエストは専用の goroutine で処理され、ボディは最初に全部読み込まれます。レスポンスはハンドラが戻った時点で送られます。ハンドラが flush した場合は、その時点からレスポンスがストリームになります。Server-Sent Events や Connect のサーバーストリーミングはこの仕組みで動きます。Workers では、`nodejs_compat` フラグを有効にすると、Worker のテキストバインディングとシークレットを `os.Getenv` で読めます。HTTP クライアントは `fetch` を使います。どこで何に対応しているかは [docs/use-cases.ja.md](docs/use-cases.ja.md) にまとめています。

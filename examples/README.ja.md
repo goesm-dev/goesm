@@ -22,12 +22,10 @@ node cart/index.mjs        # または: bun cart/index.mjs
 
 `goesm build` は、まだ lowering できず呼ぶと panic する stub になった標準 library 関数の数を表示します。これらの examples はどれも呼びません。`-v` で一覧が出ます。
 
-## 今の JS 側で必要なこと
+## Go のコードの呼び出し
 
-JS 呼び出し ABI はまだありません (ARCHITECTURE.ja.md §7)。そのため `index.mjs` は、各 module が `$runtime` として re-export している runtime を使って値を手で変換しています。
+`index.mjs` は、export された Go の関数を普通の JavaScript の値で呼びます ([docs/js-exports.ja.md](../docs/js-exports.ja.md))。
 
-* Go の string は byte 列: 渡すときは `rt.fromJSString(s)`、受け取るときは `rt.toJSString(s)`。
-* slice: 渡すときは `rt.sliceLit([...])`、受け取るときは `rt.toArray(s)`。
-* struct は位置引数の constructor を持つ class: `new cart.Item(name, price, quantity)`。
-* 多値は配列で返り、`error` は Go の interface 値として返る (`rt.icall(err, "Error")`)。
-* block し得る関数 (channel 操作、mutex 待ち) は `async` になり Promise を返す。
+* 文字列は JS の文字列、スライスは配列、構造体はプレーンオブジェクトです。たとえば `cart.Total([{ Name: "apple", Price: 120, Quantity: 3 }])` のように呼びます。
+* 複数の戻り値は配列で返ります。最後の戻り値の `error` は `GoError` として投げられ、Go に渡し直すと元の Go のエラーに戻ります (`ts.IsEmpty(err)`)。
+* チャネル操作やミューテックスの待ちでブロックしうる関数は `async` になり、Promise を返します。

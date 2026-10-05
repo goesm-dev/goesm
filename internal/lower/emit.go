@@ -115,7 +115,9 @@ type pkgEmitter struct {
 	definesTypes                                 bool        // phase1 has $rt.defined types
 	exports                                      [][2]string // local, exported
 	exportSet                                    map[string]bool
-	wrappers                                     map[string]string // function -> its exportWrapper
+	wrappers                                     map[string]string    // function -> its exportWrapper
+	withBody                                     map[*types.Func]bool // the entry package's methods that get wrappers
+	usesJSABI                                    bool                 // an export wrapper uses $jsabi
 
 	lastPos token.Pos
 
@@ -360,6 +362,20 @@ func (pe *pkgEmitter) emit() *Module {
 			return false
 		})
 	}
+	// The entry package's methods are called from JavaScript through export
+	// wrappers, also as methods of their struct classes.
+	pe.withBody = map[*types.Func]bool{}
+	if pe.isEntry && !pe.std && !pe.dep {
+		for _, f := range files {
+			for _, d := range f.Decls {
+				if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv != nil && fd.Body != nil {
+					if fn, ok := pe.info.Defs[fd.Name].(*types.Func); ok && fn.Exported() {
+						pe.withBody[fn] = true
+					}
+				}
+			}
+		}
+	}
 	for _, tn := range typeNames {
 		pe.emitNamedType(tn)
 	}
@@ -431,13 +447,17 @@ func (pe *pkgEmitter) emit() *Module {
 		}
 		if fn, ok := scope.Lookup(name).(*types.Func); ok && fn.Exported() && fn.Signature().TypeParams().Len() == 0 {
 			f := jsName(name)
-			if js, ok := pe.wrappers[f]; ok {
-				f = js
-			}
 			meta = append(meta, fmt.Sprintf("%s: { fn: %s, type: %s, async: %v }", jsPropName(name), f, pe.typeDesc(fn.Type(), tpScope{}), pe.prog.IsAsync(fn)))
 		}
 	}
-	pe.vars.ln("const $goesm = { path: %s, funcs: { %s } };", jsString(pkg.PkgPath), strings.Join(meta, ", "))
+	// The entry package's table also carries the runtime's conversion of Go
+	// values to JSON-shaped values, for the harness to compare results
+	// with native Go's encoding/json.
+	toJS := ""
+	if pe.isEntry {
+		toJS = ", toJS: $rt.toJS"
+	}
+	pe.vars.ln("const $goesm = { path: %s, funcs: { %s }%s };", jsString(pkg.PkgPath), strings.Join(meta, ", "), toJS)
 	pe.export("$goesm", "$goesm")
 
 	// Assemble.
@@ -451,7 +471,7 @@ func (pe *pkgEmitter) emit() *Module {
 	if pe.usesNatives {
 		out.ln("import * as $natives from %s;", jsString(relSpecifier(pkg.PkgPath, NativesFile)))
 	}
-	if len(pe.jsModuleOrder) > 0 {
+	if len(pe.jsModuleOrder) > 0 || pe.usesJSABI {
 		out.ln("import * as $jsabi from %s;", jsString(relSpecifier(pkg.PkgPath, JSABIFile)))
 	}
 	if pe.runsMain {
@@ -477,9 +497,6 @@ func (pe *pkgEmitter) emit() *Module {
 	}
 	for _, l := range pe.jsImportDecls() {
 		out.ln("%s", l)
-	}
-	if pe.isEntry {
-		out.ln("export * as $runtime from %s;", jsString(relSpecifier(pkg.PkgPath, RuntimeFile)))
 	}
 	if pe.usesIR {
 		out.ln("let $ir: any;")
