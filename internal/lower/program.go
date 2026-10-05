@@ -478,6 +478,15 @@ func (p *Program) findFuncValues() (map[any]bool, map[string][]*types.Signature)
 // function values only in programs that use these functions.
 var coroutineFuncs = map[string]bool{"iter.Pull": true, "iter.Pull2": true}
 
+// coroutineHelpers are the functions that make the next and stop functions
+// Pull and Pull2 return (internal/natives/patch/iter: Go's are pullCoro and
+// pull2Coro, those for a generator pullGen and pull2Gen): their function
+// literals are function values exactly when Pull's would be.
+var coroutineHelpers = map[string]string{
+	"iter.pullCoro": "iter.Pull", "iter.pull2Coro": "iter.Pull2",
+	"iter.pullGen": "iter.Pull", "iter.pull2Gen": "iter.Pull2",
+}
+
 // findPullCalls finds the calls of iter.Pull and Pull2 whose results are
 // assigned to local variables that are only called: those calls are then
 // the only ones of the next and stop functions, which block, and the
@@ -595,7 +604,7 @@ func (p *Program) dropUnusedCoroutines(vals map[any]bool) {
 		for _, f := range pkg.Syntax {
 			for _, d := range f.Decls {
 				if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
-					if fn, ok := pkg.TypesInfo.Defs[fd.Name].(*types.Func); ok && coroutineFuncs[fn.FullName()] {
+					if fn, ok := pkg.TypesInfo.Defs[fd.Name].(*types.Func); ok && (coroutineFuncs[fn.FullName()] || coroutineHelpers[fn.FullName()] != "") {
 						decls[fn.FullName()] = fd
 						declPkgs[fn.FullName()] = pkg
 					}
@@ -604,8 +613,12 @@ func (p *Program) dropUnusedCoroutines(vals map[any]bool) {
 		}
 	}
 	for name, fd := range decls {
-		if used[name] {
-			if !p.pullKept[name] {
+		pull := name
+		if h := coroutineHelpers[name]; h != "" {
+			pull = h
+		}
+		if used[pull] {
+			if !p.pullKept[pull] {
 				// Only called where findPullCalls found: drop the
 				// function literals assigned to the results, next and
 				// stop. yield is passed to the sequence.
