@@ -805,6 +805,10 @@ func (fe *funcEmitter) rangeVars(s *ast.RangeStmt, key, val string, keyT, valT t
 		}{{s.Key, key, keyT}, {s.Value, val, valT}} {
 			if use(b.e) && b.src != "" {
 				v := fe.info.Defs[b.e.(*ast.Ident)].(*types.Var)
+				if fields, ok := fe.scalarRangeVar(s, v); ok {
+					fe.defineFields(v, b.src, fields)
+					continue
+				}
 				val := fe.convert(b.src, b.srcT, v.Type())
 				if fe.sharedRangeVars[v] {
 					fe.w.ln("%s;", fe.simpleLvalue(fe.varRef(v), v.Type()).set(val))
@@ -920,7 +924,7 @@ func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 		w.indent++
 		val := ""
 		if hasVal {
-			val = fe.pe.copyExpr(fmt.Sprintf("%s!.$array[%s!.$offset + %s]", sl, sl, i), u.Elem(), fe.tp)
+			val = fe.rangeElem(s, fmt.Sprintf("%s!.$array[%s!.$offset + %s]", sl, sl, i), u.Elem())
 		}
 		fe.rangeVars(s, i, val, types.Typ[types.Int], u.Elem())
 		fe.stmts(s.Body.List)
@@ -941,7 +945,7 @@ func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 		w.indent++
 		val := ""
 		if hasVal {
-			val = fe.pe.copyExpr(fmt.Sprintf("%s[%s]", arr, i), u.Elem(), fe.tp)
+			val = fe.rangeElem(s, fmt.Sprintf("%s[%s]", arr, i), u.Elem())
 		}
 		fe.rangeVars(s, i, val, types.Typ[types.Int], u.Elem())
 		fe.stmts(s.Body.List)
@@ -953,7 +957,7 @@ func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 		w.indent++
 		val := ""
 		if hasVal {
-			val = fe.pe.copyExpr(v, u.Elem(), fe.tp)
+			val = fe.rangeElem(s, v, u.Elem())
 		}
 		fe.rangeVars(s, fe.pe.copyExpr(k, u.Key(), fe.tp), val, u.Key(), u.Elem())
 		fe.stmts(s.Body.List)
@@ -2061,4 +2065,51 @@ func stringToBytesArg(info *types.Info, e ast.Expr) (ast.Expr, bool) {
 		return nil, false
 	}
 	return conv.Args[0], true
+}
+
+// scalarRangeVar returns the fields that the body of range loop s reads of
+// its value variable v if the loop loads them into locals instead of
+// copying the element (see scalarRangeVars).
+func (fe *funcEmitter) scalarRangeVar(s *ast.RangeStmt, v *types.Var) ([]int, bool) {
+	if v == nil || fe.sharedRangeVars[v] || s.Tok != token.DEFINE {
+		return nil, false
+	}
+	fields, ok := fe.pe.scalar[v]
+	return fields, ok
+}
+
+// rangeElem returns the value of the element elem (of type t) that range
+// loop s assigns to its value variable: a copy, unless the loop reads its
+// fields into locals.
+func (fe *funcEmitter) rangeElem(s *ast.RangeStmt, elem string, t types.Type) string {
+	if id, ok := s.Value.(*ast.Ident); ok {
+		if v, ok := fe.info.Defs[id].(*types.Var); ok {
+			if _, ok := fe.scalarRangeVar(s, v); ok {
+				return elem
+			}
+		}
+	}
+	return fe.pe.copyExpr(elem, t, fe.tp)
+}
+
+// defineFields declares a local for each field of struct value x (the
+// element of the iteration) that the loop reads of v.
+func (fe *funcEmitter) defineFields(v *types.Var, x string, fields []int) {
+	if len(fields) == 0 {
+		return
+	}
+	st := v.Type().Underlying().(*types.Struct)
+	if len(fields) > 1 {
+		t := fe.tmp()
+		fe.w.ln("const %s = %s;", t, x)
+		x = t
+	}
+	names := map[int]string{}
+	for _, i := range fields {
+		f := st.Field(i)
+		n := fe.declareName(jsName(v.Name()) + "$" + jsName(f.Name()))
+		names[i] = n
+		fe.w.ln("let %s: %s = %s.%s;", n, fe.ts(f.Type()), x, fieldProp(st, i))
+	}
+	fe.fieldLocals[v] = names
 }

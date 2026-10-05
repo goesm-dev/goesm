@@ -282,6 +282,12 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 	}
 	switch sel.Kind() {
 	case types.FieldVal:
+		if id, ok := e.X.(*ast.Ident); ok {
+			if v, ok := fe.info.Uses[id].(*types.Var); ok && fe.fieldLocals[v] != nil {
+				names := fe.fieldLocals[v]
+				return fe.mark(e) + names[sel.Index()[0]] // see scalarRangeVars
+			}
+		}
 		obj, prop := fe.fieldBase(e)
 		return fe.mark(e) + obj + "." + prop
 	case types.MethodVal:
@@ -481,7 +487,35 @@ func (fe *funcEmitter) arrayIndex(x *ast.IndexExpr) string {
 	xt := fe.info.TypeOf(x.X)
 	base, _ := derefType(xt)
 	n := base.Underlying().(*types.Array).Len()
+	if max, ok := indexBound(fe.info, x.Index); (ok && max < n) || fe.pe.inBounds[x] {
+		return fe.intNumber(x.Index)
+	}
 	return fmt.Sprintf("$rt.arrayIndex(%d, %s)", n, fe.intNumber(x.Index))
+}
+
+// indexBound returns the largest value of the integer expression e that its
+// type or a constant mask allows, if that is small: a byte indexes a
+// [256]T table without a bounds check.
+func indexBound(info *types.Info, e ast.Expr) (int64, bool) {
+	e = ast.Unparen(e)
+	if b, ok := under(info.TypeOf(e)).(*types.Basic); ok {
+		switch b.Kind() {
+		case types.Uint8:
+			return 1<<8 - 1, true
+		case types.Uint16:
+			return 1<<16 - 1, true
+		}
+	}
+	if be, ok := e.(*ast.BinaryExpr); ok && be.Op == token.AND {
+		for _, m := range []ast.Expr{be.X, be.Y} {
+			if tv, ok := info.Types[m]; ok && tv.Value != nil && constant.Sign(tv.Value) >= 0 {
+				if v, ok := constant.Int64Val(constant.ToInt(tv.Value)); ok {
+					return v, true
+				}
+			}
+		}
+	}
+	return 0, false
 }
 
 func (fe *funcEmitter) index(e *ast.IndexExpr) string {
@@ -1917,6 +1951,9 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		}
 		if len(vals) == 1 && et == "" {
 			return fmt.Sprintf("%s$rt.append1<%s>(%s, %s, %s)", m, fe.ts(elem), arg(0), vals[0], fe.zeroFn(elem))
+		}
+		if len(vals) == 1 { // valueOf made the value for the call alone
+			return fmt.Sprintf("%s$rt.appendNew1<%s>(%s, %s, %s%s)", m, fe.ts(elem), arg(0), vals[0], fe.zeroFn(elem), et)
 		}
 		return fmt.Sprintf("%s$rt.append<%s>(%s, [%s], %s%s)", m, fe.ts(elem), arg(0), strings.Join(vals, ", "), fe.zeroFn(elem), et)
 	case "copy":
