@@ -14,7 +14,7 @@ import (
 func TestAsyncStaysLocal(t *testing.T) {
 	for _, c := range []struct {
 		program   string
-		async     []string // functions of the main package
+		async     []string            // functions of the main package
 		syncStd   map[string][]string // package path → functions
 		awaitOnly string              // a conditional await of the program
 	}{
