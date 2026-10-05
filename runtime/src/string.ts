@@ -152,22 +152,76 @@ export function noteASCII(s: string): void {
   }
 }
 
-// toJSString decodes a Go (byte) string as UTF-8 into a JS string.
+// toJSString decodes a Go (byte) string as UTF-8 into a JS string. Both
+// conversions collect code units and make the string with
+// String.fromCharCode in chunks, which engines do several times faster
+// than appending one character at a time.
 export function toJSString(s: string): string {
   if (isASCII(s)) return s;
+  const n = s.length;
+  const units: number[] = [];
   let out = "";
-  for (let i = 0; i < s.length; ) {
-    const [r, w] = decodeRune(s, i);
-    out += String.fromCodePoint(r);
-    i += w;
+  for (let i = 0; i < n; ) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) {
+      units.push(c);
+      i++;
+      continue;
+    }
+    // The common valid sequences inline, the rest through decodeRune.
+    const c1 = s.charCodeAt(i + 1);
+    if (c >= 0xc2 && c <= 0xdf && (c1 & 0xc0) === 0x80) {
+      units.push(((c & 0x1f) << 6) | (c1 & 0x3f));
+      i += 2;
+    } else if (c >= 0xe1 && c <= 0xec && (c1 & 0xc0) === 0x80 && (s.charCodeAt(i + 2) & 0xc0) === 0x80) {
+      units.push(((c & 0x0f) << 12) | ((c1 & 0x3f) << 6) | (s.charCodeAt(i + 2) & 0x3f));
+      i += 3;
+    } else {
+      const [r, w] = decodeRune(s, i);
+      if (r > 0xffff) units.push(0xd7c0 + (r >> 10), 0xdc00 | (r & 0x3ff));
+      else units.push(r);
+      i += w;
+    }
+    if (units.length >= chunk) {
+      out += String.fromCharCode.apply(null, units);
+      units.length = 0;
+    }
   }
-  return out;
+  return out + String.fromCharCode.apply(null, units);
 }
+
+// chunk bounds the arguments of one String.fromCharCode call.
+const chunk = 8192;
 
 // fromJSString encodes a JS string as UTF-8 into a Go (byte) string.
 export function fromJSString(s: string): string {
   if (isASCII(s)) return s;
+  const n = s.length;
+  const units: number[] = [];
   let out = "";
-  for (const ch of s) out += encodeRune(ch.codePointAt(0)!);
-  return out;
+  for (let i = 0; i < n; i++) {
+    let r = s.charCodeAt(i);
+    if (r < 0x80) {
+      units.push(r);
+    } else if (r < 0x800) {
+      units.push(0xc0 | (r >> 6), 0x80 | (r & 0x3f));
+    } else {
+      if (r >= 0xd800 && r <= 0xdbff && i + 1 < n) {
+        const lo = s.charCodeAt(i + 1);
+        if (lo >= 0xdc00 && lo <= 0xdfff) {
+          r = 0x10000 + ((r - 0xd800) << 10) + (lo - 0xdc00);
+          i++;
+          units.push(0xf0 | (r >> 18), 0x80 | ((r >> 12) & 0x3f), 0x80 | ((r >> 6) & 0x3f), 0x80 | (r & 0x3f));
+          continue;
+        }
+      }
+      if (r >= 0xd800 && r <= 0xdfff) r = 0xfffd; // a lone surrogate
+      units.push(0xe0 | (r >> 12), 0x80 | ((r >> 6) & 0x3f), 0x80 | (r & 0x3f));
+    }
+    if (units.length >= chunk) {
+      out += String.fromCharCode.apply(null, units);
+      units.length = 0;
+    }
+  }
+  return out + String.fromCharCode.apply(null, units);
 }
