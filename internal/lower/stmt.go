@@ -899,8 +899,24 @@ func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 		w.indent--
 		w.ln("}")
 	case *types.Slice:
+		if str, ok := stringToBytesArg(fe.info, s.X); ok {
+			// range []byte(s) ranges over the bytes of s: the body cannot
+			// reach the slice the conversion would copy them into.
+			st, i, n := fe.tmp(), fe.tmp(), fe.tmp()
+			w.ln("%s%sfor (let %s = %s, %s = 0, %s = %s.length; %s < %s; %s++) {", m, lp, st, fe.expr(str), i, n, st, i, n, i)
+			w.indent++
+			val := ""
+			if hasVal {
+				val = st + ".charCodeAt(" + i + ")"
+			}
+			fe.rangeVars(s, i, val, types.Typ[types.Int], u.Elem())
+			fe.stmts(s.Body.List)
+			w.indent--
+			w.ln("}")
+			return
+		}
 		sl, i, n := fe.tmp(), fe.tmp(), fe.tmp()
-		w.ln("%s%sfor (let %s = %s, %s = 0, %s = $rt.len(%s); %s < %s; %s++) {", m, lp, sl, fe.expr(s.X), i, n, sl, i, n, i)
+		w.ln("%s%sfor (let %s = %s, %s = 0, %s = %s === null ? 0 : %s.$length; %s < %s; %s++) {", m, lp, sl, fe.expr(s.X), i, n, sl, sl, i, n, i)
 		w.indent++
 		val := ""
 		if hasVal {
@@ -2030,4 +2046,19 @@ func (fe *funcEmitter) deferredTok(call *ast.CallExpr) string {
 		return o.Origin().FullName()
 	}
 	return ""
+}
+
+// stringToBytesArg returns s if e is the conversion []byte(s) of a string.
+func stringToBytesArg(info *types.Info, e ast.Expr) (ast.Expr, bool) {
+	conv, ok := ast.Unparen(e).(*ast.CallExpr)
+	if !ok || len(conv.Args) != 1 {
+		return nil, false
+	}
+	if tv, ok := info.Types[ast.Unparen(conv.Fun)]; !ok || !tv.IsType() || !isByteSlice(tv.Type) {
+		return nil, false
+	}
+	if b, ok := under(info.TypeOf(conv.Args[0])).(*types.Basic); !ok || b.Info()&types.IsString == 0 {
+		return nil, false
+	}
+	return conv.Args[0], true
 }

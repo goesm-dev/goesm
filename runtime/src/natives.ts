@@ -218,6 +218,8 @@ export function native$internal$strconv$formatDecimal(u: bigint, neg: boolean): 
 // strings.ToUpper and ToLower of ASCII strings (see the strings patch). A Go
 // string holds bytes as UTF-16 code units below 256.
 export const native$strings$isASCII = isASCII;
+// utf8.ValidString of an ASCII string (see the unicode/utf8 patch).
+export const native$unicode$utf8$isASCII = isASCII;
 export function native$strings$upperASCII(s: string): string {
   const u = s.toUpperCase();
   noteASCII(u);

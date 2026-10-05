@@ -7,7 +7,7 @@
 // method dispatch goes through the type's method table instead of relying on
 // JS structural typing.
 
-import { Kind, Type, implementsIface, isAggregate, sizeOf, types } from "./types.ts";
+import { Kind, Type, implementsIface, isAggregate, types, zeroSized } from "./types.ts";
 import { ceq } from "./complex.ts";
 import { GoPanic, runtimePanic, typeAssertionErrorType } from "./panic.ts";
 
@@ -134,7 +134,7 @@ export function equal(t: Type, a: any, b: any): boolean {
       return ceq(a, b);
     case Kind.Pointer:
       // Like gc, pointers to zero-size values all share one address.
-      if (sizeOf(t.elem!) === 0) return a === null ? b === null : b !== null;
+      if (zeroSized(t.elem!)) return a === null ? b === null : b !== null;
       return a === b;
     case Kind.Slice: case Kind.Map: case Kind.Func:
       if (a !== null && b !== null) runtimePanic(`comparing uncomparable type ${t.str}`);
@@ -175,7 +175,7 @@ export function hashKey(t: Type, v: any): any {
     case Kind.Struct: case Kind.Array: case Kind.Interface:
       return "\u0000" + serialize(t, v);
     case Kind.Pointer:
-      return v !== null && sizeOf(t.elem!) === 0 ? zerobaseKey : v;
+      return v !== null && zeroSized(t.elem!) ? zerobaseKey : v;
     case Kind.Slice: case Kind.Map: case Kind.Func:
       runtimePanic(`hash of unhashable type ${t.str}`);
   }
@@ -214,7 +214,7 @@ function serialize(t: Type, v: any): string {
       return "(" + serialize(f, v.re) + "," + serialize(f, v.im) + ")";
     }
     case Kind.Pointer:
-      return v !== null && sizeOf(t.elem!) === 0 ? "zerobase" : objID(v);
+      return v !== null && zeroSized(t.elem!) ? "zerobase" : objID(v);
     case Kind.Chan: case Kind.UnsafePointer:
       return objID(v);
   }

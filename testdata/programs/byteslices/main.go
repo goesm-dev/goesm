@@ -71,4 +71,26 @@ func main() {
 	str := unsafe.String(unsafe.SliceData(u), len(u))
 	fmt.Println(str, unsafe.Slice(unsafe.StringData(str), 2))
 	fmt.Println(bytes.Equal(bytes.ToUpper([]byte("abc")), []byte("ABC")), bytes.Repeat([]byte("ab"), 3))
+
+	// range over a conversion of a string ranges over its bytes.
+	text := "héllo, 世界"
+	sum := 0
+	for i, c := range []byte(text) {
+		sum += i * int(c)
+	}
+	fmt.Println(sum, len([]byte(text)))
+	type octet byte
+	var last octet
+	var at int
+	for at, last = range []octet(text + "!") {
+		if last == ',' {
+			break
+		}
+	}
+	fmt.Println(at, last)
+	n := 0
+	for range []byte(strings.Repeat("ab", 3)) {
+		n++
+	}
+	fmt.Println(n)
 }
