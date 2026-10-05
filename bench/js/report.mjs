@@ -33,7 +33,7 @@ const T = {
     native: "ネイティブ Go",
     perCall: "ns/回",
     geomean: "ネイティブ Go 比の幾何平均",
-    total: "合計 ms（全カーネルを 1 回ずつ）",
+    total: "全カーネルを 1 回ずつ実行した合計 ms",
     runtime: "ランタイム",
     files: "ファイル",
     raw: "非圧縮",
@@ -138,7 +138,7 @@ export function timeTable(data, runtime, lang = "en") {
   for (const k of data.suite) {
     const b = bolder(impls, impls.map((i) => time(data, data.runs[runtime][i.id], k)));
     const native = data.native.kernels[k.name];
-    const name = k.calls ? `${k.name} (${t.perCall})` : k.name;
+    const name = k.calls ? `${k.name}, ${t.perCall}` : k.name;
     rows.push(`| ${name} | ${what(k, lang)} | ${native ? fmt(perCall(k, native.median)) : "—"} | ${impls.map((i, j) => b(j, cell(data, data.runs[runtime][i.id], k))).join(" | ")} |`);
   }
   const tot = impls.map((i) => total(data, data.runs[runtime][i.id]));
@@ -213,8 +213,8 @@ export function envList(data, lang = "en") {
   const e = data.env;
   const o = data.opts;
   const method = lang === "ja"
-    ? `${data.date.slice(0, 10)} 計測。${o.warmup} ms 以上ウォームアップしたあと、カーネルごとに ${o.samples} 回以上かつ ${o.time} ms 以上計測した中央値`
-    : `${data.date.slice(0, 10)}; warm-up ≥ ${o.warmup} ms, then the median of ≥ ${o.samples} calls and ≥ ${o.time} ms per kernel`;
+    ? `${data.date.slice(0, 10)} に計測しました。各カーネルについて、${o.warmup} ms 以上ウォームアップしたあと ${o.samples} 回以上かつ ${o.time} ms 以上計測し、その中央値を結果としています。1 回の実行が遅いカーネルは、3 回以上かつ合計 ${10 * o.time / 1000} 秒以上で計測を終えています。`
+    : `${data.date.slice(0, 10)}; warm-up ≥ ${o.warmup} ms, then the median of ≥ ${o.samples} calls and ≥ ${o.time} ms per kernel, or of ≥ 3 calls once ${10 * o.time / 1000} s have passed for slow kernels`;
   return [
     `- ${e.cpu}, ${e.os}`,
     `- goesm ${e.goesm}, ${e.go}`,
@@ -274,18 +274,18 @@ export function readmeBlock(data, lang, charts = "bench/results/charts") {
   const node = Object.keys(data.runs).includes("node") ? "node" : Object.keys(data.runs)[0];
   const h = lang === "ja"
     ? {
-        summary: "ネイティブ Go に対する遅さ（各カーネルの時間の比の幾何平均。小さいほど速い）:",
-        total: "全カーネルを 1 回ずつ実行した合計時間（ms、中央値の和。呼び出し系カーネルはループ全体。* はないカーネルを除いた値。小さいほど速い）:",
-        times: `${runtimeLabel(data, node, lang)} での 1 回あたりの時間（ms、中央値。小さいほど速い）:`,
-        startup: "起動時間（出力を読み込み始めてから関数を呼べるようになるまで、ms）:",
-        size: "出力サイズ（カーネル一式と、使っている標準ライブラリ）:",
+        summary: "次の表は、ネイティブ Go に対する遅さを、カーネルごとの時間の比の幾何平均で示します。値が小さいほど速いことを表します。",
+        total: "次の表は、全カーネルを 1 回ずつ実行した合計時間を ms で示します。合計は各カーネルの中央値の和で、呼び出し系のカーネルはループ全体の時間を足しています。* の付いた値は、その実装にないカーネルを除いた合計です。値が小さいほど速いことを表します。",
+        times: `次の表は、${runtimeLabel(data, node, lang)} での 1 回あたりの時間の中央値を ms で示します。ns/回 と書いた行だけは、JS から関数を 1 回呼び出すのにかかる時間を ns で示します。値が小さいほど速いことを表します。`,
+        startup: "次の表は起動時間を ms で示します。起動時間は、出力を読み込み始めてから関数を呼べるようになるまでの時間です。",
+        size: "次の表は出力サイズを示します。サイズには、カーネル一式と、カーネルが使う標準ライブラリが含まれます。",
       }
     : {
-        summary: "Slowdown vs native Go (geometric mean of the per-kernel time ratios; lower is better):",
-        total: "Total ms to run every kernel once (the sum of the medians, the calling kernels' whole loops included; * leaves out kernels the implementation lacks; lower is better):",
-        times: `Median ms per call under ${runtimeLabel(data, node, lang)} (lower is better):`,
-        startup: "Startup (ms from starting to load the output to the first callable function):",
-        size: "Output size (all kernels and the standard library they use):",
+        summary: "Slowdown against native Go, as the geometric mean of the per-kernel time ratios. Lower is better.",
+        total: "Total ms to run every kernel once: the sum of the medians, with the calling kernels' whole loops included. A value marked * leaves out the kernels that implementation lacks. Lower is better.",
+        times: `Median ms per call under ${runtimeLabel(data, node, lang)}. The rows marked ns/call give the time of one call from JS in ns. Lower is better.`,
+        startup: "Startup in ms, from starting to load the output to the first callable function.",
+        size: "Output size, covering all kernels and the standard library they use.",
       };
   return [
     envList(data, lang), "",

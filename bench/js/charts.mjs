@@ -104,9 +104,9 @@ export function chartFiles(data, lang, h) {
   const sfx = lang === "ja" ? ".ja" : "";
   const L = lang === "ja"
     ? {
-        slowdown: "ネイティブ Go に対する遅さ（幾何平均、対数軸、短いほど速い）",
-        total: "全カーネルを 1 回ずつ実行した合計時間（ms、対数軸、短いほど速い）",
-        kernels: (r) => `カーネルごとのネイティブ Go 比（${r}、対数軸、短いほど速い）`,
+        slowdown: "ネイティブ Go に対する遅さの幾何平均。横軸は対数で、短いほど速い",
+        total: "全カーネルを 1 回ずつ実行した合計 ms。横軸は対数で、短いほど速い",
+        kernels: (r) => `${r} でのカーネルごとのネイティブ Go 比。横軸は対数で、短いほど速い`,
         native: "ネイティブ Go",
         partial: "* はないカーネルを除いた値",
         noAdd: "Add はネイティブ Go の値がないので除く",
