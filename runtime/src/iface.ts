@@ -150,6 +150,8 @@ export function equal(t: Type, a: any, b: any): boolean {
 export function ifaceEq(a: Iface | null, b: Iface | null): boolean {
   if (a === null || b === null) return a === b;
   if (a.t !== b.t) return false;
+  // Pointers, the most common dynamic type compared, first.
+  if (a.t.kind === Kind.Pointer) return a.v === b.v || (a.v !== null && b.v !== null && zeroSized(a.t.elem!));
   if (!comparable(a.t)) runtimePanic(`comparing uncomparable type ${a.t.str}`);
   return equal(a.t, a.v, b.v);
 }

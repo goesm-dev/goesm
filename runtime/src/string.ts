@@ -65,12 +65,14 @@ export function bytesToString(b: S<number>): string {
     // The engine's UTF-8 decoder is fastest, and right for ASCII: other
     // bytes either form multi-byte sequences, which shorten the result,
     // or become U+FFFD.
-    let r = utf8Dec.decode(v);
-    if (r.length === n && r.indexOf("\ufffd") < 0) return r;
-    // Its windows-1252 decoder is latin1 except for 0x80-0x9f, which it
-    // maps above U+00FF.
-    r = latin1.decode(v);
-    if (!aboveLatin1.test(r)) return r;
+    const r = utf8Dec.decode(v);
+    const valid = r.indexOf("\ufffd") < 0;
+    if (valid && r.length === n) return r;
+    // Valid UTF-8 is shorter as UTF-16 by about one unit per byte above
+    // 0x7f.
+    const l = latin1Bytes(v, valid && (n - r.length) * 16 < n);
+    remember(l, v.slice());
+    return l;
   }
   // String.fromCharCode over chunks: one flat string instead of a rope of
   // one-character concatenations. The chunks stay below engines' argument
@@ -92,16 +94,70 @@ export function bytesToString(b: S<number>): string {
 }
 
 const latin1 = new TextDecoder("latin1");
-const utf8Dec = new TextDecoder();
-const aboveLatin1 = /[\u0100-\uffff]/;
 const utf8 = new TextEncoder();
+// ignoreBOM keeps a leading U+FEFF, which Go keeps.
+const utf8Dec = new TextDecoder("utf-8", { ignoreBOM: true });
+const aboveLatin1 = /[\u0100-\uffff]/g;
+
+// cp1252 maps the characters that the "latin1" decoder gives for bytes
+// 0x80-0x9f back to the bytes. The label means windows-1252 in the
+// Encoding standard, which Bun follows; Node.js decodes it as latin1, and
+// there the map is empty. It is made on first use.
+let cp1252: Map<string, string> | null = null;
+const fromCp1252 = (c: string) => cp1252!.get(c)!;
+const utf16 = new TextDecoder("utf-16le");
+
+// latin1Bytes returns the string whose code units are the bytes of v
+// through one of the engine's decoders, which is several times faster than
+// String.fromCharCode. The "latin1" decoder is the fastest for few bytes
+// above 0x7f (few) and slow for many; for those, the bytes are widened to
+// UTF-16, which decodes at the same speed whatever they hold.
+function latin1Bytes(v: Uint8Array, few: boolean): string {
+  if (few) {
+    if (cp1252 === null) {
+      cp1252 = new Map();
+      const s = latin1.decode(Uint8Array.from({ length: 32 }, (_, i) => 0x80 + i));
+      for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) !== 0x80 + i) cp1252.set(s[i], String.fromCharCode(0x80 + i));
+    }
+    const r = latin1.decode(v);
+    return cp1252.size === 0 ? r : r.replace(aboveLatin1, fromCp1252);
+  }
+  const w = new Uint16Array(v.length);
+  for (let i = 0; i < v.length; i++) w[i] = v[i];
+  return utf16.decode(w);
+}
+
 const fitsASCII = (r: TextEncoderEncodeIntoResult, n: number) => r.read === n && r.written === n;
+
+// The latest long non-ASCII string made from bytes, by fromJSString or
+// bytesToString, and a private copy of them. Programs often turn such a
+// string back into bytes or into a JS string: []byte(s) of a string from
+// JavaScript, or a result built in a bytes.Buffer. Strings over 1 MiB are not
+// remembered, so as not to keep them alive.
+let memoStr = "";
+let memoBytes: Uint8Array | null = null;
+
+function remember(s: string, b: Uint8Array): void {
+  if (b.length <= 1 << 20) {
+    memoStr = s;
+    memoBytes = b;
+  }
+}
+
+// remembered returns the bytes of s if s is the remembered string. The
+// caller must not change them.
+function remembered(s: string): Uint8Array | null {
+  return memoBytes !== null && s.length === memoStr.length && s === memoStr ? memoBytes : null;
+}
 
 export function stringToBytes(s: string): Slice<number> {
   const a = newBytes(s.length);
-  // The engine's UTF-8 encoder writes ASCII as is; other code units take two
-  // bytes, so a string with them does not fit.
-  if (s.length < 64 || !fitsASCII(utf8.encodeInto(s, a), s.length)) {
+  const m = remembered(s);
+  if (m !== null) {
+    a.set(m);
+  } else if (s.length < 64 || !fitsASCII(utf8.encodeInto(s, a), s.length)) {
+    // The engine's UTF-8 encoder writes ASCII as is; other code units take
+    // two bytes, so a string with them does not fit.
     for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
   }
   return new Slice(a as any, 0, a.length, a.length);
@@ -159,6 +215,18 @@ export function noteASCII(s: string): void {
 export function toJSString(s: string): string {
   if (isASCII(s)) return s;
   const n = s.length;
+  if (n >= 64) {
+    // The engine's UTF-8 decoder agrees with Go's decoding of valid UTF-8.
+    // It replaces some invalid sequences differently, so a result with
+    // U+FFFD is made again below.
+    let b = remembered(s);
+    if (b === null) {
+      b = new Uint8Array(n);
+      for (let i = 0; i < n; i++) b[i] = s.charCodeAt(i);
+    }
+    const r = utf8Dec.decode(b);
+    if (r.indexOf("\ufffd") < 0) return r;
+  }
   const units: number[] = [];
   let out = "";
   for (let i = 0; i < n; ) {
@@ -197,6 +265,14 @@ const chunk = 8192;
 export function fromJSString(s: string): string {
   if (isASCII(s)) return s;
   const n = s.length;
+  // The engine's UTF-8 encoder, like the loop below, encodes a lone
+  // surrogate as U+FFFD.
+  if (n >= 64) {
+    const b = utf8.encode(s);
+    const r = latin1Bytes(b, (b.length - n) * 16 < b.length);
+    remember(r, b);
+    return r;
+  }
   const units: number[] = [];
   let out = "";
   for (let i = 0; i < n; i++) {

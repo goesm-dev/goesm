@@ -21,23 +21,23 @@ For a framework, the comparison takes the part a page depends on most: rendering
 <!-- compare:start -->
 | Library | Go package | goesm gzip | JS gzip | ratio |
 | --- | --- | --- | --- | --- |
-| luxon | `datetime` | 34.7 KiB | 21.7 KiB | 1.60× |
-| neverthrow | `result` | 133.4 KiB | 2.4 KiB | 55.86× |
-| connect-es | `rpc` | 1403.0 KiB | 32.9 KiB | 42.70× |
-| react | `render` | 354.8 KiB | 64.3 KiB | 5.51× |
-| vitepress | `markdown` | 285.5 KiB | 40.4 KiB | 7.07× |
-| astro | `markdown` | 285.5 KiB | 47.2 KiB | 6.04× |
-| vue | `reactive` | 10.7 KiB | 5.3 KiB | 2.03× |
+| luxon | `datetime` | 25.3 KiB | 21.7 KiB | 1.17× |
+| neverthrow | `result` | 102.3 KiB | 2.4 KiB | 42.83× |
+| connect-es | `rpc` | 1312.1 KiB | 32.9 KiB | 39.94× |
+| react | `render` | 335.3 KiB | 64.3 KiB | 5.21× |
+| vitepress | `markdown` | 241.2 KiB | 40.4 KiB | 5.97× |
+| astro | `markdown` | 241.2 KiB | 47.2 KiB | 5.11× |
+| vue | `reactive` | 11.2 KiB | 5.3 KiB | 2.11× |
 
 | Library | node 26.10.0 goesm | node 26.10.0 JS | ratio | bun 1.4.2 goesm | bun 1.4.2 JS | ratio |
 | --- | --- | --- | --- | --- | --- | --- |
-| luxon | 2.2 ms | 8.9 ms | 0.24× | 4.5 ms | 8.1 ms | 0.55× |
-| neverthrow | 0.81 ms | 0.51 ms | 1.59× | 1.1 ms | 0.50 ms | 2.30× |
-| connect-es | 32 ms | 2.7 ms | 11.65× | 27 ms | 1.9 ms | 14.36× |
-| react | 2.9 ms | 1.8 ms | 1.59× | 3.3 ms | 1.9 ms | 1.72× |
-| vitepress | 0.63 ms | 0.23 ms | 2.80× | 1.1 ms | 0.16 ms | 7.05× |
-| astro | 0.60 ms | 2.0 ms | 0.31× | 1.00 ms | 2.7 ms | 0.37× |
-| vue | 42 ms | 6.0 ms | 7.01× | 62 ms | 5.6 ms | 11.00× |
+| luxon | 2.2 ms | 8.6 ms | 0.25× | 4.6 ms | 8.1 ms | 0.58× |
+| neverthrow | 0.85 ms | 0.51 ms | 1.68× | 1.3 ms | 0.54 ms | 2.42× |
+| connect-es | 24 ms | 2.6 ms | 9.41× | 25 ms | 2.0 ms | 12.43× |
+| react | 2.6 ms | 1.7 ms | 1.56× | 3.6 ms | 2.0 ms | 1.77× |
+| vitepress | 0.40 ms | 0.24 ms | 1.69× | 0.67 ms | 0.15 ms | 4.54× |
+| astro | 0.38 ms | 2.1 ms | 0.19× | 0.56 ms | 2.6 ms | 0.22× |
+| vue | 34 ms | 6.1 ms | 5.60× | 50 ms | 5.7 ms | 8.67× |
 <!-- compare:end -->
 
 Sizes are of the minified ES module bundle, compressed with gzip at level 9. Times are the median of one workload run, after a warmup. The connect-es workload answers `fetch` in-process with encoded responses, so it times the client alone: encoding the request, the protocol and decoding the response.
