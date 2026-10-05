@@ -6,8 +6,11 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
+# Pull requests are grouped by number, not github.ref: a pull_request event
+# that arrives after the merge gets refs/heads/main as its ref, and its
+# cancel-in-progress cancelled main's push run (#75, #76).
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
