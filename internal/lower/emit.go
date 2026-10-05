@@ -393,6 +393,10 @@ func (pe *pkgEmitter) emit() *Module {
 		}
 	}
 
+	if pe.isEntry && !pe.std && !pe.dep {
+		pe.emitImportedHandleMethods()
+	}
+
 	// Package variables: declare with zero values, then initialise in the
 	// dependency order computed by go/types (types.Info.InitOrder).
 	pe.emitVars(files)
