@@ -35,7 +35,7 @@
 // convert more than numbers; like natives.ts, it uses the runtime only
 // through its public module, so split builds share one runtime.
 import {
-  GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, addMethods, box, classTypes, errorType, fromJSString, hasMethods,
+  GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, addMethods, box, cell, classTypes, errorType, fromJSString, hasMethods,
   fromRef, funcOf, goThrown, implementsIface, interfaceOf, makeMap, mapOf, mapRange, mapSet, named, newBytes, plainPanic,
   ptrTo, setUnderlying, sliceOf, toJSString, toRef, types,
 } from "./index.ts";
@@ -105,11 +105,14 @@ export function goToJS(t: Type, v: any, ex = false): any {
         case 2: return fromRef(v.Value.ref);
       }
       const o: Record<string, any> = {};
-      for (const f of jsFields(t)) {
+      const fs = jsFields(t);
+      for (const f of fs) {
         if (!f.flatten) setProp(o, f.name, goToJS(f.type, v[f.prop], ex));
         else {
           const p = goToJS(f.type, v[f.prop], ex && f.type.kind !== Kind.Pointer); // null for a nil *T: no fields, as encoding/json
-          if (p !== null) for (const k of Object.keys(p)) setProp(o, k, p[k]);
+          // As in encoding/json, a field of the outer struct hides one of
+          // the same name further down.
+          if (p !== null) for (const k of Object.keys(p)) if (!fs.direct.has(k) && !Object.hasOwn(o, k)) setProp(o, k, p[k]);
         }
       }
       return o;
@@ -126,7 +129,7 @@ export function goToJS(t: Type, v: any, ex = false): any {
       }
       return goToJS(v.t, v.v, ex);
     case Kind.Func:
-      return v === null ? null : goFuncToJS(t, v);
+      return v === null ? null : goFuncToJS(t, v, ex);
     case Kind.Complex64: case Kind.Complex128: case Kind.Chan: case Kind.UnsafePointer:
       if (ex) return v;
       plainPanic(`goesm: a ${t.str} cannot be passed to JavaScript`);
@@ -188,12 +191,14 @@ interface JSField {
 // exported ones, named as encoding/json names them (a json tag name, or
 // the Go name), without those tagged json:"-". An embedded struct or
 // pointer to struct, exported or not, promotes its fields.
-const fieldCache = /* @__PURE__ */ new WeakMap<Type, JSField[]>();
+type JSFields = JSField[] & { direct: Set<string> }; // direct: the names of the fields not flattened
 
-function jsFields(t: Type): JSField[] {
+const fieldCache = /* @__PURE__ */ new WeakMap<Type, JSFields>();
+
+function jsFields(t: Type): JSFields {
   let fs = fieldCache.get(t);
   if (fs) return fs;
-  fs = [];
+  fs = Object.assign([] as JSField[], { direct: new Set<string>() });
   for (const f of t.fields) {
     const e = f.type.kind === Kind.Pointer ? f.type.elem! : f.type;
     const promotes = f.embedded && e.kind === Kind.Struct;
@@ -202,6 +207,7 @@ function jsFields(t: Type): JSField[] {
     const tagName = m ? m[1].split(",")[0] : "";
     if (tagName === "-") continue;
     fs.push({ prop: f.prop, name: tagName || f.name, type: f.type, flatten: promotes && !tagName });
+    if (!promotes || tagName) fs.direct.add(tagName || f.name);
   }
   fieldCache.set(t, fs);
   return fs;
@@ -227,17 +233,26 @@ export function goArgsToJS(elem: Type, s: Slice<any> | null): any[] {
   return out;
 }
 
-// goFuncToJS wraps a Go function of type t for JavaScript to call.
-function goFuncToJS(t: Type, f: (...a: any[]) => any): (...a: any[]) => any {
+// goFuncToJS wraps a Go function of type t for JavaScript to call. ex is
+// set for a function an exported function returns, which converts like an
+// export wrapper: its final error result, if any, is thrown when it is not
+// nil and left out of the results.
+function goFuncToJS(t: Type, f: (...a: any[]) => any, ex = false): (...a: any[]) => any {
   const ps = t.params, rs = t.results, n = ps.length;
-  const result = (r: any) =>
-    rs.length === 0 ? undefined : rs.length === 1 ? goToJS(rs[0], r) : rs.map((rt, i) => goToJS(rt, r[i]));
+  const hasErr = ex && rs.length > 0 && rs[rs.length - 1] === errorType;
+  const nres = hasErr ? rs.length - 1 : rs.length;
+  const result = (r: any) => {
+    if (rs.length === 0) return undefined;
+    const v = rs.length === 1 ? [r] : r;
+    if (hasErr && v[nres] !== null) throw goError(v[nres]);
+    return nres === 0 ? undefined : nres === 1 ? goToJS(rs[0], v[0], ex) : rs.slice(0, nres).map((rt, i) => goToJS(rt, v[i], ex));
+  };
   const js = function (...args: any[]): any {
     const a = new Array(n);
     for (let i = 0; i < n; i++) {
       a[i] = t.variadic && i === n - 1
-        ? new Slice(args.slice(i).map((x) => jsToGo(ps[i].elem!, x)), 0, Math.max(args.length - i, 0), Math.max(args.length - i, 0))
-        : jsToGo(ps[i], args[i]);
+        ? new Slice(args.slice(i).map((x) => jsToGo(ps[i].elem!, x, ex)), 0, Math.max(args.length - i, 0), Math.max(args.length - i, 0))
+        : jsToGo(ps[i], args[i], ex);
     }
     let r;
     try {
@@ -292,8 +307,11 @@ function jsFuncToGo(t: Type, f: any): any {
 
 // jsToGo converts the JavaScript value x to a Go value of type t. A Go value
 // of that type is taken as it is (a struct copied). ex is set for the
-// arguments of exported functions (see the top of this file).
-export function jsToGo(t: Type, x: any, ex = false): any {
+// arguments of exported functions (see the top of this file). embedding
+// holds the struct types whose embedded fields are being filled from x: a
+// struct type embedded in itself, directly or not, is left zero there, as
+// encoding/json leaves it.
+export function jsToGo(t: Type, x: any, ex = false, embedding: Type[] | null = null): any {
   switch (t.kind) {
     case Kind.Bool:
       return !!x;
@@ -358,7 +376,9 @@ export function jsToGo(t: Type, x: any, ex = false): any {
       if (t.ctor !== null && x instanceof t.ctor) return x.$clone(t);
       for (const f of jsFields(t)) {
         if (f.flatten) {
-          v[f.prop] = jsToGo(f.type, x, ex && f.type.kind !== Kind.Pointer);
+          const e = f.type.kind === Kind.Pointer ? f.type.elem! : f.type;
+          if (e === t || embedding?.includes(e)) continue;
+          v[f.prop] = jsToGo(f.type, x, ex && f.type.kind !== Kind.Pointer, embedding ? [...embedding, t] : [t]);
           continue;
         }
         const y = f.name === "__proto__" && !Object.hasOwn(x, f.name) ? undefined : x[f.name];
@@ -370,10 +390,12 @@ export function jsToGo(t: Type, x: any, ex = false): any {
       if (x === null || x === undefined) return null;
       if (t.elem!.ctor !== null && x instanceof t.elem!.ctor) return x;
       if (t.elem!.kind !== Kind.Struct && t.elem!.kind !== Kind.Array) {
-        if (ex) return x; // a *int is a handle
+        // A *int and the like cross to JavaScript as the value they point
+        // to (goToJS), and come back as a pointer to a copy of it.
+        if (ex) return cell(jsToGo(t.elem!, x, ex));
         break;
       }
-      return jsToGo(t.elem!, x, ex); // a pointer to a struct is the struct object
+      return jsToGo(t.elem!, x, ex, embedding); // a pointer to a struct is the struct object
     case Kind.Interface:
       if (x instanceof Iface) return x;
       if (ex) {
