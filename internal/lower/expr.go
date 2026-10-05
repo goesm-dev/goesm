@@ -1402,6 +1402,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 			if iface {
 				callee = fe.icall(recv, jsString(methodKey(fn)), args)
 			} else {
+				if slow, _ := fe.pe.prog.WaitLock(e); slow == nil && fe.pe.prog.SyncClone(fe.info, e, fe.assume) {
+					prefix = strings.TrimSuffix(prefix, "(") + "$sync("
+				}
 				if args != "" {
 					callee = prefix + recv + ", " + args + ")"
 				} else {
@@ -1426,6 +1429,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 				callee += "<" + strings.Join(ts, ", ") + ">"
 			}
 		}
+	}
+	if callee == "" && fe.pe.prog.SyncClone(fe.info, e, fe.assume) {
+		callee = fe.nameOf(staticCallee(fe.info, e)) + "$sync"
 	}
 	if callee == "" {
 		callee = fe.expr(fun)
@@ -1664,7 +1670,7 @@ func funcIdent(fun ast.Expr) ast.Expr {
 }
 
 func (fe *funcEmitter) awaitIf(call *ast.CallExpr, s string) string {
-	if !fe.pe.prog.CallBlocks(fe.info, call) {
+	if !fe.callBlocks(call) {
 		return s
 	}
 	if fe.inBody && !fe.pe.prog.CallAlwaysAsync(fe.info, call) && !returnsPointer(fe.info, call) {

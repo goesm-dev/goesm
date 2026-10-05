@@ -1682,7 +1682,7 @@ func (fe *funcEmitter) deferredCall(call *ast.CallExpr) string {
 	for _, e := range overridden {
 		delete(fe.override, e)
 	}
-	if fe.pe.prog.CallBlocks(fe.info, call) || strings.Contains(body, "await ") {
+	if fe.callBlocks(call) || strings.Contains(body, "await ") {
 		if fe.pe.prog.TracksGoroutines {
 			// The thunk runs on the goroutine that calls it: a new one for
 			// a go statement.
