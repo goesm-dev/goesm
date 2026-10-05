@@ -745,6 +745,66 @@ func bigWrap(s string, ii intInfo) string {
 	return fmt.Sprintf("BigInt.asUintN(%d, %s)", ii.bits, s)
 }
 
+// bigUnwrap returns the operand of s if s is bigWrap(e, ii), possibly typed
+// as bigint, and s otherwise.
+func bigUnwrap(s string, ii intInfo) string {
+	if in, ok := strings.CutSuffix(s, " as bigint)"); ok && strings.HasPrefix(in, "(") {
+		if e := bigUnwrap(in[1:], ii); e != in[1:] {
+			return e
+		}
+	}
+	fn := "BigInt.asUintN"
+	if ii.signed {
+		fn = "BigInt.asIntN"
+	}
+	// Keep the position markers the call starts with.
+	lead := 0
+	for lead < len(s) && s[lead] == markStart {
+		end := strings.IndexByte(s[lead:], markEnd)
+		if end < 0 {
+			return s
+		}
+		lead += end + 1
+	}
+	marks, s0 := s[:lead], s
+	s = s[lead:]
+	prefix := fmt.Sprintf("%s(%d, ", fn, ii.bits)
+	if !strings.HasPrefix(s, prefix) || !strings.HasSuffix(s, ")") {
+		return s0
+	}
+	// The call's parenthesis must close at the end of s, skipping those
+	// in string literals.
+	depth := 0
+	var quote rune
+	escaped := false
+	for i, c := range s[len(fn):] {
+		switch {
+		case quote != 0:
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == quote:
+				quote = 0
+			}
+		case c == '"' || c == '\'' || c == '`':
+			quote = c
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+			if depth == 0 && len(fn)+i != len(s)-1 {
+				return s0
+			}
+		}
+	}
+	if depth != 0 || quote != 0 {
+		return s0
+	}
+	return marks + s[len(prefix):len(s)-1]
+}
+
 func intKind(t types.Type) (intInfo, bool) {
 	b, ok := t.Underlying().(*types.Basic)
 	if !ok {
@@ -882,19 +942,26 @@ func (fe *funcEmitter) arith(op token.Token, a, b string, t types.Type) string {
 	if ii, ok := intKind(t); ok && ii.big {
 		// Written inline so that engines that compile asIntN(64, ...) to
 		// machine arithmetic (V8) can.
+		switch op {
+		case token.ADD, token.SUB, token.MUL, token.AND, token.OR, token.XOR, token.AND_NOT:
+			// These are congruent modulo 2^64 to the result of operands
+			// that are, so truncating the whole expression once makes
+			// operands' truncations redundant. The bitwise operators
+			// stay in range for operands of one signedness, but V8
+			// computes on 64-bit integers only under an asIntN or
+			// asUintN: x ^ (x << 13n) unwrapped allocates a BigInt.
+			a, b = bigOperand(bigUnwrap(a, ii)), bigOperand(bigUnwrap(b, ii))
+			if op == token.AND_NOT {
+				return bigWrap(a+" & ~"+b, ii)
+			}
+			return bigWrap(a+" "+op.String()+" "+b, ii)
+		}
 		a, b := bigOperand(a), bigOperand(b)
 		switch op {
-		case token.ADD, token.SUB, token.MUL:
-			return bigWrap(a+" "+op.String()+" "+b, ii)
 		case token.QUO:
 			return bigWrap("$rt.divBig("+a+", "+b+")", ii)
 		case token.REM:
 			return "$rt.modBig(" + a + ", " + b + ")"
-		case token.AND, token.OR, token.XOR:
-			// In range for operands of one signedness.
-			return "(" + a + " " + op.String() + " " + b + ")"
-		case token.AND_NOT:
-			return "(" + a + " & ~" + b + ")"
 		}
 	}
 	if ii, ok := intKind(t); ok {
