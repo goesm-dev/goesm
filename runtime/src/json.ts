@@ -563,9 +563,18 @@ class Decoder {
     this.i++;
   }
 
+  // at reports whether the input has word here. A loop of charCodeAt,
+  // which the engines inline, is several times faster than startsWith with
+  // a position on these short words.
+  at(word: string): boolean {
+    const s = this.s, i = this.i, n = word.length;
+    for (let k = 0; k < n; k++) if (s.charCodeAt(i + k) !== word.charCodeAt(k)) return false;
+    return true;
+  }
+
   // literal consumes null, true or false if the input has it here.
   literal(word: string): boolean {
-    if (this.s.startsWith(word, this.i)) {
+    if (this.at(word)) {
       const c = this.s.charCodeAt(this.i + word.length);
       if (!(c >= 0x61 && c <= 0x7a)) { // not followed by more letters
         this.i += word.length;
@@ -863,7 +872,7 @@ function makeDecoder(t: Type): Dec {
           // Fields usually come in their declared order, so the next one's
           // encoded name is tried first; field names need no escapes.
           let j = -1;
-          if (next < fs.length && d.s.startsWith(fs[next].key, d.i)) {
+          if (next < fs.length && d.at(fs[next].key)) {
             j = next;
             d.i += fs[j].key.length;
           } else {
