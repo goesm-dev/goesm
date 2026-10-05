@@ -8,7 +8,7 @@ goesm の対応範囲は、言語機能ではなくユースケースで定め�
 - **未対応:** それより珍しいコード、つまりおよそ 95 パーセンタイルまでは、動くこともありますが保証しません。分かっている不足は[一覧](#未対応)にまとめます。
 - **対象外:** JavaScript のホストが提供できないものです。cgo、生のメモリ、gc ランタイムの内部がこれに当たります。
 
-ユースケースは実行場所で分類します。実行場所は Node.js、エッジ、ブラウザの 3 つです。これに加えて、3 つすべてにまたがるユースケースとして、Go のライブラリを JavaScript や TypeScript から import して使う形を扱います。
+ユースケースは実行場所で分類します。実行場所は Node.js、エッジ、ブラウザの 3 つです。これに加えて、3 つすべてにまたがるユースケースとして、Go のライブラリを JavaScript や TypeScript から import して使う形と、JavaScript や TypeScript を Go から呼ぶ形を扱います。
 
 ## Node.js: CLI、サーバー、SSR、ビルドツール
 
@@ -75,7 +75,17 @@ Go のパッケージが export する関数と型は、上のどの実行場所
 | export された Go の関数と型を TS から呼ぶ | 関数、クラスになる構造体、値レシーバのメソッド、タプルになる複数の戻り値、`error`、Promise を返すブロックしうる関数 | 対応。ただし値の変換は手作業で行います | `TestTSC`、`TestJS`、`TestExamples` |
 | よく使われる純 Go のライブラリ | `google/uuid`、`golang.org/x/mod/semver`、`Masterminds/semver`、`shopspring/decimal`、`go-playground/validator`、`expr-lang/expr`、`tidwall/gjson`、`golang.org/x/text`、`yuin/goldmark`、`gopkg.in/yaml.v3` | 対応 | `TestUseCaseLibraries` の `testdata/usecases/libs` と `TestUseCaseBuildTool` |
 
-JS 呼び出し ABI はまだないので、呼び出し側は各モジュールが `$runtime` として再 export するランタイムで値を変換します。文字列は `rt.fromJSString` と `rt.toJSString`、スライスは `rt.sliceLit` と `rt.toArray`、エラーは `rt.icall(err, "Error")` で変換します。実際には Go の API ごとに小さなラッパーのモジュールを 1 つ書くことになります。`fromJSString` を通さずに渡した文字列は、ASCII 以外の文字が崩れた状態で Go に届きます。
+JavaScript から Go を呼ぶときの ABI はまだないので、呼び出し側は各モジュールが `$runtime` として再 export するランタイムで値を変換します。文字列は `rt.fromJSString` と `rt.toJSString`、スライスは `rt.sliceLit` と `rt.toArray`、エラーは `rt.icall(err, "Error")` で変換します。実際には Go の API ごとに小さなラッパーのモジュールを 1 つ書くことになります。`fromJSString` を通さずに渡した文字列は、ASCII 以外の文字が崩れた状態で Go に届きます。
+
+## Go から使う JavaScript と TypeScript
+
+Go のコードは、`//goesm:import` で宣言した ES モジュールの関数と値を、上のどの実行場所でも使えます。詳しくは [js-imports.ja.md](js-imports.ja.md) にまとめています。
+
+| ユースケース | 典型的なコード | 状態 | 確認方法 |
+| --- | --- | --- | --- |
+| プロジェクトの TS・JS の関数を Go から呼ぶ | 文字列、スライス、マップ、構造体、関数を渡す呼び出し、Promise を待つ呼び出し、例外を error として受け取る呼び出し | 対応 | `TestJSImport` の `testdata/jsimport`、Node.js と Bun |
+| npm パッケージのクラスや値を Go から使う | `js.Value` で受け取ったクラスの `New` と `Call` | 対応 | 手作業 |
+| Vue コンポーネントを Go から使う | gosfc の Go ブロックで取り込んだコンポーネントをテンプレートで使う | gosfc で対応 | gosfc のテスト |
 
 ## 未対応
 

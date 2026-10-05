@@ -49,7 +49,7 @@ Discount(2408, 15);    // 2046: Go's integer division, not 2046.8
 
 - **Go functions are JavaScript functions.** There is no WebAssembly instance, no `wasm_exec.js`, no asynchronous instantiation and no value marshalling through `syscall/js`: calling `Discount` costs what calling any JS function costs, and numbers, booleans and structs cross the boundary as they are.
 - **One ES module per Go package.** The output is a tree of TypeScript modules that import each other with relative `.ts` specifiers, so the host's bundler does tree shaking, code splitting, minification and source maps (back to the `.go` files), and TypeScript sees the Go API's types.
-- **Go stays Go.** goesm uses the Go toolchain itself (go/packages, go/types) as the frontend: `go.mod`, `go.work`, `gopls`, `go vet` and `go test` keep working on the same code, and there is no goesm-specific syntax. The standard library is compiled from Go's own source.
+- **Go stays Go.** goesm uses the Go toolchain itself (go/packages, go/types) as the frontend: `go.mod`, `go.work`, `gopls`, `go vet` and `go test` keep working on the same code, and there is no goesm-specific syntax; the one directive, `//goesm:import`, is for code that calls JavaScript. The standard library is compiled from Go's own source.
 - **Checked against native Go.** Every fixture's results are compared with `go run`, and Go's own test suite (`$GOROOT/test`) runs through goesm.
 
 ## Status
@@ -65,7 +65,7 @@ The proof of concept compiles most of the Go language and a good part of the sta
 Not there yet (details in [ARCHITECTURE.md §11](ARCHITECTURE.md#11-implemented--not-implemented--differences-from-native-go)):
 
 - `int` and `uint` are JS numbers: exact below 2^53, but they do not wrap on 64-bit overflow. `int64` and `uint64` are exact (BigInt).
-- There is no JS calling ABI yet: Go strings and slices are runtime objects, converted by hand with the runtime each module re-exports (`rt.fromJSString`, `rt.sliceLit`, `rt.toArray`, ...). Functions that may block return Promises.
+- There is no JS calling ABI for JavaScript calling Go yet: Go strings and slices are runtime objects, converted by hand with the runtime each module re-exports (`rt.fromJSString`, `rt.sliceLit`, `rt.toArray`, ...). Functions that may block return Promises.
 - Goroutine-local `recover` state, deadlock detection while the host has pending work, DOM bindings.
 
 ## Install
@@ -146,6 +146,20 @@ goesm keeps the TypeScript module of every package it lowers in a cache, `goesm/
 - A function that may block (channel operations, `time.Sleep`, waiting on a mutex) is an `async function` and returns a Promise; the others are synchronous.
 
 `rt` is the runtime, which every module re-exports as `$runtime`. [examples/](examples) has runnable examples (the cart, standard library use, goroutines) with the JavaScript that calls them.
+
+### Calling JavaScript from Go
+
+A function declared without a body imports a function of an ES module, and its Go types say how the values are converted:
+
+```go
+//goesm:import "./format.ts" formatPrice
+func formatPrice(yen int, currency string) string
+
+//goesm:import "./api.ts" fetchUser await
+func fetchUser(id string) (User, error) // a Promise; an exception or rejection is the error
+```
+
+Strings, slices, maps, structs (as `encoding/json` names their fields), functions, `js.Value` and `any` cross the boundary, and a call costs a few nanoseconds more than the same call from JavaScript. [docs/js-imports.md](docs/js-imports.md) has the details; Vue components are used through [gosfc](https://github.com/goesm-dev/gosfc).
 
 ### Serving HTTP
 
@@ -307,6 +321,7 @@ It is not a Go-inspired language, a WebAssembly runtime, a package manager, a re
 - [ARCHITECTURE.md](ARCHITECTURE.md): the design, value representation, goroutines, the standard library, what is implemented and the differences from native Go
 - [docs/use-cases.md](docs/use-cases.md): what is supported on Node.js, the edge and in browsers, and what is not yet
 - [docs/concurrency.md](docs/concurrency.md): how goroutines run on one JavaScript thread, data races and memory safety compared with Go
+- [docs/js-imports.md](docs/js-imports.md): calling JavaScript and TypeScript from Go with `//goesm:import`
 - [docs/example-output.md](docs/example-output.md): generated TypeScript and JavaScript
 - [docs/conformance.md](docs/conformance.md): running Go's own test suite through goesm
 - [docs/otelc.md](docs/otelc.md): OpenTelemetry compile-time instrumentation (otelc) with goesm

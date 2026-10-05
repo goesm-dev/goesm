@@ -8,7 +8,7 @@ goesm's support is defined by use case, not by language feature. The policy:
 - **Not supported yet:** less common code (up to roughly the 95th percentile) may work, but nothing guarantees it. The [list](#not-supported-yet) says what is known to be missing.
 - **Out of scope:** what a JavaScript host cannot provide (cgo, raw memory, the gc runtime's internals).
 
-The use cases are grouped by where the code runs, Node.js, the edge and the browser, plus one that spans all three: a Go library imported from JavaScript or TypeScript.
+The use cases are grouped by where the code runs, Node.js, the edge and the browser, plus two that span all three: a Go library imported from JavaScript or TypeScript, and JavaScript or TypeScript called from Go.
 
 ## Node.js: command-line tools, servers, SSR and build tools
 
@@ -75,7 +75,17 @@ Every exported function and type of a Go package is an export of its module, typ
 | Calling exported Go functions and types from TS | functions, structs as classes, value methods, multiple results as tuples, `error`, functions that block returning Promises | Supported, with the conversions done by hand (below) | `TestTSC`, `TestJS`, `TestExamples` |
 | Popular pure-Go libraries | `google/uuid`, `golang.org/x/mod/semver`, `Masterminds/semver`, `shopspring/decimal`, `go-playground/validator`, `expr-lang/expr`, `tidwall/gjson`, `golang.org/x/text`, `yuin/goldmark`, `gopkg.in/yaml.v3` | Supported | `TestUseCaseLibraries` (`testdata/usecases/libs`) and `TestUseCaseBuildTool` |
 
-There is no JS calling ABI yet, so the caller converts values with the runtime every module re-exports as `$runtime`: strings with `rt.fromJSString` and `rt.toJSString`, slices with `rt.sliceLit` and `rt.toArray`, errors with `rt.icall(err, "Error")`. In practice that is one small wrapper module per Go API. A string passed without `fromJSString` reaches Go with its non-ASCII characters wrong.
+There is no JS calling ABI for JavaScript calling Go yet, so the caller converts values with the runtime every module re-exports as `$runtime`: strings with `rt.fromJSString` and `rt.toJSString`, slices with `rt.sliceLit` and `rt.toArray`, errors with `rt.icall(err, "Error")`. In practice that is one small wrapper module per Go API. A string passed without `fromJSString` reaches Go with its non-ASCII characters wrong.
+
+## JavaScript and TypeScript used from Go
+
+Go code calls the functions and uses the values of ES modules it declares with `//goesm:import`, in any of the places above. [js-imports.md](js-imports.md) has the details.
+
+| Use case | Typical code | Status | Checked by |
+| --- | --- | --- | --- |
+| Calling the project's TS and JS functions from Go | calls passing strings, slices, maps, structs and functions, calls awaiting a Promise, exceptions received as errors | Supported | `TestJSImport` (`testdata/jsimport`), Node.js and Bun |
+| Classes and values of npm packages | a class received as a `js.Value`, used with `New` and `Call` | Supported | by hand |
+| Vue components from Go | a component imported in gosfc's Go block, used in the template | Supported by gosfc | gosfc's tests |
 
 ## Not supported yet
 

@@ -1,0 +1,32 @@
+こんにちは、世界さん
+6.5
+ペン: 120 [文具,青]
+{Name:item0 Price:100 Tags:[]}
+{Name:item1 Price:200 Tags:[odd]}
+{Name:item2 Price:300 Tags:[]}
+price 42.5
+JavaScript error: not a price: abc
+js.Error name: Error
+<nil> JavaScript error: -1 is not positive
+done!
+JavaScript error: rejected
+[a0 b1]
+x-1-true-2.5
+[0 3 6 9] 18
+2199023255552 -9223372036854775808
+3 2
+go 2
+js 1
+map[a:[1 x <nil>] b:true]
+HELLO
+30
+counter 5
+version 1.2.3
+namespace 1.2.3
+{"Name":"x","Extra":1} true
+{"Extra":2} true
+{"Secret":"s","N":3} true
+{"__proto__":{"a":1}} true
+__proto__,a true
+goroutine ended by Goexit
+recovered: JavaScript error: not a price: x

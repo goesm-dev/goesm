@@ -49,7 +49,7 @@ Discount(2408, 15);    // 2046: Go の整数除算。2046.8 ではない
 
 - **Go の関数がそのまま JavaScript の関数になります。** WebAssembly のインスタンスも、`wasm_exec.js` も、非同期のインスタンス化も、`syscall/js` 経由の値の変換もありません。`Discount` の呼び出しコストは普通の JS 関数の呼び出しと同じです。数値、真偽値、構造体は、変換されずにそのまま境界を越えます。
 - **Go パッケージ 1 つが ES モジュール 1 つになります。** 出力は、相対 `.ts` 指定子で互いを import する TypeScript モジュールのツリーです。tree shaking、コード分割、minify、`.go` ファイルを指すソースマップの生成は、ホストのバンドラーが受け持ちます。TypeScript からは Go の API の型が見えます。
-- **Go は Go のままです。** goesm は、Go のツールチェーンの go/packages と go/types をそのままフロントエンドとして使います。同じコードに対して `go.mod`、`go.work`、`gopls`、`go vet`、`go test` がそのまま使えます。goesm 独自の構文はありません。標準ライブラリも Go 自身のソースからコンパイルします。
+- **Go は Go のままです。** goesm は、Go のツールチェーンの go/packages と go/types をそのままフロントエンドとして使います。同じコードに対して `go.mod`、`go.work`、`gopls`、`go vet`、`go test` がそのまま使えます。goesm 独自の構文はありません。独自のディレクティブは `//goesm:import` だけで、JavaScript を呼ぶコードだけが使います。標準ライブラリも Go 自身のソースからコンパイルします。
 - **ネイティブ Go と突き合わせて検証しています。** すべてのフィクスチャの結果を `go run` の結果と比較しています。Go 自身のテストスイートである `$GOROOT/test` も goesm で実行しています。
 
 ## 現状
@@ -65,7 +65,7 @@ PoC は Go 言語の大部分と、標準ライブラリのかなりの部分を
 まだできないことは次のとおりです。詳細は [ARCHITECTURE.ja.md §11](ARCHITECTURE.ja.md) にあります。
 
 - `int` と `uint` は JS の number です。2^53 未満では正確ですが、64 ビットのオーバーフローで折り返しません。`int64` と `uint64` は BigInt で表すので正確です。
-- JS 呼び出し ABI はまだありません。Go の文字列とスライスはランタイムのオブジェクトなので、呼び出し側が変換する必要があります。変換には、各モジュールが再 export しているランタイムの `rt.fromJSString`、`rt.sliceLit`、`rt.toArray` などを使います。ブロックしうる関数は Promise を返します。
+- JavaScript から Go を呼ぶときの ABI はまだありません。Go の文字列とスライスはランタイムのオブジェクトなので、呼び出し側が変換する必要があります。変換には、各モジュールが再 export しているランタイムの `rt.fromJSString`、`rt.sliceLit`、`rt.toArray` などを使います。ブロックしうる関数は Promise を返します。
 - goroutine ごとの `recover` の状態、ホストに保留中の処理があるときのデッドロック検出、DOM バインディングは、まだ実装していません。
 
 ## インストール
@@ -146,6 +146,20 @@ goesm は、変換した各パッケージの TypeScript モジュールをキ�
 - チャネル操作、`time.Sleep`、ミューテックスの待ちのようにブロックしうる関数は、Promise を返す `async function` になります。それ以外の関数は同期関数です。
 
 `rt` はランタイムで、すべてのモジュールが `$runtime` として再 export しています。[examples/](examples) には、呼び出し側の JavaScript と組み合わせて実行できる例があります。
+
+### Go から JavaScript を呼ぶ
+
+本体のない関数を宣言すると、ES モジュールの関数を取り込めます。値の変換は Go の型に従います。
+
+```go
+//goesm:import "./format.ts" formatPrice
+func formatPrice(yen int, currency string) string
+
+//goesm:import "./api.ts" fetchUser await
+func fetchUser(id string) (User, error) // Promise を待ち、例外と reject は error になる
+```
+
+文字列、スライス、マップ、構造体、関数、`js.Value`、`any` が境界を越えられます。構造体のプロパティ名は `encoding/json` と同じ規則で決まります。1 回の呼び出しは、JavaScript から同じ関数を呼ぶ場合より数ナノ秒多くかかるだけです。詳しくは [docs/js-imports.ja.md](docs/js-imports.ja.md) にまとめています。Vue コンポーネントは [gosfc](https://github.com/goesm-dev/gosfc) から使います。
 
 ### HTTP を処理する
 
@@ -308,6 +322,7 @@ goesm は、Go 風の言語、WebAssembly ランタイム、パッケージマ�
 - [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md): 設計、値の表現、goroutine、標準ライブラリ、実装済みの範囲とネイティブ Go との違い
 - [docs/use-cases.ja.md](docs/use-cases.ja.md): Node.js、エッジ、ブラウザでの対応範囲と未対応の項目
 - [docs/concurrency.ja.md](docs/concurrency.ja.md): goroutine が 1 本の JavaScript スレッドで動く仕組み、データ競合とメモリ安全性の Go との違い
+- [docs/js-imports.ja.md](docs/js-imports.ja.md): `//goesm:import` で Go から JavaScript と TypeScript を呼ぶ
 - [docs/example-output.ja.md](docs/example-output.ja.md): 生成される TypeScript と JavaScript
 - [docs/conformance.ja.md](docs/conformance.ja.md): Go 自身のテストスイートを goesm で実行する
 - [docs/otelc.ja.md](docs/otelc.ja.md): OpenTelemetry の compile-time instrumentation である otelc を goesm で使う
