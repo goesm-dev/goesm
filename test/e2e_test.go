@@ -72,6 +72,8 @@ func TestJS(t *testing.T) {
 	generics := buildPkg(t, testdata("semantics"), "./generics")
 	goroutines := buildPkg(t, testdata("semantics"), "./goroutines")
 	panics := buildPkg(t, testdata("semantics"), "./panics")
+	jsfuncs := buildPkg(t, testdata("semantics"), "./jsfuncs")
+	jsfuncsBlocking := buildPkg(t, testdata("semantics"), "./jsfuncsblocking")
 	files, _ := filepath.Glob("js/*.test.mjs")
 	cmd := exec.Command("node", append([]string{"--test", "--enable-source-maps"}, files...)...)
 	cmd.Env = append(os.Environ(),
@@ -80,6 +82,8 @@ func TestJS(t *testing.T) {
 		"GOESM_GENERICS="+generics,
 		"GOESM_GOROUTINES="+goroutines,
 		"GOESM_PANICS="+panics,
+		"GOESM_JSFUNCS="+jsfuncs,
+		"GOESM_JSFUNCS_BLOCKING="+jsfuncsBlocking,
 	)
 	out, err := cmd.CombinedOutput()
 	t.Logf("%s", out)
