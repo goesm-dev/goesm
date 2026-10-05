@@ -137,4 +137,3 @@ func sprintfMatrix() {
 	fmt.Println(fmt.Sprintf("%d:%s:%.2f:%x|%v", 7, "item", 7.0/3, 7*31, false))
 	fmt.Println(fmt.Sprintf("%d %d", 1), fmt.Sprintf("%d", 1, 2), fmt.Sprintf("no verbs"), fmt.Sprintf("%s-%s", "a", "b"))
 }
-
