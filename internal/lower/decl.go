@@ -422,6 +422,9 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	if fd.Name.Name == "_" {
 		return
 	}
+	if fd.Recv == nil && fd.Name.Name == "init" && fd.Body != nil && len(fd.Body.List) == 0 {
+		return // an init that does nothing (one a patch replaced) is not called
+	}
 	var name string
 	// JS calls the exported functions and methods of the entry package
 	// through a wrapper (see exportWrapper).

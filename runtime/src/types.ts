@@ -251,17 +251,20 @@ export function interfaceOf(methods: IMethod[]): Type {
 // A field as generated code spells it: [name, type, embedded, tag, prop],
 // with the last three left out when they are false, "" and name, and the
 // package path that of the struct's unexported fields.
-type FieldSpec = [string, Type, (0 | 1)?, string?, string?];
-
-const exported = /^\p{Lu}/u;
+// A FieldSpec is a field as [name, type, flags, tag, prop]: flags has 1
+// for an embedded field and 2 for an exported one whose name does not
+// start with A to Z (the name holds its UTF-8 bytes).
+type FieldSpec = [string, Type, number?, string?, string?];
 
 // structOf describes an unnamed struct type. ctor is the class generated for
 // it; identical struct types from different packages share one descriptor.
 export function structOf(specs: (Field | FieldSpec)[], ctor: any, pkgPath = ""): Type {
   const fields = specs.map((f): Field => {
     if (!Array.isArray(f)) return f;
-    const [name, type, embedded = 0, tag = "", prop = name] = f;
-    return { name, pkgPath: exported.test(name) ? "" : pkgPath, type, embedded: embedded === 1, tag, prop };
+    const [name, type, flags = 0, tag = "", prop = name] = f;
+    const c = name.charCodeAt(0);
+    const exported = (c >= 0x41 && c <= 0x5a) || (flags & 2) !== 0;
+    return { name, pkgPath: exported ? "" : pkgPath, type, embedded: (flags & 1) !== 0, tag, prop };
   });
   const key = `struct{${fields.map((f) => `${f.embedded ? "~" : ""}${f.pkgPath}.${f.name}:${f.type.id}:${JSON.stringify(f.tag)}`).join(";")}}`;
   return memoized(key, () => {
