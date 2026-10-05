@@ -118,6 +118,9 @@ func (pe *pkgEmitter) methodTables(w *writer, desc string, named *types.Named, t
 			}
 			w.indent--
 			w.ln("});")
+		} else if types.NewMethodSet(T).Len() > 0 {
+			// The type still has methods ($rt.hasMethods).
+			w.ln("$rt.addMethods(%s, {});", target)
 		}
 	}
 }
@@ -133,6 +136,9 @@ func (pe *pkgEmitter) methodEntries(T types.Type, named *types.Named, tp tpScope
 		fn := sel.Obj().(*types.Func)
 		if fn.Signature().TypeParams().Len() > 0 {
 			continue // generic methods cannot satisfy interfaces
+		}
+		if !pe.prog.DynMethod(fn) {
+			continue // never called dynamically (methods.go)
 		}
 		mtp := tp
 		if rtp := fn.Origin().Signature().RecvTypeParams(); rtp != nil && named != nil {
@@ -336,9 +342,11 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 	w.ln("constructor(%s) { %s }", strings.Join(params, ", "), strings.Join(assigns, " "))
 	w.ln("$clone($t?: $rt.Type): %s { return new %s(%s); }", self, name, strings.Join(clones, ", "))
 	w.ln("$set(o: %s, $t?: $rt.Type): void { %s }", self, strings.Join(sets, " "))
-	// Exported methods are also reachable as JS methods for convenience; in
-	// the entry package, through the export wrappers (jsexport.go).
-	if named != nil && !generic {
+	// The exported methods of the entry package's types are JS methods,
+	// through the export wrappers (jsexport.go). Other packages' types have
+	// none: their methods are called through their functions, so that
+	// bundlers drop the unused ones.
+	if named != nil && !generic && pe.isEntry {
 		ms := types.NewMethodSet(types.NewPointer(named))
 		for i := 0; i < ms.Len(); i++ {
 			sel := ms.At(i)
