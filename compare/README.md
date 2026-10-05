@@ -23,7 +23,7 @@ For a framework, the comparison takes the part a page depends on most: rendering
 | --- | --- | --- | --- | --- |
 | luxon | `datetime` | 25.2 KiB | 21.7 KiB | 1.17× |
 | neverthrow | `result` | 102.8 KiB | 2.4 KiB | 43.03× |
-| connect-es | `rpc` | 1313.7 KiB | 32.9 KiB | 39.98× |
+| connect-es | `rpc` | 1312.5 KiB | 32.9 KiB | 39.95× |
 | react | `render` | 336.1 KiB | 64.3 KiB | 5.22× |
 | vitepress | `markdown` | 241.9 KiB | 40.4 KiB | 5.99× |
 | astro | `markdown` | 241.9 KiB | 47.2 KiB | 5.12× |
@@ -31,13 +31,13 @@ For a framework, the comparison takes the part a page depends on most: rendering
 
 | Library | node 26.10.0 goesm | node 26.10.0 JS | ratio | bun 1.4.2 goesm | bun 1.4.2 JS | ratio |
 | --- | --- | --- | --- | --- | --- | --- |
-| luxon | 2.4 ms | 9.3 ms | 0.26× | 4.6 ms | 8.2 ms | 0.56× |
-| neverthrow | 0.91 ms | 0.53 ms | 1.73× | 1.3 ms | 0.49 ms | 2.59× |
-| connect-es | 21 ms | 2.7 ms | 7.77× | 23 ms | 2.0 ms | 11.39× |
-| react | 2.9 ms | 1.7 ms | 1.68× | 3.3 ms | 2.0 ms | 1.65× |
-| vitepress | 0.42 ms | 0.25 ms | 1.68× | 0.66 ms | 0.16 ms | 4.12× |
-| astro | 0.39 ms | 2.0 ms | 0.19× | 0.58 ms | 2.6 ms | 0.22× |
-| vue | 16 ms | 6.3 ms | 2.51× | 15 ms | 5.6 ms | 2.73× |
+| luxon | 2.3 ms | 9.2 ms | 0.25× | 4.8 ms | 8.1 ms | 0.59× |
+| neverthrow | 0.91 ms | 0.52 ms | 1.76× | 1.2 ms | 0.49 ms | 2.44× |
+| connect-es | 20 ms | 2.6 ms | 7.73× | 23 ms | 1.9 ms | 11.99× |
+| react | 3.1 ms | 1.7 ms | 1.80× | 3.4 ms | 2.2 ms | 1.53× |
+| vitepress | 0.41 ms | 0.24 ms | 1.67× | 0.70 ms | 0.15 ms | 4.79× |
+| astro | 0.44 ms | 2.0 ms | 0.21× | 0.51 ms | 2.5 ms | 0.20× |
+| vue | 14 ms | 6.4 ms | 2.22× | 15 ms | 5.6 ms | 2.67× |
 <!-- compare:end -->
 
 Sizes are of the minified ES module bundle, compressed with gzip at level 9. Times are the median of one workload run, after a warmup. The connect-es workload answers `fetch` in-process with encoded responses, so it times the client alone: encoding the request, the protocol and decoding the response.

@@ -420,6 +420,9 @@ func (p *Program) findGoexits() map[any]bool {
 			for _, c := range u.callees {
 				calls = calls || exits[c]
 			}
+			for _, s := range u.sites {
+				calls = calls || exits[s.fn]
+			}
 			if calls {
 				exits[u.key] = true
 				changed = true

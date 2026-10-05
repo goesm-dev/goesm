@@ -502,10 +502,36 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 		w.ln("%sfunction %s(%s): any { return ($natives.%s as any)(%s); }", pe.tab.mark(fd.Pos()), name, strings.Join(ps, ", "), native, strings.Join(as, ", "))
 		return
 	}
+	pe.emitFuncBody(w, file, fd, fn, name, nil)
+	if pe.prog.HasClone(fn) {
+		// The synchronous clone, for the calls whose arguments do not
+		// block (paramsync.go).
+		pe.emitFuncBody(w, file, fd, fn, name+"$sync", fn)
+		switch {
+		case fd.Recv != nil:
+			pe.export(name+"$sync", name+"$sync")
+		case fn.Exported():
+			pe.export(name+"$sync", fn.Name()+"$sync")
+		}
+	}
+	if wrap {
+		exported := fn.Name()
+		if fd.Recv != nil {
+			exported = name
+		}
+		pe.exportWrapper(fn, name, exported, pe.prog.IsAsync(fn))
+	}
+}
+
+// emitFuncBody emits the function fd declares as name: the function
+// itself, or, with assume set to it, its synchronous clone.
+func (pe *pkgEmitter) emitFuncBody(w *writer, file *ast.File, fd *ast.FuncDecl, fn *types.Func, name string, assume *types.Func) {
+	sig := fn.Signature()
 	fe := pe.newFuncEmitter(w, sig)
 	fe.file = file
 	fe.recoverTok = fn.Origin().FullName()
-	fe.async = pe.prog.IsAsync(fn)
+	fe.async = assume == nil && pe.prog.IsAsync(fn)
+	fe.assume = assume
 	fe.syncOnly = pe.prog.SyncOnly(fn)
 
 	var params []string
@@ -549,13 +575,6 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	pe.strBytes, pe.strMarshal = nil, nil
 	w.indent--
 	w.ln("}")
-	if wrap {
-		exported := fn.Name()
-		if fd.Recv != nil {
-			exported = name
-		}
-		pe.exportWrapper(fn, name, exported, fe.async)
-	}
 }
 
 // panicwrapMsg is Go's panic message for a value method called through a nil
