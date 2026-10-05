@@ -37,6 +37,32 @@ export function native$runtime$Goexit(): never {
 
 export const native$runtime$NumGoroutine = numGoroutine;
 
+// hostYield runs f in a new goroutine from a host task, after the microtasks
+// (the runnable goroutines) and the timers and I/O callbacks that are due:
+// setImmediate under Node.js, Bun and Deno, a MessageChannel elsewhere (no
+// clamping, unlike setTimeout), setTimeout as the last resort.
+const hostTask: (cb: () => void) => void = (() => {
+  const g = globalThis as any;
+  if (typeof g.setImmediate === "function") return (cb: () => void) => g.setImmediate(cb);
+  if (typeof g.MessageChannel === "function") {
+    const queue: (() => void)[] = [];
+    let ch: any = null;
+    return (cb: () => void) => {
+      if (ch === null) {
+        ch = new g.MessageChannel();
+        ch.port1.onmessage = () => queue.shift()!();
+      }
+      queue.push(cb);
+      ch.port2.postMessage(null);
+    };
+  }
+  return (cb: () => void) => setTimeout(cb, 0);
+})();
+
+export function native$runtime$hostYield(f: () => any): void {
+  hostTask(() => go(f, []));
+}
+
 export function native$runtime$GetTraceContextFromGLS(): any { return getG().traceContext; }
 export function native$runtime$GetBaggageContainerFromGLS(): any { return getG().baggage; }
 export function native$runtime$SetTraceContextToGLS(v: any): void { getG().traceContext = v; }

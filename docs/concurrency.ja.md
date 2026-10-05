@@ -9,7 +9,7 @@ goesm は、goroutine を `GOMAXPROCS=1` の Go と同じように、プリエ�
 - goroutine は JavaScript の `async` 関数です。プログラムのすべての goroutine は、1 本の JavaScript スレッドを共有します。このスレッドは、ブラウザではページのメインスレッド、Node.js、Bun、Deno ではプロセスのスレッド、Worker ではプログラムを読み込んだ Worker のスレッドです。
 - 待つ可能性のある関数は `async` 関数になり、待つ可能性のある箇所はそれぞれ `await` になります。待つ箇所にあたるのは、チャネル操作、`select`、`time.Sleep`、I/O、別の goroutine が待ちをまたいで保持しうる `sync.Mutex` のロック、およびそれらを呼ぶ関数の呼び出しです。それ以外の関数は同期関数のままです。
 - goroutine が切り替わるのは、待つ箇所だけです。Go のコードが待たずに動いている間、そのスレッドでは他の処理が一切動きません。他の goroutine も、タイマーも、I/O のコールバックも、別の HTTP リクエストも待たされます。ブラウザでは、ページの描画と入力への応答も止まります。
-- `runtime.GOMAXPROCS` は、引数に関係なく 1 を返し、何も変えません。`runtime.NumCPU` は 1 を返し、`runtime.LockOSThread` は何もしません。`runtime.Gosched` は、実行可能な他の goroutine には順番を譲りますが、ホストのタイマーと I/O には譲りません。
+- `runtime.GOMAXPROCS` は、引数に関係なく 1 を返し、何も変えません。`runtime.NumCPU` は 1 を返し、`runtime.LockOSThread` は何もしません。`runtime.Gosched` は、まず実行可能な他の goroutine に順番を譲り、次に期限の来たホストのタイマーと I/O のコールバックに譲ります。
 - 待つ可能性のある export された関数は、JavaScript に Promise を返します。その関数が待っている間は他の JavaScript のコードが動くので、同時に実行中の 2 つの呼び出しは、2 つの goroutine と同じように交互に進みます。
 - すべての goroutine が待っていて、ホストにも残りの処理がない場合、Node.js と Bun では Go と同じ `fatal error: all goroutines are asleep - deadlock!` でプログラムが終了します。ブラウザには終了させるプロセスがないので、待っている goroutine はそのまま止まり続けます。
 
@@ -19,7 +19,7 @@ goesm は、goroutine を `GOMAXPROCS=1` の Go と同じように、プリエ�
 - **論理的な競合は残ります。** 1 つの goroutine の 2 つの待つ箇所の間では他の goroutine が動き、共有している状態を変えることがあります。残高を読み、スリープしてから残高を書き戻す goroutine は、Go と同じく goesm でも他の goroutine の更新を失います。共有する状態は、Go と同じく `sync.Mutex` やチャネルで守ってください。
 - **競合のあるコードが偶然動くことがあります。** 100 個の goroutine がロックなしで共有のカウンタを 10,000 回ずつ増やすプログラムは、ネイティブでは 1 回の実行で 502731 を出力し、goesm では常に 1000000 を出力します。それでもこのコードは誤りです。ネイティブでビルドすると更新を失い、goesm でも読み込みと書き込みの間で goroutine が待つようになった時点で更新を失い始めます。
 - **競合検出器はありません。** goesm には `-race` モードがありません。Go のコードは同じなので、テストはネイティブの `go test -race` で実行してください。
-- **ポーリングで待つと止まったままになります。** `for !done.Load() {}` のようにフラグをポーリングするループは、そのフラグを別の goroutine、タイマー、I/O が立てる場合には終わりません。ループが回っている間は他の処理が動かないからです。フラグを立てるのがタイマーや I/O の場合は、ループに `runtime.Gosched()` を加えても終わりません。チャネル、`sync.WaitGroup`、`sync.Cond`、`context.Context` で待ってください。
+- **譲らずにポーリングすると止まったままになります。** `for !done.Load() {}` のようにフラグをポーリングするループは、そのフラグを別の goroutine、タイマー、I/O が立てる場合には終わりません。ループが回っている間は他の処理が動かないからです。反復ごとに `runtime.Gosched()` を呼ぶループは、Go と同じように動きます。ただし、チャネル、`sync.WaitGroup`、`sync.Cond`、`context.Context` で待つ方が適切です。
 
 `sync` と `sync/atomic` は Go と同じように動きます。アトミック操作は通常の読み込みと書き込みですが、スレッドが 1 本なのでそれで足ります。
 
@@ -52,4 +52,4 @@ goesm 自身は goroutine を Worker で実行しません。Go の値を共有�
 
 ## 確認方法
 
-`TestKnownGaps` は、別の goroutine が待たずに計算している間に起動した goroutine が、goesm では動かず、ネイティブでは動くことを確認します。このケースは `testdata/semantics/gaps` の `Preemption` です。上で挙げたカウンタ、マップへの同時書き込み、ポーリングのループ、Worker の例は、Node.js と Bun で手作業で確認しました。
+`TestKnownGaps` は、別の goroutine が待たずに計算している間に起動した goroutine が、goesm では動かず、ネイティブでは動くことを確認します。このケースは `testdata/semantics/gaps` の `Preemption` です。`testdata/programs` の `gosched` は、タイマーとスリープした goroutine が立てるフラグを `runtime.Gosched` を使ってポーリングするプログラムです。`TestPrograms` は、その出力を Node.js と Bun でネイティブの Go と比較します。上で挙げたカウンタ、マップへの同時書き込み、`Gosched` のないポーリングのループ、Worker の例は、Node.js と Bun で手作業で確認しました。
