@@ -137,3 +137,24 @@ test("js.FuncOf of a blocking Go function returns a Promise of its result", asyn
     return true;
   });
 });
+
+test("strings convert between UTF-8 Go strings and UTF-16 JS strings", async () => {
+  const rt = (await load("GOESM_BASICS")).$runtime;
+  const latin1 = (bytes) => String.fromCharCode(...bytes);
+  const samples = ["", "hello", "こんにちは、世界", "é ß ü", "😀 𝄞 emoji", "ǅࠀ￿\u{10000}\u{10ffff}", "あ".repeat(20000)];
+  // Long runs of ASCII or of surrogate pairs still go to String.fromCharCode in bounded chunks.
+  samples.push("é" + "a".repeat(1 << 20), "😀".repeat(1 << 18));
+  for (const s of samples) {
+    const goStr = rt.fromJSString(s);
+    if (s.length < 100) assert.equal(goStr, latin1(new TextEncoder().encode(s)), s);
+    else assert.equal(goStr.length, new TextEncoder().encode(s).length);
+    assert.equal(rt.toJSString(goStr), s);
+  }
+  // A lone surrogate becomes U+FFFD, as Go converts it.
+  assert.equal(rt.toJSString(rt.fromJSString("a\ud800b\udc00")), "a�b�");
+  // Each byte of an invalid sequence becomes U+FFFD, as range over a Go string decodes it.
+  assert.equal(rt.toJSString("\xff"), "�");
+  assert.equal(rt.toJSString("\xe3\x81x"), "��x");
+  assert.equal(rt.toJSString("\xed\xa0\x80"), "���"); // an encoded surrogate
+  assert.equal(rt.toJSString("\xf0\x9f\x98"), "���");
+});
