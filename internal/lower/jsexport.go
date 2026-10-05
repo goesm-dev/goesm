@@ -42,6 +42,19 @@ func (pe *pkgEmitter) wrapperName(name string) string {
 // (emitStructClass), so the entry package gives these theirs.
 func (pe *pkgEmitter) importedHandles() []*types.Named {
 	var found []*types.Named
+	for _, n := range handleTypes(pe.pkg.Types) {
+		if n.Obj().Pkg() != pe.pkg.Types {
+			found = append(found, n)
+		}
+	}
+	return found
+}
+
+// handleTypes are the struct types, of pkg and of other packages, whose
+// pointers cross the JS calling ABI of the entry package pkg as handles
+// (see importedHandles).
+func handleTypes(pkg *types.Package) []*types.Named {
+	var found []*types.Named
 	seen := map[types.Type]bool{}
 	var walk func(t types.Type)
 	walkSig := func(sig *types.Signature) {
@@ -67,9 +80,7 @@ func (pe *pkgEmitter) importedHandles() []*types.Named {
 			if !ok || n.TypeArgs().Len() > 0 {
 				return
 			}
-			if n.Obj().Pkg() != pe.pkg.Types {
-				found = append(found, n)
-			}
+			found = append(found, n)
 			for _, fn := range handleMethods(n) {
 				walkSig(fn.Signature())
 			}
@@ -95,7 +106,7 @@ func (pe *pkgEmitter) importedHandles() []*types.Named {
 			walkSig(u)
 		}
 	}
-	scope := pe.pkg.Types.Scope()
+	scope := pkg.Scope()
 	for _, name := range scope.Names() {
 		switch obj := scope.Lookup(name).(type) {
 		case *types.Func:

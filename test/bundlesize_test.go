@@ -12,8 +12,9 @@ import (
 // keeps only what they use: package variables with side-effect-free
 // initializers (unicode's tables) and defined types with their methods are
 // declared with pure expressions, which the bundler drops when unused, method
-// tables list only the methods that can be called dynamically, and the
-// runtime is imported only by name.
+// tables list only the methods that can be called dynamically, with the
+// functions only of those reachable code calls, and the runtime is imported
+// only by name.
 func TestBundleSize(t *testing.T) {
 	for _, c := range []struct {
 		pkg string
@@ -25,6 +26,10 @@ func TestBundleSize(t *testing.T) {
 		// 158 KB when method tables listed every method and package
 		// variables kept their initializers (internal/cpu, syscall/js).
 		{"./timeonly", 48_000},
+		// 568 KB when the method tables kept example.com/tree's Dump,
+		// which only Dump calls, with fmt, and with unicode's category
+		// and script tables, which regexp/syntax needs only for \p.
+		{"./regex", 260_000},
 	} {
 		t.Run(c.pkg[2:], func(t *testing.T) {
 			out := t.TempDir()

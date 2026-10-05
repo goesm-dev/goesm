@@ -19,6 +19,12 @@ import "go/types"
 // MethodByName and NumMethod of Type and Value, used outside reflect, or a
 // method of the program's own interface with the signature of Method or
 // MethodByName) keeps every exported method, as Go's linker does.
+//
+// A method that an interface has but that the program never calls through
+// one (CalledMethod, reach.go), such as the Dump method of every node of a
+// Markdown parser's syntax tree, keeps its entry, so that type assertions
+// and conversions to the interface still see it, but not its function: the
+// entry holds $rt.uncalled instead.
 
 // findDynMethods collects the interface methods of the program.
 func (p *Program) findDynMethods() {
@@ -95,10 +101,16 @@ func (p *Program) DynMethod(fn *types.Func) bool {
 	if p.allMethods && fn.Exported() {
 		return true
 	}
+	return matchMethod(p.ifaceMethods[fn.Name()], fn)
+}
+
+// matchMethod reports whether the method fn of a concrete type implements
+// one of the interface methods ms of its name.
+func matchMethod(ms []ifaceMethod, fn *types.Func) bool {
 	sig := fn.Signature()
 	generic := sig.RecvTypeParams().Len() > 0
 	own := stripRecv(sig)
-	for _, m := range p.ifaceMethods[fn.Name()] {
+	for _, m := range ms {
 		if !fn.Exported() && m.fn.Pkg() != fn.Pkg() {
 			continue
 		}
@@ -108,6 +120,19 @@ func (p *Program) DynMethod(fn *types.Func) bool {
 		}
 	}
 	return false
+}
+
+// CalledMethod reports whether method fn, listed in method tables
+// (DynMethod), may be called through them: whether the program calls an
+// interface method that it implements. A method left out has an entry
+// without its function.
+func (p *Program) CalledMethod(fn *types.Func) bool {
+	fn = fn.Origin()
+	if p.allMethods && fn.Exported() {
+		return true
+	}
+	p.reachOnce.Do(p.reach)
+	return matchMethod(p.calledMethods[fn.Name()], fn)
 }
 
 type ifaceMethod struct {

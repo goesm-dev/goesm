@@ -230,6 +230,13 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 // it yet, the diagnostics become one warning and the function a stub that
 // panics when called.
 func (pe *pkgEmitter) emitStdFuncDecl(file *ast.File, fd *ast.FuncDecl) {
+	if pe.pkg.PkgPath == "regexp/syntax" && fd.Recv == nil && fd.Name.Name == "unicodeTable" && !pe.prog.UnicodeClasses() {
+		// Never called: no pattern has a Unicode class (reach.go). The
+		// tables of package unicode it looks names up in are left out.
+		fn := pe.info.Defs[fd.Name].(*types.Func)
+		pe.funcs.ln("%sfunction %s(...a: any[]): any { $rt.plainPanic(%s); }", pe.tab.mark(fd.Pos()), pe.funcDeclName(fd, fn), jsString("goesm: "+fn.FullName()+" was left out as never called"))
+		return
+	}
 	n := len(pe.prog.Diags)
 	funcs := pe.funcs
 	pe.funcs = newWriter(pe.tab)
@@ -795,12 +802,19 @@ func (pe *pkgEmitter) pureExprIn(e ast.Expr, params map[types.Object]bool) bool 
 	return false
 }
 
-// returnsPure reports whether fn is a function of the package whose body
-// only returns a pure expression (pureExprIn) of its parameters, such as
-// io/fs's errInvalid, which returns oserror.ErrInvalid.
+// returnsPure reports whether fn is a function whose body only returns a
+// pure expression (pureExprIn) of its parameters, such as io/fs's
+// errInvalid, which returns oserror.ErrInvalid.
 func (pe *pkgEmitter) returnsPure(fn *types.Func) bool {
-	if fn.Pkg() != pe.pkg.Types || fn.Signature().Recv() != nil || fn.Signature().TypeParams().Len() > 0 {
+	if fn.Signature().Recv() != nil || fn.Signature().TypeParams().Len() > 0 {
 		return false
+	}
+	if fn.Pkg() != pe.pkg.Types {
+		// A function of an imported package, such as
+		// internal/godebug.New: its package's files are part of the
+		// importer's module cache key.
+		other := pe.prog.PureEmitter(fn.Pkg())
+		return other != nil && other.returnsPure(fn)
 	}
 	if pe.pureFuncCache == nil {
 		pe.pureFuncCache = map[*types.Func]bool{}

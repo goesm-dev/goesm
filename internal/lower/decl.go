@@ -148,7 +148,11 @@ func (pe *pkgEmitter) methodEntries(T types.Type, named *types.Named, tp tpScope
 		}
 		s := fn.Signature()
 		sig := types.NewSignatureType(nil, nil, nil, s.Params(), s.Results(), s.Variadic())
-		entries = append(entries, fmt.Sprintf("%s: [%s, %s]", jsString(methodKey(fn)), pe.methodEntry(T, sel, tp), pe.typeDesc(sig, mtp)))
+		impl := "$rt.uncalled"
+		if pe.prog.CalledMethod(fn) {
+			impl = pe.methodEntry(T, sel, tp)
+		}
+		entries = append(entries, fmt.Sprintf("%s: [%s, %s]", jsString(methodKey(fn)), impl, pe.typeDesc(sig, mtp)))
 	}
 	return entries
 }
