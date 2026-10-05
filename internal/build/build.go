@@ -89,6 +89,7 @@ func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) (*Lo
 	entry := prog.Roots[0].PkgPath
 	lp := lower.NewProgram(prog.Fset, prog.All, prog.Std)
 	lp.Deps = prog.Deps
+	lp.Entry = entry
 	opts := lower.Options{Entry: entry}
 	var mods []*lower.Module
 	cached := 0
