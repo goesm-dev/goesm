@@ -1,0 +1,2 @@
+{{define "page"}}<!doctype html><title>{{.Title}}</title><ul>{{range .Items}}<li class="{{if .Done}}done{{end}}"><a href="{{.URL}}">{{.Name}}</a></li>{{end}}</ul><script>var data = {{.}};</script>{{template "footer" .}}{{end}}
+{{define "footer"}}<footer>{{len .Items}} items, {{.Note}}</footer>{{end}}
