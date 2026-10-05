@@ -111,7 +111,7 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 			if fe.syncOnly {
 				w.ln("%s%s$rt.recvNow(%s);", m, fe.mark(u), fe.expr(u.X))
 			} else {
-				w.ln("%s%s%s;", m, fe.mark(u), fe.await("$rt.recv("+fe.expr(u.X)+")"))
+				w.ln("%s%s%s;", m, fe.mark(u), fe.awaitOp("$rt.recv("+fe.expr(u.X)+")"))
 			}
 			return
 		}
@@ -240,7 +240,7 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 		if fe.syncOnly {
 			w.ln("%s$rt.sendNow(%s, %s);", m, ch, fe.valueOf(s.Value, elem))
 		} else {
-			w.ln("%s%s;", m, fe.await(fmt.Sprintf("$rt.send(%s, %s)", ch, fe.valueOf(s.Value, elem))))
+			w.ln("%s%s;", m, fe.awaitOp(fmt.Sprintf("$rt.send(%s, %s)", ch, fe.valueOf(s.Value, elem))))
 		}
 	default:
 		fe.errorf(s.Pos(), "unsupported statement %T", s)
@@ -893,7 +893,7 @@ func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 		w.ln("%sconst %s = %s;", m, ch, fe.expr(s.X))
 		w.ln("%sfor (;;) {", lp)
 		w.indent++
-		w.ln("const %s = %s;", r, fe.await("$rt.recv("+ch+")"))
+		w.ln("const %s = %s;", r, fe.awaitOp("$rt.recv("+ch+")"))
 		w.ln("if (!%s[1]) break;", r)
 		fe.rangeVars(s, r+"[0]", "", u.Elem(), nil)
 		fe.stmts(s.Body.List)
@@ -1434,7 +1434,7 @@ func (fe *funcEmitter) selectStmt(s *ast.SelectStmt, label string) {
 	sel := fe.tmp()
 	sc := fmt.Sprintf("$rt.select([%s], %v)", strings.Join(real, ", "), hasDefault)
 	if !hasDefault {
-		sc = fe.await(sc)
+		sc = fe.awaitOp(sc)
 	}
 	w.ln("%sconst %s = %s;", fe.mark(s), sel, sc)
 	w.ln("%sswitch (%s[0]) {", labelPrefix(label), sel)
