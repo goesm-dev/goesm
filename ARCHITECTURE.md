@@ -120,7 +120,9 @@ Arithmetic is inline (`BigInt.asIntN(64, a * b)`), which V8 compiles to machine 
 | xorshift64* | n/a | 209 / 684 ms | 97 / 273 ms | 113 / 86 ms | n/a |
 | Unix nanoseconds (add, div, mod) | 13 / 45 ms | 41 / 296 ms | 758 / 978 ms | 306 / 845 ms | 147 / 359 ms |
 
-On V8 (Chrome, Node, Deno) BigInt is the fastest exact representation in three of four workloads and close to plain numbers for hashing. On JavaScriptCore (Safari, Bun) it is 3 to 18 times slower than two uint32 halves. Halves would double every `int64` variable, field, parameter and result in the lowering and in the JS API. BigInt keeps the lowering and the exported API simple and is exact everywhere, so it is the representation; a halves fast path for hot local arithmetic stays possible later without changing the value representation.
+On V8 (Chrome, Node, Deno) BigInt is the fastest exact representation in three of four workloads and close to plain numbers for hashing. On JavaScriptCore (Safari, Bun) it is 3 to 18 times slower than two uint32 halves. Halves would double every `int64` variable, field, parameter and result in the lowering and in the JS API. BigInt keeps the lowering and the exported API simple and is exact everywhere, so it is the representation.
+
+Hot local arithmetic takes the halves path anyway, without changing the value representation. `internal/lower/split64.go` implements it. An `int64` or `uint64` local whose arithmetic in its deepest loop outweighs its conversions is held as two int32 locals, `x$hi` and `x$lo`. Addition, subtraction, multiplication, the bitwise operators and constant shifts on it compile to int32 arithmetic and `Math.imul`, and it becomes a BigInt only where its value leaves the function's arithmetic: a call, a store, a return. This way FNV-1a 64 takes about 1.3× native Go's time on V8 and JavaScriptCore alike. `GOESM_SPLIT64=off` turns the lowering off and `GOESM_SPLIT64=all` applies it to every candidate, for tests.
 
 ### Type metadata
 
