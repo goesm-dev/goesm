@@ -43,6 +43,11 @@ func Sprintf(format string, a ...any) string {
 // there is none).
 func fastSprintf(format string, a []any, wrapErrs bool) (s string, wrapped int, ok bool) {
 	wrapped = -1
+	// The Error and String methods are called once the whole format is
+	// known to be handled here, so that none is called twice when fmt's own
+	// code takes over: parts holds the text with a place for each result.
+	var parts []string
+	var calls []methodCall
 	argNum := 0
 	start := 0
 	end := len(format)
@@ -147,29 +152,25 @@ func fastSprintf(format string, a []any, wrapErrs bool) (s string, wrapped int, 
 			if (verb != 's' && verb != 'v' && (verb != 'w' || !wrapErrs || wrapped >= 0)) || prec >= 0 || zero {
 				return "", -1, false
 			}
-			var text string
-			switch v := arg.(type) {
+			switch arg.(type) {
 			case Formatter, reflect.Value:
 				// printArg prints the value a reflect.Value holds, not
 				// its String.
 				return "", -1, false
 			case error:
-				text, ok = errorText(v)
 			case Stringer:
 				if verb == 'w' {
 					return "", -1, false
 				}
-				text, ok = stringText(v)
 			default:
-				return "", -1, false
-			}
-			if !ok {
 				return "", -1, false
 			}
 			if verb == 'w' {
 				wrapped = argNum - 1
 			}
-			s += padded(text, wid, minus)
+			parts = append(parts, s, "")
+			calls = append(calls, methodCall{len(parts) - 1, arg, verb, wid, minus})
+			s = ""
 			continue
 		}
 		if num == "" {
@@ -190,28 +191,51 @@ func fastSprintf(format string, a []any, wrapErrs bool) (s string, wrapped int, 
 	if argNum != len(a) {
 		return "", -1, false
 	}
-	return s + format[start:], wrapped, true
+	if calls == nil {
+		return s + format[start:], wrapped, true
+	}
+	for _, c := range calls {
+		parts[c.at] = c.text()
+	}
+	out := ""
+	for _, p := range parts {
+		out += p
+	}
+	return out + s + format[start:], wrapped, true
 }
 
-// errorText and stringText return e.Error() and v.String(), or ok ==
-// false if the method panics: then fmt's own code calls it again and
-// prints the panic as catchPanic does.
-func errorText(e error) (s string, ok bool) {
-	defer func() {
-		if recover() != nil {
-			s, ok = "", false
-		}
-	}()
-	return e.Error(), true
+// A methodCall is an error or Stringer operand of fastSprintf, whose text
+// goes to parts[at].
+type methodCall struct {
+	at    int
+	arg   any
+	verb  byte
+	wid   int
+	minus bool
 }
 
-func stringText(v Stringer) (s string, ok bool) {
+// text returns the operand's Error or String, padded, or what catchPanic
+// prints if the method panics.
+func (c methodCall) text() (s string) {
+	method := "Error"
 	defer func() {
-		if recover() != nil {
-			s, ok = "", false
+		if err := recover(); err != nil {
+			if v := reflect.ValueOf(c.arg); v.Kind() == reflect.Pointer && v.IsNil() {
+				s = nilAngleString
+				return
+			}
+			verb := c.verb
+			if verb == 'w' { // handleMethods passes %w on as %v
+				verb = 'v'
+			}
+			s = percentBangString + string(rune(verb)) + panicString + method + " method: " + Sprint(err) + ")"
 		}
 	}()
-	return v.String(), true
+	if e, ok := c.arg.(error); ok {
+		return padded(e.Error(), c.wid, c.minus)
+	}
+	method = "String"
+	return padded(c.arg.(Stringer).String(), c.wid, c.minus)
 }
 
 // fastInt64 and fastUint64 format v for verb as fmtInteger does without
