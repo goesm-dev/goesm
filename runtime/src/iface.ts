@@ -29,10 +29,14 @@ export function box(t: Type, v: any): Iface | null {
 
 // copy returns a Go copy of v of type t. Used where the static type is a type
 // parameter so the lowering cannot know whether v is an aggregate.
+// noElems is the value of every zero-length array (nothing in it can change).
+export const noElems: any[] = [];
+
 export function copy(t: Type, v: any): any {
   if (typeof v !== "object" || v === null) return v; // not an aggregate
   if (t.kind === Kind.Struct) return v.$clone(t);
   if (t.kind === Kind.Array) {
+    if (t.len === 0) return v;
     const e = t.elem!;
     return isAggregate(e) ? v.map((x: any) => copy(e, x)) : v.slice();
   }

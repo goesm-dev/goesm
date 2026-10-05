@@ -29,9 +29,131 @@ func (pe *pkgEmitter) wrapperName(name string) string {
 	if js, ok := pe.wrappers[name]; ok {
 		return js
 	}
-	js := pe.fresh(name + "$js")
+	js := pe.fresh(strings.ReplaceAll(name, ".", "$") + "$js")
 	pe.wrappers[name] = js
 	return js
+}
+
+// importedHandles are the struct types of other packages whose pointers
+// cross the entry package's JS calling ABI as handles: in the parameters
+// and results of its exported functions and of its types' exported methods,
+// in the fields and elements of what those carry, and in the methods of the
+// handles themselves. Other packages' struct classes have no JS methods
+// (emitStructClass), so the entry package gives these theirs.
+func (pe *pkgEmitter) importedHandles() []*types.Named {
+	var found []*types.Named
+	seen := map[types.Type]bool{}
+	var walk func(t types.Type)
+	walkSig := func(sig *types.Signature) {
+		for i := 0; i < sig.Params().Len(); i++ {
+			walk(sig.Params().At(i).Type())
+		}
+		for i := 0; i < sig.Results().Len(); i++ {
+			walk(sig.Results().At(i).Type())
+		}
+	}
+	walk = func(t types.Type) {
+		t = types.Unalias(t)
+		if seen[t] || isJSValue(t) {
+			return
+		}
+		seen[t] = true
+		if isHandleType(t) {
+			p, ok := t.Underlying().(*types.Pointer)
+			if !ok {
+				return
+			}
+			n, ok := types.Unalias(p.Elem()).(*types.Named)
+			if !ok || n.TypeArgs().Len() > 0 {
+				return
+			}
+			if n.Obj().Pkg() != pe.pkg.Types {
+				found = append(found, n)
+			}
+			for _, fn := range handleMethods(n) {
+				walkSig(fn.Signature())
+			}
+			return
+		}
+		switch u := t.Underlying().(type) {
+		case *types.Pointer:
+			walk(u.Elem())
+		case *types.Slice:
+			walk(u.Elem())
+		case *types.Array:
+			walk(u.Elem())
+		case *types.Map:
+			walk(u.Key())
+			walk(u.Elem())
+		case *types.Struct:
+			for i := 0; i < u.NumFields(); i++ {
+				if f := u.Field(i); f.Exported() || promotes(f) {
+					walk(f.Type())
+				}
+			}
+		case *types.Signature:
+			walkSig(u)
+		}
+	}
+	scope := pe.pkg.Types.Scope()
+	for _, name := range scope.Names() {
+		switch obj := scope.Lookup(name).(type) {
+		case *types.Func:
+			if obj.Exported() && obj.Signature().TypeParams().Len() == 0 {
+				walkSig(obj.Signature())
+			}
+		case *types.TypeName:
+			if n, ok := obj.Type().(*types.Named); ok && !obj.IsAlias() && n.TypeParams().Len() == 0 {
+				walk(types.NewPointer(n))
+			}
+		}
+	}
+	return found
+}
+
+// handleMethods are the methods JavaScript calls on a handle of type *n:
+// the exported, non-generic methods declared on n or *n that no field of
+// the same name hides.
+func handleMethods(n *types.Named) []*types.Func {
+	st, _ := n.Underlying().(*types.Struct)
+	ms := types.NewMethodSet(types.NewPointer(n))
+	var fns []*types.Func
+	for i := 0; i < ms.Len(); i++ {
+		sel := ms.At(i)
+		fn := sel.Obj().(*types.Func)
+		if !fn.Exported() || len(sel.Index()) != 1 || fn.Signature().TypeParams().Len() > 0 || st != nil && isFieldName(st, fn.Name()) {
+			continue
+		}
+		fns = append(fns, fn)
+	}
+	return fns
+}
+
+// emitImportedHandleMethods gives the struct classes of importedHandles
+// their exported methods, through export wrappers as the entry package's
+// own methods have.
+func (pe *pkgEmitter) emitImportedHandleMethods() {
+	for _, n := range pe.importedHandles() {
+		class := pe.structClass(n)
+		for _, fn := range handleMethods(n) {
+			name := pe.methodFuncName(fn)
+			pe.exportWrapper(fn, name, "", pe.prog.IsAsync(fn))
+			sig := fn.Signature()
+			var params, args []string
+			for j := 0; j < sig.Params().Len(); j++ {
+				a := fmt.Sprintf("a%d", j)
+				if sig.Variadic() && j == sig.Params().Len()-1 {
+					params = append(params, "..."+a+": any[]")
+					args = append(args, "..."+a)
+					continue
+				}
+				params = append(params, a+": any")
+				args = append(args, a)
+			}
+			pe.funcs.ln("(%s.prototype as any)[%s] = function (%s) { return %s(%s); };", class, jsString(fn.Name()),
+				strings.Join(append([]string{"this: any"}, params...), ", "), pe.wrapperName(name), strings.Join(append([]string{"this"}, args...), ", "))
+		}
+	}
 }
 
 // exportWrapper emits and exports, as exported, the function JavaScript
@@ -138,19 +260,49 @@ func (pe *pkgEmitter) exportWrapper(fn *types.Func, name, exported string, async
 	}
 	w.indent--
 	w.ln("}")
-	pe.export(js, exported)
+	if exported != "" {
+		pe.export(js, exported)
+	}
 }
 
 // exportResultTS is the TypeScript result type of the export wrapper of a
 // function of signature sig.
 func (pe *pkgEmitter) exportResultTS(sig *types.Signature, async bool) string {
+	return pe.exportResultTSSeen(sig, async, nil)
+}
+
+// handleMethodsTS lists the TypeScript signatures of the methods of a handle
+// of type *n, from another package (see jsTS).
+func (pe *pkgEmitter) handleMethodsTS(n *types.Named, seen map[types.Type]bool) string {
+	sub := map[types.Type]bool{n: true}
+	for k := range seen {
+		sub[k] = true
+	}
+	var ms []string
+	for _, fn := range handleMethods(n) {
+		sig := fn.Signature()
+		var ps []string
+		for j := 0; j < sig.Params().Len(); j++ {
+			pt := sig.Params().At(j).Type()
+			if sig.Variadic() && j == sig.Params().Len()-1 {
+				ps = append(ps, fmt.Sprintf("...a%d: %s[]", j, pe.jsTS(pt.(*types.Slice).Elem(), true, sub)))
+				continue
+			}
+			ps = append(ps, fmt.Sprintf("a%d: %s", j, pe.jsTS(pt, true, sub)))
+		}
+		ms = append(ms, fmt.Sprintf("%s(%s): %s", jsPropName(fn.Name()), strings.Join(ps, ", "), pe.exportResultTSSeen(sig, pe.prog.IsAsync(fn), sub)))
+	}
+	return strings.Join(ms, "; ")
+}
+
+func (pe *pkgEmitter) exportResultTSSeen(sig *types.Signature, async bool, seen map[types.Type]bool) string {
 	var rts []string
 	for i := 0; i < sig.Results().Len(); i++ {
 		t := sig.Results().At(i).Type()
 		if i == sig.Results().Len()-1 && isErrorType(t) {
 			break
 		}
-		rts = append(rts, pe.jsTS(t, false, nil))
+		rts = append(rts, pe.jsTS(t, false, seen))
 	}
 	ret := "void"
 	switch len(rts) {
@@ -272,7 +424,15 @@ func (pe *pkgEmitter) jsTS(t types.Type, in bool, seen map[types.Type]bool) stri
 	if isHandleType(t) {
 		if p, ok := t.Underlying().(*types.Pointer); ok {
 			if n, ok := types.Unalias(p.Elem()).(*types.Named); ok && n.TypeArgs().Len() == 0 {
-				return pe.structClass(n) + " | null"
+				c := pe.structClass(n)
+				if n.Obj().Pkg() != pe.pkg.Types && !seen[n] {
+					// The class's TypeScript type has no methods: the
+					// entry package adds them (emitImportedHandleMethods).
+					if ms := pe.handleMethodsTS(n, seen); ms != "" {
+						c = "(" + c + " & { " + ms + " })"
+					}
+				}
+				return c + " | null"
 			}
 			return "any"
 		}
@@ -374,9 +534,21 @@ func (pe *pkgEmitter) jsStructTS(st *types.Struct, in bool, seen map[types.Type]
 		if promotes(f) && name == "" {
 			ft := f.Type()
 			if p, ok := ft.Underlying().(*types.Pointer); ok {
-				ft = p.Elem()
+				ft = types.Unalias(p.Elem())
 			}
-			if inner := pe.jsStructTS(ft.Underlying().(*types.Struct), in, seen); inner != "{}" {
+			// A struct embedding itself (type Node struct { *Node }) adds
+			// no fields at the recursion, as in encoding/json.
+			sub := seen
+			if _, ok := ft.(*types.Named); ok {
+				if seen[ft] {
+					continue
+				}
+				sub = map[types.Type]bool{ft: true}
+				for k := range seen {
+					sub[k] = true
+				}
+			}
+			if inner := pe.jsStructTS(ft.Underlying().(*types.Struct), in, sub); inner != "{}" {
 				props = append(props, strings.TrimSuffix(strings.TrimPrefix(inner, "{ "), " }"))
 			}
 			continue

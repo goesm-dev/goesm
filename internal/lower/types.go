@@ -326,6 +326,11 @@ func (pe *pkgEmitter) zeroOf(t types.Type, tp tpScope) string {
 		}
 		return "new " + pe.structClass(t) + "(" + strings.Join(args, ", ") + ")"
 	case *types.Array:
+		if u.Len() == 0 {
+			// Shared: a zero-length array has nothing to change. (The blank
+			// [0]func() field of syscall/js.Value is in every value.)
+			return "$rt.noElems"
+		}
 		if u.Len() <= 8 {
 			z := make([]string, u.Len())
 			for i := range z {
@@ -377,9 +382,18 @@ func (pe *pkgEmitter) copyExpr(s string, t types.Type, tp tpScope) string {
 		}
 		return s + ".$clone()"
 	case *types.Array:
+		if zeroLenArray(t) {
+			return s
+		}
 		return "$rt.copy(" + pe.typeDesc(t, tp) + ", " + s + ")"
 	}
 	return s
+}
+
+// zeroLenArray reports whether t is an array type of length 0.
+func zeroLenArray(t types.Type) bool {
+	a, ok := t.Underlying().(*types.Array)
+	return ok && a.Len() == 0
 }
 
 // tsType renders a TypeScript annotation. Annotations document the IR for

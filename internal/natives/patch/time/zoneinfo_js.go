@@ -2,10 +2,10 @@
 
 // goesm's patch of package time's zoneinfo_js.go: the local time zone is
 // read from the host's Date directly rather than through syscall/js, so that
-// a program that does not use Local does not carry syscall/js.
+// a program that does not use Local does not carry syscall/js. It formats
+// the offset with the package's own appendInt rather than the strconv
+// package Go's file imports, whose import path differs between Go releases.
 package time
-
-import "internal/strconv"
 
 // localOffset returns the host's current offset from UTC, in minutes east
 // (the negated Date.prototype.getTimezoneOffset).
@@ -29,10 +29,10 @@ func initLocal() {
 	} else {
 		z.name += "+"
 	}
-	z.name += strconv.Itoa(offset / 60)
+	z.name += string(appendInt(nil, offset/60, 0))
 	min := offset % 60
 	if min != 0 {
-		z.name += ":" + strconv.Itoa(min)
+		z.name += ":" + string(appendInt(nil, min, 0))
 	}
 	localLoc.zone = []zone{z}
 }

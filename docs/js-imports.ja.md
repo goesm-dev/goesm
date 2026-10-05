@@ -84,18 +84,18 @@ if errors.As(err, &jerr) {
 
 ## 性能
 
-引数が数値か ASCII の文字列か、それらをフィールドに持つ構造体であれば、`//goesm:import` 経由の呼び出しは JavaScript から同じ関数を呼ぶ場合より数ナノ秒多くかかるだけです。同じ呼び出しを `syscall/js` で書くと、日本語の文字列で 3 倍、構造体では最大 160 倍の時間がかかります。計測は [bench/jsimport](../bench/jsimport) で行いました。
+引数が数値か ASCII の文字列か、それらをフィールドに持つ構造体であれば、`//goesm:import` 経由の呼び出しは JavaScript から同じ関数を呼ぶ場合より数ナノ秒多くかかるだけです。同じ呼び出しを `syscall/js` で書くと、数値と文字列では 20〜50 ns 多くかかり、スライスと構造体では 8〜50 倍の時間がかかります。`syscall/js` のコードは、スライスと構造体を要素やプロパティごとに組み立てるためです。`syscall/js` の性能は [dom.ja.md](dom.ja.md#性能) でも説明しています。計測は [bench/jsimport](../bench/jsimport) で行いました。
 
 | 呼び出し | JS → JS | Go → JS、`//goesm:import` | Go → JS、`syscall/js` |
 | --- | ---: | ---: | ---: |
-| `add(int, int) int` | 2.2 ns | 3.0 ns | 163 ns |
-| `strlen(string) int`、ASCII | 2.6 ns | 7.8 ns | 146 ns |
-| `strlen(string) int`、日本語 | 5.0 ns | 117 ns | 317 ns |
-| `upper(string) string`、ASCII | 30 ns | 48 ns | 280 ns |
-| `total(struct) int` | 7.3 ns | 5.3 ns | 840 ns |
-| `sum([]float64) float64`、8 要素 | 17 ns | 37 ns | 1,406 ns |
+| `add(int, int) int` | 2.6 ns | 3.1 ns | 23 ns |
+| `strlen(string) int`、ASCII | 2.9 ns | 9.1 ns | 36 ns |
+| `strlen(string) int`、日本語 | 5.3 ns | 124 ns | 158 ns |
+| `upper(string) string`、ASCII | 29 ns | 44 ns | 83 ns |
+| `total(struct) int` | 8.1 ns | 5.0 ns | 238 ns |
+| `sum([]float64) float64`、8 要素 | 18 ns | 35 ns | 303 ns |
 
-計測環境は 4 vCPU の Intel Xeon 2.80 GHz のクラウド VM 上の Node.js 22 です。Bun では、数値と文字列の呼び出しはほぼ同じ時間で、構造体とスライスの呼び出しは約 2 倍の時間がかかります。ASCII 以外の文字を含む文字列は呼び出しのたびに UTF-8 と UTF-16 の間で変換され、これが残っているコストです。スライスは要素ごとにコピーされます。
+計測環境は 4 vCPU の Intel Xeon 2.10 GHz のクラウド VM 上の Node.js 22 で、7 回の計測の中央値です。Bun では、数値と文字列の呼び出しはほぼ同じ時間で、構造体とスライスの呼び出しは 2〜4 倍の時間がかかります。ASCII 以外の文字を含む文字列は呼び出しのたびに UTF-8 と UTF-16 の間で変換され、これが残っているコストです。スライスは要素ごとにコピーされます。
 
 ## 制限
 
