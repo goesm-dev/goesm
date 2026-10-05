@@ -130,7 +130,7 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 		fs := facts[pkg]
 		sort.Strings(fs)
 		h := sha256.New()
-		fmt.Fprintf(h, "goesm facts\ntracksGoroutines %v\nstd %v\ndep %v\n", p.TracksGoroutines, p.std[pkg], p.Deps[pkg])
+		fmt.Fprintf(h, "goesm facts\ntracksGoroutines %v\nusesPull %v\nstd %v\ndep %v\n", p.TracksGoroutines, p.usesPull, p.std[pkg], p.Deps[pkg])
 		for _, f := range fs {
 			fmt.Fprintln(h, f)
 		}

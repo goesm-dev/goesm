@@ -308,3 +308,11 @@ export function linkCall(sym: string, args: any[], deferrable: boolean): any {
   }
   plainPanic(`goesm: ${sym} called through //go:linkname before its package was initialized`);
 }
+
+// withSeqGen gives the function literal f of a sequence its generator g,
+// which iter.Pull steps instead of running f on a coroutine (see the
+// lowering's seqGenerator).
+export function withSeqGen<F extends Function>(f: F, g: (s: { d: boolean }) => Generator<any, void, boolean>): F {
+  (f as any).$gen = g;
+  return f;
+}
