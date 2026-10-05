@@ -135,6 +135,9 @@ func (fe *funcEmitter) ident(e *ast.Ident) string {
 	case *types.Nil:
 		return "null"
 	case *types.Var:
+		if fe.isSplit(obj) {
+			return fe.splitRead(obj)
+		}
 		return fe.varRef(obj)
 	case *types.Func:
 		if inst, ok := fe.info.Instances[e]; ok {
@@ -1128,6 +1131,9 @@ func (fe *funcEmitter) equal(tag string, tagT types.Type, e ast.Expr) string {
 }
 
 func (fe *funcEmitter) binary(e *ast.BinaryExpr) string {
+	if s, ok := fe.splitExpr(e); ok {
+		return s
+	}
 	xt, yt := fe.info.TypeOf(e.X), fe.info.TypeOf(e.Y)
 	switch e.Op {
 	case token.LAND, token.LOR:
@@ -1169,6 +1175,9 @@ func (fe *funcEmitter) cmpOperand(x ast.Expr) string {
 }
 
 func (fe *funcEmitter) unary(e *ast.UnaryExpr) string {
+	if s, ok := fe.splitExpr(e); ok {
+		return s
+	}
 	t := fe.info.TypeOf(e)
 	switch e.Op {
 	case token.AND:
@@ -1588,6 +1597,12 @@ func (fe *funcEmitter) args(e *ast.CallExpr, sig *types.Signature) string {
 func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 	arg := e.Args[0]
 	from := fe.info.TypeOf(arg)
+	if s, ok := fe.splitConversion(arg, to); ok {
+		return s
+	}
+	if s, ok := fe.splitExpr(e); ok {
+		return s
+	}
 	if isUnsafePointer(under(to)) {
 		if p, d, ok := fe.pointerArith(arg); ok {
 			return fe.mark(e) + "$rt.ptrAdd(" + p + ", " + d + ")"

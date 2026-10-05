@@ -132,6 +132,9 @@ type pkgEmitter struct {
 	// inBounds: the index expressions of the function being emitted whose
 	// index is in range by construction (see inBoundsIndices).
 	inBounds map[*ast.IndexExpr]bool
+	// split holds the int64 and uint64 locals of the function being
+	// lowered that live in two int32 halves (split64.go).
+	split map[*types.Var]bool
 
 	inits    []string
 	initObjs []any
