@@ -17,30 +17,38 @@ Web アプリが普段は人気の JavaScript ライブラリに任せる処理�
 
 フレームワークについては、ページが最も依存する部分を比べる。React はレンダリング、VitePress と Astro は Markdown のレンダラー、Vue はリアクティビティ、Tailwind はページのクラス名を CSS にするコンパイラを対象にする。Go 側は、ネイティブのプログラム向けに書くのと同じ普通の Go のコードである。`%w` 付きの `fmt.Errorf`、`time.Parse`、生成された protobuf の型、`html/template` を使う。Go には比べられるリアクティビティの仕組みがないため、`reactive` はこの比較のために Vue 3.5 と同じアルゴリズムで書いたものである。計算が読む ref や computed の一覧と、ref や computed を購読する計算の一覧は、同じリンクをつないだ双方向リストであり、リンクは版数を持つ。このため、前回と同じものを読んだ計算はリンクを再利用し、読んだものが変わっていない computed は再計算しない。`utility` も同様にこの比較のために書いたものである。テーマの CSS を読み、Tailwind と同じ方法でユーティリティを組み立てる。Tailwind の静的なユーティリティ、静的なバリアント、プロパティの並び順は、[js/gen-utility.mjs](js/gen-utility.mjs) が tailwindcss のパッケージから生成する表から読む。対象は一般的なページが使うユーティリティと、値を取らないバリアントである。`group-*`、`peer-*`、`not-*`、`max-*` などの複合的なバリアントや値を取るバリアントは扱わない。JavaScript 側はライブラリの通常の API を使う。Markdown のレンダラーはいくつかの文字のエスケープの仕方が異なるため、そのエスケープを戻してから HTML を比べる。入力と処理は [js/libs.mjs](js/libs.mjs) に、JavaScript 版は [js/impl/](js/impl) にある。
 
+3 つの比較には、[light/](light) に 2 つ目の Go パッケージがあり、表では「(light)」と示す。同じ処理を、バンドルを意識して書いたものであり、1 つ目のパッケージを大きくしている標準ライブラリのパッケージを使わない。[`light/result`](light/result/result.go) は、任意の値を `reflect` で整形する `fmt.Errorf` を使わず、独自のエラー型でメッセージを組み立てる。[`light/rpc`](light/rpc/rpc.go) は、connect-go、protobuf のランタイム、`net/http` を使わず、2 つのメッセージを手書きでエンコードとデコードし、`syscall/js` 経由で `fetch` を呼ぶ。[`light/render`](light/render/render.go) は、`html/template` でテンプレートを解釈せず、templ が生成するコードと同じようにコンポーネントごとの関数で `strings.Builder` にページを書き、`html.EscapeString` でエスケープする。これらの結果も、ライブラリの結果と一致しなければならない。
+
 ## 結果
 
 <!-- compare:start -->
 | 比較対象 | Go パッケージ | goesm gzip | JS gzip | 比 |
 | --- | --- | --- | --- | --- |
-| luxon | `datetime` | 21.8 KiB | 21.7 KiB | 1.01× |
-| neverthrow | `result` | 101.3 KiB | 2.4 KiB | 42.41× |
-| connect-es | `rpc` | 1291.4 KiB | 32.9 KiB | 39.30× |
-| react | `render` | 331.8 KiB | 64.3 KiB | 5.16× |
-| vitepress | `markdown` | 238.2 KiB | 40.4 KiB | 5.90× |
-| astro | `markdown` | 238.2 KiB | 47.2 KiB | 5.04× |
+| luxon | `datetime` | 20.7 KiB | 21.7 KiB | 0.96× |
+| neverthrow | `result` | 52.1 KiB | 2.4 KiB | 21.80× |
+| neverthrow (light) | `light/result` | 20.0 KiB | 2.4 KiB | 8.38× |
+| connect-es | `rpc` | 1239.3 KiB | 32.9 KiB | 37.72× |
+| connect-es (light) | `light/rpc` | 13.9 KiB | 32.9 KiB | 0.42× |
+| react | `render` | 313.9 KiB | 64.3 KiB | 4.88× |
+| react (light) | `light/render` | 15.4 KiB | 64.3 KiB | 0.24× |
+| vitepress | `markdown` | 214.9 KiB | 40.4 KiB | 5.32× |
+| astro | `markdown` | 214.9 KiB | 47.2 KiB | 4.55× |
 | vue | `reactive` | 6.4 KiB | 5.3 KiB | 1.22× |
-| tailwind | `utility` | 86.4 KiB | 72.2 KiB | 1.20× |
+| tailwind | `utility` | 69.3 KiB | 72.2 KiB | 0.96× |
 
 | 比較対象 | node 26.10.0 goesm | node 26.10.0 JS | 比 | bun 1.4.2 goesm | bun 1.4.2 JS | 比 |
 | --- | --- | --- | --- | --- | --- | --- |
-| luxon | 2.4 ms | 9.4 ms | 0.26× | 4.5 ms | 7.9 ms | 0.57× |
-| neverthrow | 0.62 ms | 0.53 ms | 1.17× | 0.73 ms | 0.54 ms | 1.35× |
-| connect-es | 19 ms | 2.5 ms | 7.48× | 23 ms | 2.1 ms | 10.76× |
-| react | 2.7 ms | 1.7 ms | 1.61× | 3.3 ms | 2.0 ms | 1.62× |
-| vitepress | 0.38 ms | 0.22 ms | 1.71× | 0.61 ms | 0.15 ms | 4.12× |
-| astro | 0.42 ms | 2.1 ms | 0.20× | 0.54 ms | 2.6 ms | 0.21× |
-| vue | 6.2 ms | 6.3 ms | 0.98× | 6.0 ms | 5.5 ms | 1.08× |
-| tailwind | 2.4 ms | 4.2 ms | 0.57× | 3.0 ms | 3.8 ms | 0.80× |
+| luxon | 2.3 ms | 9.1 ms | 0.25× | 4.5 ms | 8.0 ms | 0.55× |
+| neverthrow | 0.61 ms | 0.51 ms | 1.19× | 0.68 ms | 0.56 ms | 1.21× |
+| neverthrow (light) | 0.62 ms | 0.50 ms | 1.23× | 0.68 ms | 0.55 ms | 1.24× |
+| connect-es | 20 ms | 2.6 ms | 7.88× | 24 ms | 2.1 ms | 11.15× |
+| connect-es (light) | 2.8 ms | 2.6 ms | 1.09× | 3.3 ms | 2.3 ms | 1.44× |
+| react | 3.7 ms | 1.7 ms | 2.14× | 3.4 ms | 2.0 ms | 1.71× |
+| react (light) | 0.20 ms | 1.7 ms | 0.12× | 0.21 ms | 2.0 ms | 0.11× |
+| vitepress | 0.42 ms | 0.24 ms | 1.76× | 0.62 ms | 0.15 ms | 4.12× |
+| astro | 0.42 ms | 2.1 ms | 0.20× | 0.54 ms | 2.5 ms | 0.21× |
+| vue | 6.2 ms | 6.4 ms | 0.97× | 6.2 ms | 5.8 ms | 1.08× |
+| tailwind | 2.4 ms | 4.2 ms | 0.57× | 3.1 ms | 3.6 ms | 0.84× |
 <!-- compare:end -->
 
 サイズは minify した ES モジュールのバンドルを gzip のレベル 9 で圧縮したものである。時間は、ウォームアップ後に処理を 1 回実行した時間の中央値である。connect-es の処理では、エンコード済みの応答を返す `fetch` を同じプロセス内に置く。このため、計測するのはクライアントの処理だけ、すなわちリクエストのエンコード、プロトコルの処理、応答のデコードである。
