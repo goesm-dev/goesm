@@ -1331,6 +1331,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 	if s, ok := fe.jsonCall(e); ok {
 		return s
 	}
+	if s, ok := fe.jsValueCall(e); ok {
+		return s
+	}
 	sig := under(fe.info.TypeOf(e.Fun)).(*types.Signature)
 	args := fe.args(e, sig)
 	var callee string

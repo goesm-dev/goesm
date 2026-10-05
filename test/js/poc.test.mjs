@@ -228,3 +228,22 @@ test("JS calling ABI: functions cross both ways", async () => {
   // A Go function that comes back to Go is called directly.
   assert.deepEqual(m.MapStrings(["x"], ex), ["x!"]);
 });
+
+test("JS calling ABI: handles of other packages' types have their methods", async () => {
+  const m = await load("GOESM_JSEXPORT");
+  const b = m.NewBuilder("日本");
+  b.WriteString("語");
+  assert.equal(b.String(), "日本語");
+  assert.equal(b.Len(), 9);
+});
+
+test("JS calling ABI: pointers, self-embedding structs and returned functions", async () => {
+  const m = await load("GOESM_JSEXPORT");
+  assert.equal(m.Inc(41), 42);
+  assert.deepEqual(m.MakeNode(1), { Value: 1 });
+  assert.equal(m.Depth({ Value: 1 }), 0);
+  const parse = m.Parser();
+  assert.equal(parse("42"), 42);
+  assert.throws(() => parse("x"), { name: "GoError", message: 'strconv.Atoi: parsing "x": invalid syntax' });
+  assert.deepEqual(m.Grouper()(["go", "ts!"]), new Map([[2, ["go"]], [3, ["ts!"]]]));
+});

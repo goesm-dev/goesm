@@ -44,12 +44,12 @@ The package you build is the one named on the command line, such as `./shop` in 
 | other maps | `Map` |
 | struct | plain object with the exported fields, named as `encoding/json` names them (the `json` tag name, or the field name); an embedded struct contributes its fields. Fields an argument leaves out are zero. |
 | pointer to a struct type with methods | the Go object itself, a handle (below) |
-| other pointers | the value pointed to, converted; `null` for nil |
+| other pointers | the value pointed to, converted; `null` for nil. An argument is a pointer to a converted copy |
 | `error` | a final `error` result is thrown (below); elsewhere a `GoError` or `null` |
 | `any` | the conversion of the dynamic value; an argument becomes what `encoding/json` decodes into an `any` |
 | other interfaces | the Go value, a handle |
 | `http.Handler` result | a fetch handler, `(request: Request) => Promise<Response>` |
-| function | function, which converts its own arguments and results the same way |
+| function | function, which converts its own arguments and results the same way and throws its final `error` result |
 | channel, complex number, `unsafe.Pointer` | the Go value, a handle |
 | `js.Value`, `js.Func` | the value itself |
 | variadic parameter | separate arguments |
@@ -77,7 +77,7 @@ cart.Add({ name: "みかん", price: 100 }, { name: "柿", price: 80 });
 cart.Total(); // 180
 ```
 
-The methods of a handle convert their arguments and results like the package's functions. Each method is also a function of the module, `Cart$Add(cart, item)`. The fields of a handle hold Go's own representation (a Go string is not a JS string), so read data through methods and functions, which convert it.
+The methods of a handle convert their arguments and results like the package's functions. Each method is also a function of the module, `Cart$Add(cart, item)`. A handle of another package's type, such as a `*strings.Builder` an exported function returns, has its exported methods too. The fields of a handle hold Go's own representation (a Go string is not a JS string), so read data through methods and functions, which convert it.
 
 A handle, or an object of one of the package's struct classes, passed where an interface is expected is that interface value if its type has the interface's methods.
 

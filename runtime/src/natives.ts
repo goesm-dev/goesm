@@ -1125,9 +1125,30 @@ export function native$reflect$funcOf(ins: S<Type>, outs: S<Type>, variadic: boo
 // null needs a sentinel (jsNull, toRef and fromRef in interop.ts).
 
 
-function refArgs(args: S<any>): any[] {
-  const out: any[] = [];
-  if (args !== null) for (let i = 0; i < args.$length; i++) out.push(fromRef(args.$array[args.$offset + i]));
+// jsArgs converts the arguments of Value.Call, Invoke and New as js.ValueOf
+// does: the common ones here, the others through valueOf (Go's ValueOf).
+// ValueOf matches the predeclared types only, not types defined from them.
+function jsArgs(args: S<Iface | null>, valueOf: (x: Iface | null) => any): any[] {
+  const n = args === null ? 0 : args.$length;
+  const out: any[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = args!.$array[args!.$offset + i];
+    if (x === null) {
+      out[i] = null;
+      continue;
+    }
+    const t = x.t;
+    if (t === types.int || t === types.float64 || t === types.bool || t === types.int32 || t === types.uint8 || t === types.uint || t === types.float32 ||
+      t === types.int8 || t === types.int16 || t === types.uint16 || t === types.uint32) {
+      out[i] = x.v;
+    } else if (t === types.string) {
+      out[i] = toJSString(x.v);
+    } else if (t.name === "Value" && t.pkgPath === "syscall/js") {
+      out[i] = fromRef(x.v.ref);
+    } else {
+      out[i] = fromRef(valueOf(x));
+    }
+  }
   return out;
 }
 
@@ -1181,14 +1202,17 @@ export function native$syscall$js$valueType(v: any): number {
 }
 
 export function native$syscall$js$valueGet(v: any, p: string): any {
+  return native$syscall$js$valueGetJS(v, toJSString(p));
+}
+
+export function native$syscall$js$valueGetJS(v: any, name: string): any {
   const o = fromRef(v);
-  const name = toJSString(p);
   if (o === globalThis) {
     if (name === "fs") return hostFS();
     if (name === "process" && (globalThis as any).process === undefined) return hostProcess();
     if (name === "path" && (globalThis as any).path === undefined) return hostPath();
   }
-  return toRef(Reflect.get(o, name));
+  return toRef(o[name]);
 }
 
 export function native$syscall$js$valueSet(v: any, p: string, x: any): void {
@@ -1207,31 +1231,102 @@ export function native$syscall$js$valueSetIndex(v: any, i: number, x: any): void
   Reflect.set(fromRef(v), i, fromRef(x));
 }
 
+// x is a JavaScript value (Value.setJS, setIndexJS).
+export function native$syscall$js$valueSetJS(v: any, name: string, x: any): void {
+  setProperty(fromRef(v), name, x);
+}
+
+export function native$syscall$js$valueSetIndexJS(v: any, i: number, x: any): void {
+  const o = fromRef(v);
+  try {
+    o[i] = x;
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e;
+    Reflect.set(o, i, x);
+  }
+}
+
+// setProperty sets o[k] = x as Value.Set does (valueSetIndexJS is the same
+// for indices, kept apart so that each stays monomorphic), which ignores an assignment
+// that fails (a read-only property, a frozen object, a Proxy whose set trap
+// returns false) as Reflect.set does. An assignment is several times faster
+// than Reflect.set, but in strict code it throws a TypeError for those, so
+// Reflect.set makes the assignment again then; a setter that threw the
+// TypeError throws it again from there.
+function setProperty(o: any, k: string, x: any): void {
+  try {
+    o[k] = x;
+  } catch (e) {
+    if (!(e instanceof TypeError)) throw e;
+    Reflect.set(o, k, x);
+  }
+}
+
 export function native$syscall$js$valueLength(v: any): number {
   return Number(fromRef(v).length);
 }
 
-export function native$syscall$js$valueCall(v: any, m: string, args: S<any>): [any, boolean] {
+// isObject reports whether x has properties of its own, as Value.Call
+// requires: Go's syscall/js reads the method with Reflect.get, which throws
+// for primitives, and Call panics with a ValueError for them.
+function isObject(x: any): boolean {
+  return (typeof x === "object" && x !== null) || typeof x === "function";
+}
+
+export function native$syscall$js$valueCall(v: any, m: string, args: S<Iface | null>, valueOf: (x: Iface | null) => any): [any, boolean] {
+  const a = jsArgs(args, valueOf);
   try {
     const o = fromRef(v);
+    if (!isObject(o)) return [undefined, false];
     const f = native$syscall$js$valueGet(v, m);
-    return [toRef(Reflect.apply(fromRef(f), o, refArgs(args))), true];
+    return [toRef(Reflect.apply(fromRef(f), o, a)), true];
   } catch (e) {
     return jsThrown(e);
   }
 }
 
-export function native$syscall$js$valueInvoke(v: any, args: S<any>): [any, boolean] {
+export function native$syscall$js$valueInvoke(v: any, args: S<Iface | null>, valueOf: (x: Iface | null) => any): [any, boolean] {
+  const a = jsArgs(args, valueOf);
   try {
-    return [toRef(Reflect.apply(fromRef(v), undefined, refArgs(args))), true];
+    return [toRef(Reflect.apply(fromRef(v), undefined, a)), true];
   } catch (e) {
     return jsThrown(e);
   }
 }
 
-export function native$syscall$js$valueNew(v: any, args: S<any>): [any, boolean] {
+export function native$syscall$js$valueNew(v: any, args: S<Iface | null>, valueOf: (x: Iface | null) => any): [any, boolean] {
+  const a = jsArgs(args, valueOf);
   try {
-    return [toRef(Reflect.construct(fromRef(v), refArgs(args))), true];
+    return [toRef(Reflect.construct(fromRef(v), a)), true];
+  } catch (e) {
+    return jsThrown(e);
+  }
+}
+
+// The arguments of these are a JavaScript array of JavaScript values
+// (Value.callJS, invokeJS and newJS).
+export function native$syscall$js$valueCallJS(v: any, name: string, args: any[]): [any, boolean] {
+  try {
+    const o = fromRef(v);
+    if (!isObject(o)) return [undefined, false];
+    const f = o === globalThis ? fromRef(native$syscall$js$valueGetJS(v, name)) : o[name];
+    return [toRef(Reflect.apply(f, o, args)), true];
+  } catch (e) {
+    return jsThrown(e);
+  }
+}
+
+export function native$syscall$js$valueInvokeJS(v: any, args: any[]): [any, boolean] {
+  try {
+    return [toRef(Reflect.apply(fromRef(v), undefined, args)), true];
+  } catch (e) {
+    return jsThrown(e);
+  }
+}
+
+export function native$syscall$js$valueNewJS(v: any, args: any[]): [any, boolean] {
+  try {
+    return [toRef(Reflect.construct(fromRef(v), args)), true];
   } catch (e) {
     return jsThrown(e);
   }

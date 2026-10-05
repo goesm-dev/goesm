@@ -228,7 +228,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 | `reflect` | runtime の型 descriptor の上の全 API (type、value、`Set*`、`Call`、`MakeFunc`、map、slice、`Convert`、`DeepEqual`、`VisibleFields` など)。`fmt` と `encoding/json` に足りる範囲 |
 | `internal/reflectlite` | `Type` = runtime の型 descriptor、`Value` = (descriptor, 値 or pointer)。`errors.Is` / `errors.As`、`sort.Slice`、`context` に足りる範囲 |
 | `sync` | `Mutex` と `RWMutex` は同期的に lock し、block を跨いで保持される mutex (§5) だけ待つ (async)。`WaitGroup` と `Cond` は channel で待つ。`Once`、`Map`、`Pool` は普通の Go |
-| `syscall/js` | js/wasm の `syscall/js` API を JS の値そのものの上に実装 (`Value` が値を持つ)。goesm は stdlib を js/wasm 向けに compile するので、`os`・`syscall`・`time` はこれを通じて host に届く。`js.Global().Get("fs")` は `globalThis.fs` が何であっても常に goesm 自身の file system で、`syscall` package が期待する callback API を持ち、return する前に callback を呼ぶ (Node・Bun・Deno では `node:fs` の上に、browser では console を使う代替)。そのため `os.Stdout` と `os.Stderr` はどこでも動き、呼び出し側を async にしない。`process` は host のもの、browser では最小限の代替 |
+| `syscall/js` | js/wasm の `syscall/js` API を JS の値そのものの上に実装 (`Value` が値を持つ)。goesm は stdlib を js/wasm 向けに compile するので、`os`・`syscall`・`time` はこれを通じて host に届く。`js.Global().Get("fs")` は `globalThis.fs` が何であっても常に goesm 自身の file system で、`syscall` package が期待する callback API を持ち、return する前に callback を呼ぶ (Node・Bun・Deno では `node:fs` の上に、browser では console を使う代替)。そのため `os.Stdout` と `os.Stderr` はどこでも動き、呼び出し側を async にしない。`process` は host のもの、browser では最小限の代替。引数が真偽値・数値・文字列・`Value`・`Func`・nil だけの `Value.Get`・`Set`・`SetIndex`・`Call`・`Invoke`・`New` の呼び出しは、`ValueOf` のために引数を 1 つずつ box する代わりに、変換済みの引数を JavaScript の配列で受け取り、ASCII の定数名をそのまま受け取る非公開の版に lower される (`internal/lower/jsvalue.go`) |
 
 仕組み:
 
@@ -256,7 +256,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 
 * `.go` file は普通の Go で、goesm 専用 syntax・magic comment はありません。唯一の directive である `//goesm:import` は JavaScript を呼ぶコードだけが使い ([docs/js-imports.ja.md](docs/js-imports.ja.md))、それを使うコードは goesm でしかビルドできなくなります。fixture は `go vet` / `go build` / `go run` がそのまま通り、golden テストはまさに native Go 実行と比較しています。package graph は go command が解決したもので、govulncheck 等の call graph も変わりません。
 * 依存 package を import しても goesm 側でコードは実行されません。compiler plugin や third-party の extension 機構はありません。esbuild の plugin は `goesm build -split` で使う goesm 自身の resolver だけで、出力した tree には plugin は不要です。stdlib の置換、patch、natives (§9) は goesm 内の固定の集合で、`$GOROOT/src` にだけ適用されます。stdlib 以外で body の無い Go 関数は、`//go:linkname` が program 内の別の Go 関数を指す場合を除いて error であり、goesm への hook にはなりません。`-toolexec` は `go build -toolexec` と同じく、user が指定した program を実行します。
-* 懸念点: (1) go/packages は `go list` を実行するので、`GOFLAGS` などの環境、`go.work`、`GOPROXY` からの module 取得について go command と同じ trust 境界を継承します (goesm がそれを広げることはありません)。(2) 生成コードは Go の型安全性に依存しており、goesm の lowering bug は JS 上の memory safety ではなく誤動作として現れます (JS 自体は memory safe)。(3) 生成 ESM は `globalThis.reportError` 等の host API を使いますが、DOM API binding は未実装です。(4) `GoPanic` の message や source map の `sourcesContent` は Go source を含むため、公開 bundle に Go source が載ります (`SourcesContent` を外すオプションは未実装)。
+* 懸念点: (1) go/packages は `go list` を実行するので、`GOFLAGS` などの環境、`go.work`、`GOPROXY` からの module 取得について go command と同じ trust 境界を継承します (goesm がそれを広げることはありません)。(2) 生成コードは Go の型安全性に依存しており、goesm の lowering bug は JS 上の memory safety ではなく誤動作として現れます (JS 自体は memory safe)。(3) 生成 ESM は `globalThis.reportError` 等の host API を使います。DOM は `syscall/js` から使い ([docs/dom.ja.md](docs/dom.ja.md))、goesm 独自の DOM binding はありません。(4) `GoPanic` の message や source map の `sourcesContent` は Go source を含むため、公開 bundle に Go source が載ります (`SourcesContent` を外すオプションは未実装)。
 
 ## 11. 実装済み / 未実装 / native Go との差分
 

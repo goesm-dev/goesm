@@ -50,20 +50,21 @@ export default { fetch: Handler() };
 | ユースケース | 典型的なコード | 状態 | 確認方法 |
 | --- | --- | --- | --- |
 | コンポーネントから呼ぶドメインロジック | 構造体、メソッド、`errors.Is`・`As`・`Join` によるエラー処理、ジェネリクス、`encoding/json`、`regexp`、`strings`、`strconv`、`time` | 対応 | Vite でビルドし、Chromium で手作業で確認しました |
-| Go からの DOM 操作 | `syscall/js` による要素の作成と検索、`js.FuncOf` によるイベントリスナー、入力値の読み取り、タイマーと goroutine | 対応 | Chromium で手作業で確認しました |
+| Go からの DOM 操作 | `syscall/js` または `honnef.co/go/js/dom/v2` による要素の作成と検索、`js.FuncOf` によるイベントリスナー、入力値の読み取り、タイマーと goroutine。使い方は [dom.ja.md](dom.ja.md) にまとめています | 対応 | Chromium で手作業で確認しました |
 | ブラウザでの Connect のクライアント | Connect、Connect JSON、gRPC-Web の unary とサーバーストリーミング、期限とエラー。ストリーミングは届いた順に受け取れます | 対応 | Vite でビルドし、Chromium で手作業で確認しました |
 | React、Preact、Next.js | TSX から Go の関数を呼びます。描画中、イベントハンドラ、エフェクト、Next.js の Client Component と Server Component と Route Handler から呼び、Turbopack と webpack の両方でビルドします | 対応 | Vite 8 上の React 19 と Preact、Next.js 16 を Chromium で手作業で確認しました |
 
 出力は TypeScript で書かれた ES モジュールなので、Vite、Rolldown、Turbopack、webpack、esbuild はプラグインなしでバンドルできます。Go は JSX の中に書くのではなく、他のモジュールと同じように JSX から呼びます。生成するファイルはすべて `// @ts-nocheck` で始まります。そのため、`noUnusedLocals` や ES2017 のターゲットといったプロジェクト側の厳しい設定は生成コードを検査し直さず、export された型だけが呼び出し側に届きます。残る設定は 2 つです。1 つは、モジュールを `.ts` 付きの名前で import する場合に TypeScript の `allowImportingTsExtensions` が必要になることで、拡張子なしで import すれば不要です。もう 1 つは、goesm の出力を `node_modules` のパッケージとして配布する場合に Next.js の `transpilePackages` が必要になることです。
 
-Go のコードがページの JavaScript に加える量を、Vite 8 で minify して gzip した大きさで示します。
+Go のコードがページの JavaScript に加える量を、`goesm build -minify` で minify して gzip した大きさで示します。Connect のクライアントだけは Vite 8 で計測しました。
 
 | ページが使うもの | gzip |
 | --- | ---: |
-| `strings` だけを使うパッケージ | 11 KiB |
-| `syscall/js` による DOM 操作 | 43 KiB |
-| `fmt` による hello world | 117 KiB |
-| `fmt` と `reflect` を伴う `encoding/json` を使うドメインロジック | 276 KiB |
+| `syscall/js` による DOM 操作。[dom.ja.md](dom.ja.md) のカウンターのボタン | 9 KiB |
+| `strings.Fields`、`Join`、`ToLower` を使う関数 | 15 KiB |
+| 同じカウンターを `honnef.co/go/js/dom/v2` で書いたもの | 50 KiB |
+| `fmt` による hello world | 90 KiB |
+| `reflect` を伴う `encoding/json` による構造体への JSON のデコード | 193 KiB |
 | protobuf と `net/http` を伴う Connect のクライアント | 1.3 MiB |
 
 ## JavaScript と TypeScript から使う Go のライブラリ

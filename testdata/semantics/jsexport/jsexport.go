@@ -183,3 +183,41 @@ func Later(s string) string {
 	time.Sleep(time.Millisecond)
 	return "later " + s
 }
+
+// NewBuilder returns a handle of a type of another package: JavaScript
+// calls its methods as on the entry package's types.
+func NewBuilder(s string) *strings.Builder {
+	b := &strings.Builder{}
+	b.WriteString(s)
+	return b
+}
+
+// Node embeds itself; JavaScript sees the fields of the outer Node only.
+type Node struct {
+	*Node
+	Value int
+}
+
+func MakeNode(v int) Node { return Node{&Node{nil, v + 1}, v} }
+
+// Depth is the length of the chain of embedded Nodes.
+func Depth(n Node) int {
+	d := 0
+	for p := n.Node; p != nil; p = p.Node {
+		d++
+	}
+	return d
+}
+
+// Inc increments the int p points to: JavaScript passes the int.
+func Inc(p *int) int {
+	*p++
+	return *p
+}
+
+// Parser returns a function that JavaScript calls like an exported one.
+func Parser() func(string) (int, error) {
+	return func(s string) (int, error) { return strconv.Atoi(s) }
+}
+
+func Grouper() func([]string) map[int][]string { return Lengths }

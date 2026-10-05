@@ -226,13 +226,35 @@ func (v Value) SetIndex(i int, x any) {
 	valueSetIndex(v.ref, i, ValueOf(x).ref)
 }
 
-func argRefs(args []any) []ref {
-	refs := make([]ref, len(args))
-	for i, a := range args {
-		refs[i] = ValueOf(a).ref
+// getJS, setJS and setIndexJS are Get, Set and SetIndex with the property
+// name p a JavaScript string and x already converted to a JavaScript value
+// (see callJS).
+func (v Value) getJS(p ref) Value {
+	if vType := v.Type(); !vType.isObject() {
+		panic(&ValueError{"Value.Get", vType})
 	}
-	return refs
+	return makeValue(valueGetJS(v.ref, p))
 }
+
+func (v Value) setJS(p ref, x ref) {
+	if vType := v.Type(); !vType.isObject() {
+		panic(&ValueError{"Value.Set", vType})
+	}
+	valueSetJS(v.ref, p, x)
+}
+
+func (v Value) setIndexJS(i int, x ref) {
+	if vType := v.Type(); !vType.isObject() {
+		panic(&ValueError{"Value.SetIndex", vType})
+	}
+	valueSetIndexJS(v.ref, i, x)
+}
+
+// valueOfRef is ValueOf(x).ref. The natives that take arguments convert
+// the common ones (Values, booleans, numbers, strings, nil) themselves and
+// call it for the others, which saves converting every call's arguments
+// into a slice of refs first.
+func valueOfRef(x any) ref { return ValueOf(x).ref }
 
 // Length returns the JavaScript property "length" of v.
 // It panics if v is not a JavaScript object.
@@ -247,29 +269,69 @@ func (v Value) Length() int {
 // arguments. It panics if v has no method m. The arguments get mapped to
 // JavaScript values according to the ValueOf function.
 func (v Value) Call(m string, args ...any) Value {
-	res, ok := valueCall(v.ref, m, argRefs(args))
+	res, ok := valueCall(v.ref, m, args, valueOfRef)
 	if !ok {
-		if vType := v.Type(); !vType.isObject() {
-			panic(&ValueError{"Value.Call", vType})
-		}
-		if propType := v.Get(m).Type(); propType != TypeFunction {
-			panic("syscall/js: Value.Call: property " + m + " is not a function, got " + propType.String())
-		}
-		panic(Error{makeValue(res)})
+		v.callFailed(m, res)
 	}
 	return makeValue(res)
+}
+
+// callFailed panics as Call does when the call failed with res.
+func (v Value) callFailed(m string, res ref) {
+	if vType := v.Type(); !vType.isObject() {
+		panic(&ValueError{"Value.Call", vType})
+	}
+	if propType := v.Get(m).Type(); propType != TypeFunction {
+		panic("syscall/js: Value.Call: property " + m + " is not a function, got " + propType.String())
+	}
+	panic(Error{makeValue(res)})
+}
+
+// callJS, invokeJS and newJS are Call, Invoke and New with the arguments
+// already converted to JavaScript values, in the JavaScript array args, and
+// the method name m a JavaScript string. goesm lowers calls whose arguments
+// are booleans, numbers, strings, Values or nil to them, converting each
+// argument by its static type rather than boxing it for ValueOf, and a
+// constant ASCII name to the string itself (internal/lower/jsvalue.go).
+func (v Value) callJS(m ref, args ref) Value {
+	res, ok := valueCallJS(v.ref, m, args)
+	if !ok {
+		v.callFailed(makeValue(m).String(), res)
+	}
+	return makeValue(res)
+}
+
+func (v Value) invokeJS(args ref) Value {
+	res, ok := valueInvokeJS(v.ref, args)
+	if !ok {
+		v.invokeFailed("Value.Invoke", res)
+	}
+	return makeValue(res)
+}
+
+func (v Value) newJS(args ref) Value {
+	res, ok := valueNewJS(v.ref, args)
+	if !ok {
+		v.invokeFailed("Value.New", res)
+	}
+	return makeValue(res)
+}
+
+// invokeFailed panics as Invoke and New do when the call failed with res.
+func (v Value) invokeFailed(method string, res ref) {
+	if vType := v.Type(); vType != TypeFunction {
+		panic(&ValueError{method, vType})
+	}
+	panic(Error{makeValue(res)})
 }
 
 // Invoke does a JavaScript call of the value v with the given arguments.
 // It panics if v is not a JavaScript function. The arguments get mapped to
 // JavaScript values according to the ValueOf function.
 func (v Value) Invoke(args ...any) Value {
-	res, ok := valueInvoke(v.ref, argRefs(args))
+	res, ok := valueInvoke(v.ref, args, valueOfRef)
 	if !ok {
-		if vType := v.Type(); vType != TypeFunction {
-			panic(&ValueError{"Value.Invoke", vType})
-		}
-		panic(Error{makeValue(res)})
+		v.invokeFailed("Value.Invoke", res)
 	}
 	return makeValue(res)
 }
@@ -279,12 +341,9 @@ func (v Value) Invoke(args ...any) Value {
 // arguments get mapped to JavaScript values according to the ValueOf
 // function.
 func (v Value) New(args ...any) Value {
-	res, ok := valueNew(v.ref, argRefs(args))
+	res, ok := valueNew(v.ref, args, valueOfRef)
 	if !ok {
-		if vType := v.Type(); vType != TypeFunction {
-			panic(&ValueError{"Value.New", vType})
-		}
-		panic(Error{makeValue(res)})
+		v.invokeFailed("Value.New", res)
 	}
 	return makeValue(res)
 }
@@ -444,10 +503,16 @@ func valueSet(v ref, p string, x ref)
 func valueDelete(v ref, p string)
 func valueIndex(v ref, i int) ref
 func valueSetIndex(v ref, i int, x ref)
+func valueGetJS(v ref, p ref) ref
+func valueSetJS(v ref, p ref, x ref)
+func valueSetIndexJS(v ref, i int, x ref)
 func valueLength(v ref) int
-func valueCall(v ref, m string, args []ref) (ref, bool)
-func valueInvoke(v ref, args []ref) (ref, bool)
-func valueNew(v ref, args []ref) (ref, bool)
+func valueCall(v ref, m string, args []any, valueOf func(any) ref) (ref, bool)
+func valueInvoke(v ref, args []any, valueOf func(any) ref) (ref, bool)
+func valueNew(v ref, args []any, valueOf func(any) ref) (ref, bool)
+func valueCallJS(v ref, m ref, args ref) (ref, bool)
+func valueInvokeJS(v ref, args ref) (ref, bool)
+func valueNewJS(v ref, args ref) (ref, bool)
 func valueFloat(v ref) float64
 func valueTruthy(v ref) bool
 func valueString(v ref) string

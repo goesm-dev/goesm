@@ -175,6 +175,8 @@ func main() {
 
 	fmt.Println(basename("/a/b/c.txt"))
 
+	syscallJS()
+
 	// A Promise returned to a function declared without await panics.
 	for _, f := range []func(){
 		func() { laterNotAwaited(1, "x") },
