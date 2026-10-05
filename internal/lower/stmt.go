@@ -310,7 +310,11 @@ func (fe *funcEmitter) defineVar(m string, v *types.Var, init string) {
 		fe.w.ln("%slet %s: $rt.Cell<%s> = $rt.cell(%s);", m, n, fe.ts(v.Type()), init)
 		return
 	}
-	fe.w.ln("%slet %s: %s = %s;", m, n, fe.ts(v.Type()), init)
+	ts := fe.ts(v.Type())
+	if fe.pe.strBytes[v] {
+		ts = "string"
+	}
+	fe.w.ln("%slet %s: %s = %s;", m, n, ts, init)
 }
 
 func tupleAt(t types.Type, i int) types.Type {

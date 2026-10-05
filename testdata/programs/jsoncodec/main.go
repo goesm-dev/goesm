@@ -127,9 +127,36 @@ func main() {
 		I interface{ M() }
 	}
 	fmt.Println(json.Unmarshal([]byte(`{"P":5,"Q":"s"}`), &ptrs), *ptrs.P, **ptrs.Q)
+	stringResults()
 }
 
 func b2() []byte {
 	return []byte(`{"id":9007199254740993,"big":"18446744073709551615","name":"Bob","tags":["x"],"address":{"street":"S","city":"C"},
 	"meta":{"n":1.5,"arr":[1,"two"]},"level":5,"unknown":1,"status":"status-4","levels":{"L3":true},"raw":[1, 2],"bytes":"aGkh","arr":[5,6]}`)
+}
+
+// stringResults encodes into []byte locals that are only converted to
+// strings or measured, and decodes from string variables: goesm keeps
+// those bytes as strings.
+func stringResults() {
+	enc := func(v any) string {
+		b, err := json.Marshal(v)
+		return fmt.Sprint(len(b), " ", string(b), " ", err)
+	}
+	fmt.Println(enc(map[string]any{"k": "héllo\xff<&>", "n": 1.5}))
+	fmt.Println(enc(Status(3)), enc(func() {}), enc(nil), enc([]int{1, 2}))
+	b, _ := json.Marshal(struct {
+		A string
+		B []byte
+	}{"日本", []byte{0, 255}})
+	s := string(b)
+	fmt.Println(s, len(b))
+	for _, in := range []string{`{"ID":7,"Name":"é\u00e9"}`, `{"ID":"x"}`, "{\"Name\":\"\xff\"}", `[`} {
+		var u struct {
+			ID   int
+			Name string
+		}
+		err := json.Unmarshal([]byte(in), &u)
+		fmt.Printf("%d %q %v\n", u.ID, u.Name, err)
+	}
 }

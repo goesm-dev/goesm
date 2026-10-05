@@ -1249,6 +1249,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 	if s, ok := fe.sprintf(e); ok {
 		return s
 	}
+	if s, ok := fe.jsonCall(e); ok {
+		return s
+	}
 	sig := under(fe.info.TypeOf(e.Fun)).(*types.Signature)
 	args := fe.args(e, sig)
 	var callee string
@@ -1605,6 +1608,9 @@ func (fe *funcEmitter) conversion(e *ast.CallExpr, to types.Type) string {
 	if s, ok := fe.splitConversion(arg, to); ok {
 		return s
 	}
+	if s, ok := fe.stringBytesRead(arg); ok { // string(b)
+		return s
+	}
 	if s, ok := fe.splitExpr(e); ok {
 		return s
 	}
@@ -1761,6 +1767,9 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 	m := fe.mark(e)
 	switch name {
 	case "len", "cap":
+		if s, ok := fe.stringBytesRead(e.Args[0]); ok && name == "len" {
+			return s + ".length"
+		}
 		t := fe.info.TypeOf(e.Args[0])
 		if p, ok := under(t).(*types.Pointer); ok {
 			t = p.Elem()
