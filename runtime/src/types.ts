@@ -68,6 +68,8 @@ export class Type {
   variadic = false;
   // Method set of this type (for named T: value receiver methods; for *T: all).
   methods = new Map<string, MethodImpl>();
+  ptr: Type | null = null; // *T, once ptrTo made it
+  zeroSized = 0; // for a struct: 0 not known yet, 1 no, 2 zero-sized (see zeroSized)
   // The same methods' functions by key, for calls through interfaces: a
   // property access is cached at each call site (see icall in the lowering).
   // The functions live on a prototype of the type's own (see addMethods).
@@ -166,13 +168,14 @@ export function arrayOf(elem: Type, len: number): Type {
 }
 
 export function ptrTo(elem: Type): Type {
-  return memoized(`*${elem.id}`, () => {
+  if (elem.ptr !== null) return elem.ptr;
+  return (elem.ptr = memoized(`*${elem.id}`, () => {
     const t = new Type();
     t.kind = Kind.Pointer;
     t.elem = elem;
     t.str = `*${elem.str}`;
     return t;
-  });
+  }));
 }
 
 export function mapOf(key: Type, elem: Type): Type {
@@ -397,7 +400,12 @@ export function generic(
   gen = 0,
 ): (...targs: Type[]) => Type {
   const cache = new Map<string, Type>();
+  const byArg = new Map<Type, Type>(); // the instantiations with one type argument
   return (...targs: Type[]) => {
+    if (targs.length === 1) {
+      const t = byArg.get(targs[0]);
+      if (t !== undefined) return t;
+    }
     const key = targs.map((t) => t.id).join(",");
     let t = cache.get(key);
     if (!t) {
@@ -405,6 +413,7 @@ export function generic(
       cache.set(key, t);
       init(t, ...targs);
     }
+    if (targs.length === 1) byArg.set(targs[0], t);
     return t;
   };
 }
@@ -434,6 +443,27 @@ setUnderlying(errorType, interfaceOf([{ name: "Error", pkgPath: "", type: funcOf
 // sizeOf and alignOf are unsafe.Sizeof / unsafe.Alignof under GOARCH=wasm
 // (go/types' sizes for the target), for operands whose type is a type
 // parameter; other operands are constants folded by go/types.
+// zeroSized is sizeOf(t) === 0, without computing the size: it stops at
+// the first field or element that has one.
+export function zeroSized(t: Type): boolean {
+  switch (t.kind) {
+    case Kind.Array:
+      return t.len === 0 || zeroSized(t.elem!);
+    case Kind.Struct:
+      if (t.zeroSized === 0) {
+        t.zeroSized = 2;
+        for (const f of t.fields) {
+          if (!zeroSized(f.type)) {
+            t.zeroSized = 1;
+            break;
+          }
+        }
+      }
+      return t.zeroSized === 2;
+  }
+  return false;
+}
+
 export function sizeOf(t: Type): number {
   switch (t.kind) {
     case Kind.Bool: case Kind.Int8: case Kind.Uint8: return 1;

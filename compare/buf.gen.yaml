@@ -1,0 +1,15 @@
+# Generates the Go (gen/) and TypeScript (js/gen/) code for proto/:
+#   go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+#   go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.21.0
+#   (cd js && npx buf generate ..)
+version: v2
+plugins:
+  - local: protoc-gen-go
+    out: gen
+    opt: paths=source_relative
+  - local: protoc-gen-connect-go
+    out: gen
+    opt: paths=source_relative
+  - local: js/node_modules/.bin/protoc-gen-es
+    out: js/gen
+    opt: target=js

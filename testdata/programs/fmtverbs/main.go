@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"reflect"
 	"strconv"
 )
 
@@ -170,4 +171,32 @@ func loweredSprintf() {
 	const c, h, neg = 12345678901234, 0xbeef, -42
 	fmt.Println(fmt.Sprintf("%d %x %X %v %d %x %s %t %v", c, h, h, 'a', neg, neg, "lit%", false, 1.5))
 	fmt.Println(fmt.Sprintf("100%%"), fmt.Sprintf("%d%%", n), fmt.Sprintf("%.2f%%", 99.5))
+
+	// Errors and Stringers through Sprintf and Errorf.
+	var me error = &myErr{8}
+	var nilErr *myErr
+	var nilColor *color
+	fmt.Println(fmt.Sprintf("a %v b %s c %8v d %-8s|", me, me, red, green))
+	fmt.Println(fmt.Sprintf("%v %s %x %q %d", nilErr, nilColor, me, red, red))
+	fmt.Println(fmt.Sprintf("%w %v %.3s %05s", me, panicky{}, me, red))
+	fmt.Println(fmt.Sprintf("%v %s", reflect.ValueOf(red), reflect.ValueOf(me)))
+	fmt.Println(fmt.Sprintf("%v %s", custom(5), custom(6)))
+	var nilIface error
+	fmt.Println(fmt.Sprintf("%v %s", nilIface, nilIface))
+	sentinel := errors.New("sentinel")
+	e1 := fmt.Errorf("line %d: %w", 3, sentinel)
+	e2 := fmt.Errorf("ctx: %v", sentinel)
+	e3 := fmt.Errorf("%w and %w", sentinel, me)
+	e4 := fmt.Errorf("%w", "not an error")
+	e5 := fmt.Errorf("deep: %w", e1)
+	fmt.Println(e1, errors.Is(e1, sentinel), errors.Unwrap(e1) == sentinel)
+	fmt.Println(e2, errors.Is(e2, sentinel), errors.Unwrap(e2) == nil)
+	fmt.Println(e3, errors.Is(e3, sentinel), errors.Is(e3, me))
+	fmt.Println(e4, errors.Unwrap(e4) == nil)
+	fmt.Println(e5, errors.Is(e5, sentinel), fmt.Sprintf("%T %T %T", e1, e2, e3))
+	fmt.Println(fmt.Errorf("%w: %v", nilErr, red), fmt.Errorf("%s", panicky{}))
 }
+
+type panicky struct{}
+
+func (panicky) Error() string { panic("boom") }

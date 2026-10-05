@@ -1,0 +1,24 @@
+syntax = "proto3";
+package task.v1;
+option go_package = "example.com/compare/gen/task/v1;taskv1";
+
+message Task {
+  string id = 1;
+  string title = 2;
+  bool done = 3;
+  int64 due_unix = 4;
+  repeated string tags = 5;
+}
+
+message ListTasksRequest {
+  string owner = 1;
+  int32 limit = 2;
+}
+
+message ListTasksResponse {
+  repeated Task tasks = 1;
+}
+
+service TaskService {
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse) {}
+}

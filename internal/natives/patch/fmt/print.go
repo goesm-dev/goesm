@@ -6,15 +6,18 @@
 
 // goesm's patch of fmt's print.go: Sprintf formats the common cases (the
 // verbs %v %d %s %t %x %X %f %F %e %E %g %G of strings, booleans, integers
-// and floats of the predeclared types, with the flags - and 0, a width and
-// a precision for floats) by concatenating strings, which the engine does
-// without copying, instead of through a pp and its []byte. Anything else,
-// down to a missing or extra argument, takes Go's own code, whose output
-// fastSprintf would have to reproduce. Before fastSprintf, jsSprintf tries
-// the most common of these cases with the format parsed once.
+// and floats of the predeclared types, %v and %s of errors and Stringers,
+// with the flags - and 0, a width and a precision for floats) by
+// concatenating strings, which the engine does without copying, instead of
+// through a pp and its []byte. Anything else, down to a missing or extra
+// argument, takes Go's own code, whose output fastSprintf would have to
+// reproduce. Before fastSprintf, jsSprintf tries the most common of these
+// cases with the format parsed once. Errorf (errors.go) uses fastSprintf
+// too, with %w.
 package fmt
 
 import (
+	"reflect"
 	"strconv"
 	"unicode/utf8"
 )
@@ -24,7 +27,7 @@ func Sprintf(format string, a ...any) string {
 	if s, ok := jsSprintf(format, a); ok {
 		return s
 	}
-	if s, ok := fastSprintf(format, a); ok {
+	if s, _, ok := fastSprintf(format, a, false); ok {
 		return s
 	}
 	p := newPrinter()
@@ -35,8 +38,11 @@ func Sprintf(format string, a ...any) string {
 }
 
 // fastSprintf is Sprintf(format, a...) for the cases described above; ok
-// is false for any other.
-func fastSprintf(format string, a []any) (s string, ok bool) {
+// is false for any other. With wrapErrs, as for Errorf, it also formats
+// one %w of an error, and wrapped is the index of its argument (-1 if
+// there is none).
+func fastSprintf(format string, a []any, wrapErrs bool) (s string, wrapped int, ok bool) {
+	wrapped = -1
 	argNum := 0
 	start := 0
 	end := len(format)
@@ -72,7 +78,7 @@ func fastSprintf(format string, a []any) (s string, ok bool) {
 			wid = 0
 			for ; i < end && '0' <= format[i] && format[i] <= '9'; i++ {
 				if wid > 1e5 {
-					return "", false
+					return "", -1, false
 				}
 				wid = wid*10 + int(format[i]-'0')
 			}
@@ -83,13 +89,13 @@ func fastSprintf(format string, a []any) (s string, ok bool) {
 			prec = 0
 			for ; i < end && '0' <= format[i] && format[i] <= '9'; i++ {
 				if prec > 1e5 {
-					return "", false
+					return "", -1, false
 				}
 				prec = prec*10 + int(format[i]-'0')
 			}
 		}
 		if i >= end || argNum >= len(a) || format[i] >= utf8.RuneSelf {
-			return "", false
+			return "", -1, false
 		}
 		verb := format[i]
 		i++
@@ -102,7 +108,7 @@ func fastSprintf(format string, a []any) (s string, ok bool) {
 			num = fmtInt(v, verb, prec)
 		case string:
 			if (verb != 's' && verb != 'v') || prec >= 0 || zero {
-				return "", false
+				return "", -1, false
 			}
 			s += padded(v, wid, minus)
 			continue
@@ -110,7 +116,7 @@ func fastSprintf(format string, a []any) (s string, ok bool) {
 			num = fastFloat(v, 64, verb, prec)
 		case bool:
 			if (verb != 't' && verb != 'v') || prec >= 0 || zero {
-				return "", false
+				return "", -1, false
 			}
 			s += padded(strconv.FormatBool(v), wid, minus)
 			continue
@@ -137,10 +143,37 @@ func fastSprintf(format string, a []any) (s string, ok bool) {
 		case float32:
 			num = fastFloat(float64(v), 32, verb, prec)
 		default:
-			return "", false
+			// An error or a Stringer, as handleMethods prints them.
+			if (verb != 's' && verb != 'v' && (verb != 'w' || !wrapErrs || wrapped >= 0)) || prec >= 0 || zero {
+				return "", -1, false
+			}
+			var text string
+			switch v := arg.(type) {
+			case Formatter, reflect.Value:
+				// printArg prints the value a reflect.Value holds, not
+				// its String.
+				return "", -1, false
+			case error:
+				text, ok = errorText(v)
+			case Stringer:
+				if verb == 'w' {
+					return "", -1, false
+				}
+				text, ok = stringText(v)
+			default:
+				return "", -1, false
+			}
+			if !ok {
+				return "", -1, false
+			}
+			if verb == 'w' {
+				wrapped = argNum - 1
+			}
+			s += padded(text, wid, minus)
+			continue
 		}
 		if num == "" {
-			return "", false
+			return "", -1, false
 		}
 		if zero && wid > len(num) && num != "NaN" && num != "+Inf" && num != "-Inf" {
 			sign := ""
@@ -155,9 +188,30 @@ func fastSprintf(format string, a []any) (s string, ok bool) {
 		s += padded(num, wid, minus)
 	}
 	if argNum != len(a) {
-		return "", false
+		return "", -1, false
 	}
-	return s + format[start:], true
+	return s + format[start:], wrapped, true
+}
+
+// errorText and stringText return e.Error() and v.String(), or ok ==
+// false if the method panics: then fmt's own code calls it again and
+// prints the panic as catchPanic does.
+func errorText(e error) (s string, ok bool) {
+	defer func() {
+		if recover() != nil {
+			s, ok = "", false
+		}
+	}()
+	return e.Error(), true
+}
+
+func stringText(v Stringer) (s string, ok bool) {
+	defer func() {
+		if recover() != nil {
+			s, ok = "", false
+		}
+	}()
+	return v.String(), true
 }
 
 // fastInt64 and fastUint64 format v for verb as fmtInteger does without
