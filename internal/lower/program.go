@@ -274,6 +274,12 @@ func (p *Program) analyzeBlocking() {
 				switch n := n.(type) {
 				case *ast.FuncDecl:
 					if n.Body == nil {
+						// A JS function returning a Promise blocks
+						// (jsimport.go).
+						if d := funcJSImport(n); d != nil && d.await && !p.std[pkg] {
+							fn := info.Defs[n.Name].(*types.Func)
+							units = append(units, &unit{key: fn, sig: fn.Signature(), name: fn.Name(), blocking: true})
+						}
 						return false
 					}
 					fn := info.Defs[n.Name].(*types.Func)

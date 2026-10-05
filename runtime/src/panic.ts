@@ -128,6 +128,13 @@ export function toPanic(e: unknown): GoPanic {
   return p;
 }
 
+// goThrown is what a Go function called from JavaScript throws for e: a
+// runtime.Goexit or an os.Exit unwinds on unchanged, through the JavaScript
+// frames, to the goroutine or program it ends; anything else is a panic.
+export function goThrown(e: unknown): unknown {
+  return e instanceof Goexit || e instanceof ProgramExit ? e : toPanic(e);
+}
+
 // The defer frame whose deferred call is currently executing (synchronously).
 // recover() consults it. Go lets recover() work only when called directly by
 // the deferred function: each deferred call carries a token naming the

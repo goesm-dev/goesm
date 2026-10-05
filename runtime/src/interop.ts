@@ -1,12 +1,24 @@
 // JS boundary helpers. toJS converts a Go value, guided by its type
 // descriptor, into plain JS data shaped like encoding/json's output. It is used
-// by the golden tests (native Go JSON == goesm ESM toJS) and is a first step
-// towards a typed JS ABI for exported functions.
+// by the golden tests (native Go JSON == goesm ESM toJS) and by gosfc for
+// template bindings, where a js.Value is the value it holds.
 
 import { Kind, Type } from "./types.ts";
 import { toJSString } from "./string.ts";
 import { GoMap, mapRange } from "./map.ts";
 import { Slice } from "./slice.ts";
+
+// syscall/js holds JavaScript values as they are, except that Go's nil (the
+// zero js.Value) is undefined, so JavaScript null needs a sentinel.
+export const jsNull = { toString: () => "null" };
+
+export function toRef(x: unknown): any {
+  return x === undefined ? null : x === null ? jsNull : x;
+}
+
+export function fromRef(r: any): any {
+  return r === null ? undefined : r === jsNull ? null : r;
+}
 
 export function toJS(t: Type, v: any): any {
   switch (t.kind) {
@@ -30,6 +42,9 @@ export function toJS(t: Type, v: any): any {
       return o;
     }
     case Kind.Struct: {
+      // A js.Value or js.Func is the JavaScript value it holds.
+      if (t.pkgPath === "syscall/js" && t.name === "Value") return fromRef(v.ref);
+      if (t.pkgPath === "syscall/js" && t.name === "Func") return fromRef(v.Value.ref);
       const o: Record<string, any> = {};
       for (const f of t.fields) {
         if (f.pkgPath !== "") continue; // unexported

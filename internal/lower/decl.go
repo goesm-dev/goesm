@@ -417,6 +417,20 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 			pe.errorf(fd.Pos(), "internal error lowering %s: %v", fn.FullName(), r)
 		}
 	}()
+	if !pe.std {
+		d, pos, err := jsImportDirective(fd.Doc)
+		switch {
+		case err != nil:
+			pe.errorf(pos, "%v", err)
+			return
+		case d != nil && (fd.Body != nil || fd.Recv != nil):
+			pe.errorf(pos, "//goesm:import must precede a function declared without a body")
+			return
+		case d != nil:
+			pe.emitJSImportFunc(fd, fn, d, name)
+			return
+		}
+	}
 	if sym, ok := pe.prog.linkPulls[fn]; ok && fd.Body == nil {
 		// A //go:linkname pull: call the function providing sym.
 		deferrable := sig.Results().Len() == 0

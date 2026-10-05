@@ -29,6 +29,7 @@ const (
 	RuntimeFile = "@goesm/runtime/index.ts"
 	NativesFile = "@goesm/runtime/natives.ts"
 	ProgramFile = "@goesm/runtime/program.ts"
+	JSABIFile   = "@goesm/runtime/jsabi.ts"
 )
 
 // NoCheck heads every generated module and runtime file: the code is
@@ -69,6 +70,9 @@ type Module struct {
 	TS     string // TypeScript source including an inline source map
 	Map    []byte // generated TS -> .go source map (also inlined in TS)
 	Native bool   // false: nothing to emit (e.g. package unsafe)
+	// Files are the JS and TS files the module imports for //goesm:import
+	// directives, by absolute path (see JSImportSpecifier).
+	Files []string
 }
 
 // Options control lowering.
@@ -151,6 +155,15 @@ type pkgEmitter struct {
 
 	inits    []string
 	initObjs []any
+
+	// The imports of //goesm:import directives (jsimport.go): local name by
+	// specifier and export, the modules imported, and the files imported by
+	// absolute path.
+	jsImportNames map[string]string
+	jsModules     map[string]*jsModule
+	jsModuleOrder []*jsModule
+	jsFiles       []string
+	jsFileSet     map[string]bool
 }
 
 func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
@@ -161,7 +174,7 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		info:       pkg.TypesInfo,
 		tab:        tab,
 		isEntry:    entry,
-		reserved:   map[string]bool{"$rt": true, "$natives": true, "$ir": true},
+		reserved:   map[string]bool{"$rt": true, "$natives": true, "$ir": true, "$jsabi": true},
 		imports:    map[*types.Package]string{},
 		localTypes: map[*types.TypeName]string{},
 		localGen:   map[*types.TypeName]int{},
@@ -176,6 +189,10 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		wrappers:   map[string]string{},
 		std:        p.std[pkg],
 		dep:        p.Deps[pkg],
+
+		jsImportNames: map[string]string{},
+		jsModules:     map[string]*jsModule{},
+		jsFileSet:     map[string]bool{},
 	}
 	scope := pkg.Types.Scope()
 	for _, name := range scope.Names() {
@@ -434,6 +451,9 @@ func (pe *pkgEmitter) emit() *Module {
 	if pe.usesNatives {
 		out.ln("import * as $natives from %s;", jsString(relSpecifier(pkg.PkgPath, NativesFile)))
 	}
+	if len(pe.jsModuleOrder) > 0 {
+		out.ln("import * as $jsabi from %s;", jsString(relSpecifier(pkg.PkgPath, JSABIFile)))
+	}
 	if pe.runsMain {
 		// Before the dependencies: their initialization may panic.
 		out.ln("import %s;", jsString(relSpecifier(pkg.PkgPath, ProgramFile)))
@@ -454,6 +474,9 @@ func (pe *pkgEmitter) emit() *Module {
 	}
 	for _, ip := range pe.importOrder {
 		out.ln("import * as %s from %s;", pe.imports[ip], jsString(relSpecifier(pkg.PkgPath, ModuleFile(ip.Path()))))
+	}
+	for _, l := range pe.jsImportDecls() {
+		out.ln("%s", l)
 	}
 	if pe.isEntry {
 		out.ln("export * as $runtime from %s;", jsString(relSpecifier(pkg.PkgPath, RuntimeFile)))
@@ -499,6 +522,7 @@ func (pe *pkgEmitter) emit() *Module {
 		TS:     ts + sm.InlineComment(file),
 		Map:    sm.JSON(file),
 		Native: true,
+		Files:  pe.jsFiles,
 	}
 }
 
@@ -547,6 +571,7 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 			}
 		}
 	}
+	pe.emitJSImportVars(files, fe)
 	for _, in := range pe.info.InitOrder {
 		mark := pe.tab.mark(in.Rhs.Pos())
 		if len(in.Lhs) == 1 {
