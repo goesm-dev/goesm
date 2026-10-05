@@ -528,7 +528,7 @@ func (fe *funcEmitter) recvExpr(ch string) string {
 	if fe.syncOnly {
 		return "$rt.recvNow(" + ch + ")"
 	}
-	return "(" + fe.await("$rt.recv("+ch+")") + ")"
+	return "(" + fe.awaitOp("$rt.recv("+ch+")") + ")"
 }
 
 // await awaits the JS expression s. When the program tracks goroutines, the
@@ -541,6 +541,19 @@ func (fe *funcEmitter) await(s string) string {
 		return "$rt.resumeG($g, await " + s + ")"
 	}
 	return "await " + s
+}
+
+// awaitOp awaits the result of the channel operation s ($rt.send, recv or
+// select), which is a Promise only when the operation waits: one that
+// completes at once goes on without the turn of the event loop an await
+// takes, as a goroutine in Go does.
+func (fe *funcEmitter) awaitOp(s string) string {
+	if !fe.inBody || fe.sig == nil {
+		return fe.await(s)
+	}
+	t := fe.declareName("$c")
+	fe.temps = append(fe.temps, t)
+	return "((" + t + " = " + s + ") instanceof Promise ? " + fe.await(t) + " : " + t + ")"
 }
 
 // awaitMain awaits s at the top level of a module, on the main goroutine.

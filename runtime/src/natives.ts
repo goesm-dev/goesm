@@ -465,11 +465,16 @@ export function native$math$bits$Rem32(hi: number, lo: number, y: number): numbe
 // Their Go bodies go through bits.Mul32 and bits.Add32, whose results are
 // tuples; here each word product is taken as two exact float products.
 
-const B32 = 4294967296;
+const B32 = 4294967296, INV32 = 1 / B32, INV16 = 1 / 65536;
 
 // mulAdd32 sets z[i] = x[i]*y + a[i] + carry for i < n (a may be null for
 // zeros) and returns the final carry. a[i] and x[i] are read before z[i] is
 // written, so z may alias them.
+//
+// The words are split with Math.floor and multiplications by powers of
+// two, all exact: truncating a number past 2^31 to an integer (b & 0xffff,
+// s >>> 0) and dividing are slower, and the carry from one word to the next
+// waits on them.
 function mulAdd32(
   za: number[], zo: number, n: number, xa: number[], xo: number, y: number,
   aa: number[] | null, ao: number, c: number,
@@ -477,12 +482,13 @@ function mulAdd32(
   const yl = y & 0xffff, yh = y >>> 16;
   for (let i = 0; i < n; i++) {
     const xi = xa[xo + i];
-    // x*y = b*2^16 + a with a, b < 2^48; s < 2^49: all exact.
-    const a = xi * yl, b = xi * yh, bl = b & 0xffff;
-    const s = a + bl * 0x10000 + (aa === null ? 0 : aa[ao + i]) + c;
-    const lo = s >>> 0;
-    za[zo + i] = lo;
-    c = (b - bl) / 0x10000 + (s - lo) / B32;
+    // x*y = (bh*2^16 + bl)*2^16 + a with a, b < 2^48; c < 2^33, so s < 2^49.
+    const a = xi * yl, b = xi * yh;
+    const bh = Math.floor(b * INV16), bl = b - bh * 65536;
+    const s = a + bl * 65536 + (aa === null ? 0 : aa[ao + i]) + c;
+    const hi = Math.floor(s * INV32);
+    za[zo + i] = s - hi * B32;
+    c = bh + hi;
   }
   return c;
 }
