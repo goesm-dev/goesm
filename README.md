@@ -8,7 +8,7 @@
 
 [日本語](README.ja.md)
 
-Compile Go packages into native ES modules: plain JavaScript (emitted as TypeScript), no WebAssembly.
+Compile Go packages into native ES modules, emitted as TypeScript. No WebAssembly.
 
 goesm takes ordinary Go packages from an ordinary Go module and turns each one into an ES module that Vite, Rolldown, esbuild, Bun, Node.js or a browser can import directly. Exported Go functions become JavaScript functions, exported types become classes with TypeScript types, and Go's semantics (integer arithmetic, slices, maps, interfaces, goroutines, `defer` / `panic` / `recover`, generics, reflection) are preserved and checked against native Go.
 
