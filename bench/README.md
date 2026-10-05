@@ -44,6 +44,18 @@ Each kernel takes a size and returns a checksum. The harness checks every implem
 
 The last three are the shape of a library API: many small calls from JavaScript, each converting its arguments and results at the boundary. They are timed as a JS loop over [`callInputs`](js/suite.mjs) (100 different inputs) and reported per call, so they show what one call costs from JS, work and crossing together. Native Go runs the same loop in Go (`CallChecksum` in [kernels/api.go](kernels/api.go)), the cost of the work alone; it has no Add.
 
+### Cliffs
+
+The kernels of [kernels/cliffs.go](kernels/cliffs.go) and [kernels/pull.go](kernels/pull.go) measure ways of writing Go that a compiler to JS can make far slower than native Go or than the JS one would write for the same work. The geometric means and totals leave them out; the report shows them in a table of their own, and the worst kernel of each implementation covers them.
+
+| Kernel | Size | Exercises |
+| --- | ---: | --- |
+| Parallel | 100,000 | CPU work split over 4 goroutines, which native Go runs on 4 threads and JS one after another |
+| Rand64 | 1,000,000 | `uint64` arithmetic on a struct field, through a method |
+| MaybeBlocking | 1,000,000 | calls of an interface method that another implementation of the interface blocks in |
+| Pull | 50,000 steps | `iter.Pull`, which native Go runs as a coroutine; hand-written JS uses a generator |
+| RSASign | 4 signatures | `crypto/rsa` 2048-bit PKCS #1 v1.5 signatures, multi-precision arithmetic; hand-written JS uses Web Crypto |
+
 The **total** is the sum of the medians of every kernel (the calling kernels' whole loops): the time an implementation takes to run each kernel once, which weighs the slow kernels the way an application would feel them, where the geometric mean weighs every kernel the same.
 
 - **Timing.** For each kernel the harness ([js/harness.mjs](js/harness.mjs); [native/main.go](native/main.go) for native Go) warms up for at least 3 calls and 300 ms, then times single calls until it has at least 10 and 1 s of them (or at least 3 and 10 s for slow calls), and reports the median.
@@ -59,7 +71,8 @@ The **total** is the sum of the medians of every kernel (the calling kernels' wh
 - TinyGo is built with `-opt=2` (optimize for speed; its default `-opt=z` optimizes for size). Go wasm is built with its defaults, which have no speed/size switch.
 - Native Go runs goroutines on several threads; the others are single-threaded. Handing values over unbuffered channels between threads costs more than switching goroutines on one thread, which is why native Go is not the fastest at Channels.
 - Hand-written JS is not Go: it uses typed arrays, `Map`, `JSON.stringify` / `JSON.parse` (implemented natively by the engine) and template strings, and does no bounds or nil checks of its own. It has no Channels.
-- [kernels](kernels) stays within the Go 1.21 language and standard library so that GopherJS 1.21 compiles it ([gopherjs.mod](gopherjs.mod) is the module file it builds with).
+- [kernels](kernels) stays within the Go 1.21 language and standard library so that GopherJS 1.21 compiles it ([gopherjs.mod](gopherjs.mod) is the module file it builds with). Pull needs Go 1.23's `iter` and is built for the others only.
+- jsmain runs Parallel and Pull on their own goroutine and returns a Promise, as it does Channels: they block.
 
 ## Running
 
