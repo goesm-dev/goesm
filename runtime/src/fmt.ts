@@ -137,11 +137,8 @@ function fmtFloat(v: number, verb: number, prec: number): string {
   switch (verb) {
     case 0x76: // v
       return prec < 0 ? fmtShortest(v) : "";
-    case 0x66: case 0x46: { // f F
-      if (prec < 0) prec = 6;
-      if (v === 0 && prec <= 100) return (Object.is(v, -0) ? "-" : "") + (0).toFixed(prec);
-      return fmtFixed(v, prec);
-    }
+    case 0x66: case 0x46: // f F
+      return fmtF(v, prec < 0 ? 6 : prec);
   }
   return "";
 }
@@ -240,4 +237,12 @@ export function tieScale(x: number): number {
 export function roundToEven(t: string): string {
   const c = t.charCodeAt(t.length - 1);
   return (c & 1) === 1 ? t.slice(0, -1) + String.fromCharCode(c - 1) : t;
+}
+
+// fmtF is fmt's %f of a float64 with precision prec, as goesm lowers a
+// Sprintf with a constant format, or "" for the values that fmtFixed leaves
+// to strconv (NaN, ±Inf, beyond 1e21).
+export function fmtF(v: number, prec: number): string {
+  if (v === 0 && prec <= 100) return (Object.is(v, -0) ? "-" : "") + (0).toFixed(prec);
+  return fmtFixed(v, prec);
 }
