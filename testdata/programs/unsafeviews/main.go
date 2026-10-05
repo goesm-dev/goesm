@@ -78,6 +78,16 @@ func main() {
 	pr := (*pair)(unsafe.Pointer(pp))
 	pr.B = 40
 	fmt.Println(*pp, pr.A)
+	// The pair read through pr is a pair in an interface too.
+	var pi any = pair{3, 40}
+	fmt.Println(pi == *pr, any(*pr).(pair).B)
+
+	// A pointer variable holding its own address, through unsafe.Slice.
+	var self unsafe.Pointer
+	self = unsafe.Pointer(&self)
+	sl := unsafe.Slice(&self, 1)
+	sl[0] = nil
+	fmt.Println(self == nil)
 
 	var st state
 	fmt.Println(st.load() == nil)

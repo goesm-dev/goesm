@@ -81,7 +81,7 @@ export function unsafeSliceFrom(p: any, n: number): any {
   }
   if (n === 1) {
     // A pointer to a single variable: the slice aliases it through a view.
-    if (typeof p === "object" && "v" in p && p.v !== p) return new Slice(cellView(p), 0, 1, 1);
+    if (typeof p === "object" && "v" in p && !isAggregateObject(p)) return new Slice(cellView(p), 0, 1, 1);
     return new Slice([p], 0, 1, 1); // a pointer to an aggregate is the object itself
   }
   runtimePanic("goesm: unsafe.Slice of a pointer that does not point into an array or string (goesm has no address space)");
@@ -149,6 +149,7 @@ function view(to: Type, accessors: Record<string, PropertyDescriptor>): any {
     }
   }
   for (const k of Object.keys(accessors)) Object.defineProperty(o, k, { ...accessors[k], enumerable: true });
+  if (to.ifaceSelf) o.v = o; // what the constructor sets (see Iface)
   return o;
 }
 
