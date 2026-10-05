@@ -229,6 +229,9 @@ func (fe *funcEmitter) convert(s string, from, to types.Type) string {
 			// leaves as it is.
 			return fmt.Sprintf("$rt.box(%s, %s)", fe.desc(from), s)
 		}
+		if ifaceSelf(from) {
+			return fmt.Sprintf("$rt.ifaceOf(%s, %s)", fe.desc(from), s)
+		}
 		return fmt.Sprintf("new $rt.Iface(%s, %s)", fe.desc(from), s)
 	}
 	return s

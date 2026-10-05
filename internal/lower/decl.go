@@ -55,7 +55,11 @@ func (pe *pkgEmitter) emitNamedType(tn *types.TypeName) {
 		}
 		w.ln("%sconst %s$type: $rt.Type = /* @__PURE__ */ $rt.defined(%s, %s, () => {", pe.tab.mark(tn.Pos()), name, pkgPath, jsString(tn.Name()))
 		w.indent++
-		w.ln("$rt.setUnderlying(%s$type, %s, %s);", name, under, ctor)
+		self := ""
+		if isStruct && ifaceSelf(named) {
+			self = ", true"
+		}
+		w.ln("$rt.setUnderlying(%s$type, %s, %s%s);", name, under, ctor, self)
 		pe.methodTables(w, name+"$type", named, tpScope{})
 		w.indent--
 		w.ln("}%s);", pkgName)
@@ -332,6 +336,12 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 			clones = append(clones, src)
 			sets = append(sets, fmt.Sprintf("this.%s = %s;", prop, dst))
 		}
+	}
+	if named != nil && ifaceSelf(named) {
+		// The value is its own interface value (see $rt.Iface).
+		w.ln("declare readonly t: $rt.Type;")
+		w.ln("declare readonly v: %s;", self)
+		assigns = append(assigns, "this.v = this;")
 	}
 	w.ln("constructor(%s) { %s }", strings.Join(params, ", "), strings.Join(assigns, " "))
 	w.ln("$clone($t?: $rt.Type): %s { return new %s(%s); }", self, name, strings.Join(clones, ", "))

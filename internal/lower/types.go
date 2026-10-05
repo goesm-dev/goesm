@@ -514,6 +514,29 @@ func isIface(t types.Type) bool {
 	return types.IsInterface(t)
 }
 
+// ifaceSelf reports whether the values of t are their own interface values:
+// t is a non-generic named struct type whose class (see emitStructClass)
+// sets v to the object itself and inherits t from its prototype. The
+// classes of generic types serve every instance, so they cannot hold one
+// type; a field named t, v or toJSON would hide the prototype's.
+func ifaceSelf(t types.Type) bool {
+	named, ok := types.Unalias(t).(*types.Named)
+	if !ok || named.TypeParams().Len() > 0 || named.TypeArgs().Len() > 0 || len(outerTypeParams(named.Obj())) > 0 {
+		return false
+	}
+	st, ok := named.Underlying().(*types.Struct)
+	if !ok {
+		return false
+	}
+	for i := 0; i < st.NumFields(); i++ {
+		switch fieldProp(st, i) {
+		case "t", "v", "toJSON":
+			return false
+		}
+	}
+	return true
+}
+
 // under returns the underlying type, or for a type parameter its core type
 // (the single underlying type of its type set) when there is one.
 func under(t types.Type) types.Type {

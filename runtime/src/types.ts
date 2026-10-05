@@ -77,6 +77,9 @@ export class Type {
   // JS class for struct types (named or not).
   ctor: any = null;
   named = false;
+  // Values of this struct type are interface values themselves (see
+  // setUnderlying).
+  ifaceSelf = false;
   underlying: Type = this;
 
   toString(): string { return this.str; }
@@ -275,6 +278,14 @@ function zeroStruct(t: Type): any {
   return new t.ctor(...a);
 }
 
+// structJSON is JSON.stringify's view of a struct whose v refers to itself:
+// its fields.
+function structJSON(this: any): any {
+  const o: any = {};
+  for (const k in this) if (k !== "v") o[k] = this[k];
+  return o;
+}
+
 // named creates the descriptor of a defined (named) type. The underlying type
 // is attached later with setUnderlying so that recursive types work.
 // named creates a defined type. The first nOuter type arguments are those
@@ -327,7 +338,11 @@ export function typeArgsName(t: Type): string {
   return `${t.name}[${t.nOuter === 0 ? own : own === "" ? outer : outer + ";" + own}]`;
 }
 
-export function setUnderlying(t: Type, u: Type, ctor?: any): void {
+// setUnderlying completes a defined type. For a non-generic named struct
+// type whose class sets this.v = this (self), a value of the type is also an
+// interface value holding it: the class's prototype carries t, so boxing
+// allocates nothing (see Iface).
+export function setUnderlying(t: Type, u: Type, ctor?: any, self?: boolean): void {
   t.kind = u.kind;
   t.elem = u.elem;
   t.key = u.key;
@@ -343,6 +358,12 @@ export function setUnderlying(t: Type, u: Type, ctor?: any): void {
     t.ctor = ctor ?? u.ctor;
     registerCtor(t.ctor, t);
     t.zero = structZero(t);
+    if (self) {
+      t.ifaceSelf = true;
+      // Not enumerable: for-in and Object.keys see the fields alone.
+      Object.defineProperty(ctor.prototype, "t", { value: t });
+      Object.defineProperty(ctor.prototype, "toJSON", { value: structJSON });
+    }
   } else {
     t.zero = u.zero;
   }

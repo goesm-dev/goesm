@@ -6,6 +6,11 @@
 // `any` stay distinguishable, an interface holding a nil *T is not nil, and
 // method dispatch goes through the type's method table instead of relying on
 // JS structural typing.
+//
+// A value of a non-generic named struct type is its own interface value: its
+// class's prototype holds the type as t and the constructor sets v to the
+// object itself, so storing a struct in an interface allocates no box.
+// Readers only use t and v and cannot tell the two forms apart.
 
 import { Kind, Type, implementsIface, isAggregate, sizeOf, types } from "./types.ts";
 import { ceq } from "./complex.ts";
@@ -23,8 +28,15 @@ export class Iface {
 // box converts a value of static type t to an interface value. Aggregates must
 // already be copied by the caller (the lowering emits the copy).
 export function box(t: Type, v: any): Iface | null {
-  if (t.kind === Kind.Interface) return v;
+  if (t.kind === Kind.Interface || t.ifaceSelf) return v;
   return new Iface(t, v);
+}
+
+// ifaceOf is the interface value of v, a value of a struct type t whose
+// values are their own interface values. The lowering emits it instead of v
+// so that a bundler keeps t, which sets up v's prototype.
+export function ifaceOf(_t: Type, v: any): Iface {
+  return v;
 }
 
 // copy returns a Go copy of v of type t. Used where the static type is a type
