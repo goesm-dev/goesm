@@ -375,6 +375,42 @@ export function native$strings$byteString(c: number): string {
   return String.fromCharCode(c);
 }
 
+// pow10 is internal/strconv's pow10Tab[p-pow10Min] (see the patch of
+// uscale.go), computed as pow10gen.go does: the 128-bit mantissa of 10**p,
+// scaled so that its high bit is set and rounded up, as hi and the
+// negated lo.
+const pow10s = new Map<number, [bigint, bigint]>();
+export function native$internal$strconv$pow10(p: number): [bigint, bigint] {
+  let r = pow10s.get(p);
+  if (r !== undefined) return r;
+  const n = 10n ** BigInt(Math.abs(p));
+  const bits = n.toString(2).length;
+  let d: bigint, exact: boolean;
+  if (p >= 0) {
+    const be = 128 - bits;
+    d = be >= 0 ? n << BigInt(be) : n >> BigInt(-be);
+    exact = be >= 0 || d << BigInt(-be) === n;
+  } else {
+    // 2**be / 10**-p in [2**127, 2**128): 10**-p is not a power of 2.
+    const num = 1n << BigInt(127 + bits);
+    d = num / n;
+    exact = d * n === num;
+  }
+  const mask = (1n << 64n) - 1n;
+  let hi = d >> 64n, lo = d & mask;
+  if (!exact) {
+    lo = (lo + 1n) & mask;
+    if (lo === 0n) hi++;
+  }
+  if (lo !== 0n) {
+    hi++;
+    lo = (1n << 64n) - lo;
+  }
+  r = [hi & mask, lo];
+  pow10s.set(p, r);
+  return r;
+}
+
 export function native$internal$strconv$itoa(i: number): string {
   return Number.isSafeInteger(i) ? String(i) : BigInt.asIntN(64, BigInt(i)).toString();
 }

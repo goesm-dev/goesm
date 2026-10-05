@@ -206,6 +206,10 @@ func loweredSprintf() {
 		e := fmt.Errorf("bad %q", s)
 		fmt.Println(fmt.Sprintf("%q|%v", s, s), e, errors.Unwrap(e) == nil)
 	}
+	fmt.Println(fmt.Sprintf("%q %q|%s", "abc", `a"b`, "c"), fmt.Errorf("const %q", "x\ty"))
+	cnt, word := 0, "before"
+	var me2 error = mutErr{&cnt, &word}
+	fmt.Println(fmt.Sprintf("%v %d %s", me2, cnt, word), fmt.Errorf("%s %w %d", word, me2, cnt), cnt, word)
 	n1, big := 0, 1<<53
 	var oe error = onceErr{&n1}
 	fmt.Println(fmt.Sprintf("[%v]", oe), fmt.Errorf("[%w]", oe), fmt.Sprintf("%s %d", oe, big), n1)
@@ -238,6 +242,18 @@ func (o once) String() string {
 type onceErr struct{ n *int }
 
 func (o onceErr) Error() string { return once(o).String() }
+
+// mutErr changes the variables its Error method points at.
+type mutErr struct {
+	n    *int
+	word *string
+}
+
+func (m mutErr) Error() string {
+	*m.n += 10
+	*m.word = "after"
+	return "mut"
+}
 
 type panicky struct{}
 

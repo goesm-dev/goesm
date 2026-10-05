@@ -128,6 +128,17 @@ func main() {
 	}
 	fmt.Println(json.Unmarshal([]byte(`{"P":5,"Q":"s"}`), &ptrs), *ptrs.P, **ptrs.Q)
 	stringResults()
+
+	// Non-ASCII field names: Ünit and Δx are exported, ätsch is not.
+	type intl struct {
+		Ünit  string
+		Δx    int
+		ätsch int
+	}
+	ib, err := json.Marshal(intl{"m", 2, 3})
+	fmt.Println(string(ib), err)
+	var iv intl
+	fmt.Println(json.Unmarshal([]byte(`{"Ünit":"s","Δx":5,"ätsch":6}`), &iv), iv)
 }
 
 func b2() []byte {

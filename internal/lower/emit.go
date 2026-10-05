@@ -163,6 +163,9 @@ type pkgEmitter struct {
 
 	inits    []string
 	initObjs []any
+	// pureFuncCache and funcDeclMap serve returnsPure.
+	pureFuncCache map[*types.Func]bool
+	funcDeclMap   map[*types.Func]*ast.FuncDecl
 
 	// The imports of //goesm:import directives (jsimport.go): local name by
 	// specifier and export, the modules imported, and the files imported by
@@ -617,7 +620,9 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 				}
 				pe.vars.ln("%slet %s: %s = /* @__PURE__ */ (() => %s)();", mark, fe.nameOf(v), pe.varTSType(v), rhs)
 			} else if v.Name() == "_" {
-				fe.discard(mark, rhs)
+				if !pe.pureExpr(in.Rhs) { // var _ I = T{}: a compile-time check
+					fe.discard(mark, rhs)
+				}
 			} else {
 				pe.vars.ln("%s%s = %s;", mark, fe.varRef(v), rhs)
 			}
@@ -641,19 +646,29 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 
 // pureExpr reports whether evaluating the package-level initializer e has
 // no side effects and cannot panic: constants, composite literals and their
-// addresses, function literals, and package-level variables and functions,
+// addresses, function literals, package-level variables and functions and
+// their addresses, arithmetic that cannot panic, make and new with constant
+// sizes, and calls of the functions of pureFuncs and of the package's
+// functions that only return such an expression of their parameters,
 // combined only that way.
 func (pe *pkgEmitter) pureExpr(e ast.Expr) bool {
+	return pe.pureExprIn(e, nil)
+}
+
+// pureExprIn is pureExpr in a function whose parameters params hold the
+// values of pure expressions.
+func (pe *pkgEmitter) pureExprIn(e ast.Expr, params map[types.Object]bool) bool {
 	if tv, ok := pe.info.Types[e]; ok && tv.Value != nil {
 		return true
 	}
+	pureExpr := func(e ast.Expr) bool { return pe.pureExprIn(e, params) }
 	switch e := e.(type) {
 	case *ast.ParenExpr:
-		return pe.pureExpr(e.X)
+		return pureExpr(e.X)
 	case *ast.FuncLit:
 		return true
 	case *ast.Ident:
-		return pe.pkgLevel(pe.info.Uses[e])
+		return params[pe.info.Uses[e]] || pe.pkgLevel(pe.info.Uses[e])
 	case *ast.SelectorExpr:
 		if id, ok := e.X.(*ast.Ident); ok {
 			if _, ok := pe.info.Uses[id].(*types.PkgName); ok {
@@ -662,20 +677,60 @@ func (pe *pkgEmitter) pureExpr(e ast.Expr) bool {
 		}
 		return false
 	case *ast.UnaryExpr:
-		_, lit := unparen(e.X).(*ast.CompositeLit)
-		return e.Op == token.AND && lit && pe.pureExpr(e.X)
+		switch e.Op {
+		case token.AND:
+			// &T{...}, or the address of a package-level variable.
+			switch x := unparen(e.X).(type) {
+			case *ast.CompositeLit:
+				return pureExpr(x)
+			case *ast.Ident:
+				v, ok := pe.info.Uses[x].(*types.Var)
+				return ok && pe.pkgLevel(v)
+			case *ast.SelectorExpr:
+				v, ok := pe.info.Uses[x.Sel].(*types.Var)
+				return ok && pe.info.Selections[x] == nil && pe.pkgLevel(v)
+			}
+			return false
+		case token.SUB, token.ADD, token.XOR, token.NOT:
+			return pureExpr(e.X)
+		}
+		return false
+	case *ast.BinaryExpr:
+		switch e.Op {
+		case token.QUO, token.REM:
+			// A constant divisor other than 0 (integer division of the
+			// most negative value by -1 does not panic either).
+			if v := pe.info.Types[e.Y].Value; v == nil || constant.Sign(v) == 0 {
+				return false
+			}
+		case token.SHL, token.SHR:
+			if pe.info.Types[e.Y].Value == nil {
+				return false // a negative count panics
+			}
+		case token.EQL, token.NEQ:
+			// Comparing interfaces, or arrays and structs holding them,
+			// panics on incomparable dynamic types.
+			for _, x := range []ast.Expr{e.X, e.Y} {
+				switch under(pe.info.TypeOf(x)).(type) {
+				case *types.Basic, *types.Pointer, *types.Chan:
+				default:
+					return false
+				}
+			}
+		}
+		return pureExpr(e.X) && pureExpr(e.Y)
 	case *ast.CompositeLit:
 		if m, ok := under(pe.info.TypeOf(e)).(*types.Map); ok && types.IsInterface(m.Key()) {
 			return false // a key of an incomparable dynamic type panics
 		}
 		for _, el := range e.Elts {
 			if kv, ok := el.(*ast.KeyValueExpr); ok {
-				if _, field := under(pe.info.TypeOf(e)).(*types.Struct); !field && !pe.pureExpr(kv.Key) {
+				if _, field := under(pe.info.TypeOf(e)).(*types.Struct); !field && !pureExpr(kv.Key) {
 					return false
 				}
 				el = kv.Value
 			}
-			if !pe.pureExpr(el) {
+			if !pureExpr(el) {
 				return false
 			}
 		}
@@ -691,7 +746,22 @@ func (pe *pkgEmitter) pureExpr(e ast.Expr) bool {
 			case *types.Array:
 				return false
 			}
-			return pe.pureExpr(e.Args[0])
+			return pureExpr(e.Args[0])
+		}
+		if id, ok := unparen(e.Fun).(*ast.Ident); ok {
+			if b, ok := pe.info.Uses[id].(*types.Builtin); ok {
+				// make and new with constant sizes, which the type
+				// checker has checked.
+				if b.Name() != "make" && b.Name() != "new" {
+					return false
+				}
+				for _, a := range e.Args[1:] {
+					if pe.info.Types[a].Value == nil {
+						return false
+					}
+				}
+				return true
+			}
 		}
 		// Calls of the functions that only allocate, which the standard
 		// library's error variables and type descriptors are made with.
@@ -706,20 +776,71 @@ func (pe *pkgEmitter) pureExpr(e ast.Expr) bool {
 				recv = f.X
 			}
 		}
-		if fn == nil || !pureFuncs[fn.FullName()] || recv != nil && !pe.pureExpr(recv) {
+		if fn == nil || recv != nil && !pureExpr(recv) {
+			return false
+		}
+		if !pureFuncs[fn.Origin().FullName()] && (recv != nil || !pe.returnsPure(fn)) {
 			return false
 		}
 		if fn.Name() == "Elem" && !pe.typeOfElemType(recv) {
 			return false
 		}
 		for _, a := range e.Args {
-			if !pe.pureExpr(a) {
+			if !pureExpr(a) {
 				return false
 			}
 		}
 		return true
 	}
 	return false
+}
+
+// returnsPure reports whether fn is a function of the package whose body
+// only returns a pure expression (pureExprIn) of its parameters, such as
+// io/fs's errInvalid, which returns oserror.ErrInvalid.
+func (pe *pkgEmitter) returnsPure(fn *types.Func) bool {
+	if fn.Pkg() != pe.pkg.Types || fn.Signature().Recv() != nil || fn.Signature().TypeParams().Len() > 0 {
+		return false
+	}
+	if pe.pureFuncCache == nil {
+		pe.pureFuncCache = map[*types.Func]bool{}
+	}
+	if r, ok := pe.pureFuncCache[fn]; ok {
+		return r
+	}
+	pe.pureFuncCache[fn] = false // a recursive function is not pure
+	fd := pe.funcDecls()[fn]
+	if fd == nil || fd.Body == nil || len(fd.Body.List) != 1 {
+		return false
+	}
+	ret, ok := fd.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 {
+		return false
+	}
+	params := map[types.Object]bool{}
+	for i := 0; i < fn.Signature().Params().Len(); i++ {
+		params[fn.Signature().Params().At(i)] = true
+	}
+	r := pe.pureExprIn(ret.Results[0], params)
+	pe.pureFuncCache[fn] = r
+	return r
+}
+
+// funcDecls maps the package's functions to their declarations.
+func (pe *pkgEmitter) funcDecls() map[*types.Func]*ast.FuncDecl {
+	if pe.funcDeclMap == nil {
+		pe.funcDeclMap = map[*types.Func]*ast.FuncDecl{}
+		for _, f := range pe.pkg.Syntax {
+			for _, d := range f.Decls {
+				if fd, ok := d.(*ast.FuncDecl); ok {
+					if fn, ok := pe.info.Defs[fd.Name].(*types.Func); ok {
+						pe.funcDeclMap[fn] = fd
+					}
+				}
+			}
+		}
+	}
+	return pe.funcDeclMap
 }
 
 // typeOfElemType reports whether e is reflect.TypeOf(x) (or reflectlite's)
@@ -740,6 +861,12 @@ func (pe *pkgEmitter) typeOfElemType(e ast.Expr) bool {
 // arguments are pure expressions (pureExpr), receivers included.
 var pureFuncs = map[string]bool{
 	"errors.New":                       true,
+	"os.NewFile":                       true, // os.Stdin, Stdout and Stderr
+	"os.runtime_args":                  true, // os.Args (see the os patch)
+	"time.runtimeNano":                 true, // time.startNano
+	"sync.OnceFunc":                    true,
+	"sync.OnceValue":                   true,
+	"sync.OnceValues":                  true,
 	"internal/reflectlite.TypeOf":      true,
 	"reflect.TypeOf":                   true,
 	"(internal/reflectlite.Type).Elem": true, // of TypeOf((*T)(nil)) (typeOfElemType)
