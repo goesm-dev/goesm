@@ -319,6 +319,8 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 		assigns = append(assigns, fmt.Sprintf("this.%s = $%s;", prop, prop))
 		src, dst := "this."+prop, "o."+prop
 		switch {
+		case zeroLenArray(f.Type()):
+			clones = append(clones, src) // nothing to copy ($rt.noElems)
 		case hasTypeParam(f.Type()):
 			ftDesc := fmt.Sprintf("$t!.fields[%d].type", i)
 			clones = append(clones, fmt.Sprintf("$rt.copy(%s, %s)", ftDesc, src))
