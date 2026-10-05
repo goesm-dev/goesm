@@ -2017,13 +2017,7 @@ func (fe *funcEmitter) unsafeConversion(e *ast.CallExpr, to, from types.Type, s 
 	// (*T)(unsafe.Pointer(p)) with p of type *U reinterprets U's memory as T.
 	if inner, ok := unparen(e.Args[0]).(*ast.CallExpr); ok && len(inner.Args) == 1 {
 		if tv, ok := fe.info.Types[inner.Fun]; ok && tv.IsType() && isUnsafePointer(under(tv.Type)) {
-			up, ok := under(fe.info.TypeOf(inner.Args[0])).(*types.Pointer)
-			if ok && types.Identical(under(up.Elem()), under(tp.Elem())) && !types.Identical(up.Elem(), tp.Elem()) && ifaceSelf(tp.Elem()) {
-				// The same layout, but a value of the struct type T is its own
-				// interface value, which the object's class must then give.
-				return fmt.Sprintf("$rt.reinterpret(%s, %s, %s)", s, fe.desc(up.Elem()), fe.desc(tp.Elem()))
-			}
-			if ok && !types.Identical(under(up.Elem()), under(tp.Elem())) {
+			if up, ok := under(fe.info.TypeOf(inner.Args[0])).(*types.Pointer); ok && !types.Identical(under(up.Elem()), under(tp.Elem())) {
 				if pointerShaped(up.Elem()) && pointerShaped(tp.Elem()) {
 					return s // a pointer variable read as another pointer type: the same reference
 				}

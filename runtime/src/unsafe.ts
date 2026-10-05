@@ -159,9 +159,9 @@ export function reinterpret(p: any, from: Type, to: Type): any {
   if (p === null || from === to) return p;
   if (from.kind === Kind.Struct && to.kind === Kind.Struct) {
     const fw = words(from), tw = words(to);
-    // The object serves as is unless its class would give it From as its
-    // interface type where To's values are their own interface values.
-    if (fw.every((w, i) => w.prop === tw[i].prop) && (!to.ifaceSelf || from.ctor === to.ctor)) return p;
+    // The object serves as is, keeping its address. Its class may be
+    // From's: boxing a To checks for that (see $rt.ifaceOf).
+    if (fw.every((w, i) => w.prop === tw[i].prop)) return p;
     const acc: Record<string, PropertyDescriptor> = {};
     tw.forEach((w, i) => {
       const k = fw[i].prop;

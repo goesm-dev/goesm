@@ -87,7 +87,7 @@ func main() {
 	c := (*coords)(unsafe.Pointer(pp))
 	c.Y = 5
 	_, isCoords := any(*c).(coords)
-	fmt.Println(isCoords, pp.Y)
+	fmt.Println(isCoords, pp.Y, unsafe.Pointer(c) == unsafe.Pointer(pp), (*point)(unsafe.Pointer(c)) == pp)
 
 	// A pointer variable holding its own address, through unsafe.Slice.
 	var self unsafe.Pointer
