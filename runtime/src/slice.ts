@@ -9,7 +9,7 @@
 import { copy } from "./iface.ts";
 import { indexError, runtimePanic, sliceError } from "./panic.ts";
 import { arrayElemPtr, arrayViews as views, assign } from "./ptr.ts";
-import { isAggregate, Type, zeroByte } from "./types.ts";
+import { isAggregate, Type, zeroByte, tUint8 } from "./types.ts";
 
 // Fields of the runtime's classes are declare'd and set by the constructor:
 // a class field without declare is first defined as undefined, which makes V8
@@ -36,7 +36,7 @@ export function sliceLit<T = any>(arr: T[]): Slice<T> {
 // makeSlice implements make([]T, len, cap); cap is undefined for make([]T, len).
 // A slice's backing array is a JS array, so maxSliceLen (the most elements a
 // JS array can hold) plays the part of gc's maxAlloc/elemsize. A []byte
-// made with zeroByte (types.uint8's zero) is backed by a Uint8Array, which
+// made with zeroByte (tUint8's zero) is backed by a Uint8Array, which
 // the engine zeroes and copies in bulk; byte slices of Go arrays and slice
 // literals keep JS arrays, and everything indexes both alike.
 const maxSliceLen = 2 ** 32 - 1;

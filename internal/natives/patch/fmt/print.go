@@ -220,15 +220,7 @@ func (c methodCall) text() (s string) {
 	method := "Error"
 	defer func() {
 		if err := recover(); err != nil {
-			if v := reflect.ValueOf(c.arg); v.Kind() == reflect.Pointer && v.IsNil() {
-				s = nilAngleString
-				return
-			}
-			verb := c.verb
-			if verb == 'w' { // handleMethods passes %w on as %v
-				verb = 'v'
-			}
-			s = percentBangString + string(rune(verb)) + panicString + method + " method: " + Sprint(err) + ")"
+			s = panicText(c.arg, c.verb, method, err)
 		}
 	}()
 	if e, ok := c.arg.(error); ok {
@@ -236,6 +228,19 @@ func (c methodCall) text() (s string) {
 	}
 	method = "String"
 	return padded(c.arg.(Stringer).String(), c.wid, c.minus)
+}
+
+// panicText is what fmt prints for the operand arg of verb when its method
+// panicked with err, as catchPanic prints it. goesm's lowering of Sprintf
+// and Errorf calls it for an error operand (see the runtime's errText).
+func panicText(arg any, verb byte, method string, err any) string {
+	if v := reflect.ValueOf(arg); v.Kind() == reflect.Pointer && v.IsNil() {
+		return nilAngleString
+	}
+	if verb == 'w' { // handleMethods passes %w on as %v
+		verb = 'v'
+	}
+	return percentBangString + string(rune(verb)) + panicString + method + " method: " + Sprint(err) + ")"
 }
 
 // fastInt64 and fastUint64 format v for verb as fmtInteger does without

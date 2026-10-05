@@ -6,7 +6,7 @@
 
 // Like natives.ts, which imports it, this uses the runtime only through its
 // public module, so that split builds share one runtime.
-import { decodeRune, types } from "./index.ts";
+import { decodeRune, goThrown, Goexit, ProgramExit, tBool, tFloat64, tInt, tInt16, tInt32, tInt64, tInt8, tString, tUint, tUint16, tUint32, tUint64, tUint8, tUintptr } from "./index.ts";
 import type { Iface, Type } from "./index.ts";
 import type { S } from "./index.ts";
 
@@ -86,19 +86,19 @@ export function sprintf(format: string, a: S<Iface | null>): string | null {
     if (x === null) return null;
     const t = x.t, v = x.v, verb = sp.verb;
     let num: string;
-    if (t === types.string) {
+    if (t === tString) {
       if ((verb !== 0x73 && verb !== 0x76) || sp.prec >= 0 || sp.zero) return null; // s v
       s += sp.lit + padded(v, sp.wid, sp.minus);
       continue;
-    } else if (t === types.bool) {
+    } else if (t === tBool) {
       if ((verb !== 0x74 && verb !== 0x76) || sp.prec >= 0 || sp.zero) return null; // t v
       s += sp.lit + padded(v ? "true" : "false", sp.wid, sp.minus);
       continue;
-    } else if (t === types.float64) {
+    } else if (t === tFloat64) {
       num = fmtFloat(v, verb, sp.prec);
     } else if (isSmallInt(t)) {
       num = fmtInt(v, verb, sp.prec);
-    } else if (t === types.int64 || t === types.uint64) {
+    } else if (t === tInt64 || t === tUint64) {
       num = fmtInt(v, verb, sp.prec);
     } else {
       return null;
@@ -115,8 +115,8 @@ export function sprintf(format: string, a: S<Iface | null>): string | null {
 // isSmallInt reports whether t is an integer type held in a JS number
 // (int64 and uint64 are BigInts).
 function isSmallInt(t: Type): boolean {
-  return t === types.int || t === types.uint8 || t === types.int32 || t === types.uint32 || t === types.uint ||
-    t === types.int8 || t === types.int16 || t === types.uint16 || t === types.uintptr;
+  return t === tInt || t === tUint8 || t === tInt32 || t === tUint32 || t === tUint ||
+    t === tInt8 || t === tInt16 || t === tUint16 || t === tUintptr;
 }
 
 // fmtInt formats an integer (a number or a BigInt) for %d, %v, %x or %X
@@ -160,7 +160,7 @@ function runeCount(s: string): number {
 
 // ---- float formatting, shared with strconv's natives ----
 
-const scratch = new DataView(new ArrayBuffer(8));
+const scratch = /* @__PURE__ */ new DataView(new ArrayBuffer(8));
 
 // fmtFixed is strconv.FormatFloat(v, 'f', prec, 64) for the values
 // ftoaDigits (natives.ts) formats with toFixed, and "" for the others.
@@ -237,6 +237,37 @@ export function tieScale(x: number): number {
 export function roundToEven(t: string): string {
   const c = t.charCodeAt(t.length - 1);
   return (c & 1) === 1 ? t.slice(0, -1) + String.fromCharCode(c - 1) : t;
+}
+
+// plainErr reports whether fmt prints the error e for %v, %s and %w with
+// its Error method alone: e is not nil and has no Format method.
+export function plainErr(e: Iface | null): boolean {
+  return e !== null && !e.t.methods.has("Format");
+}
+
+// errText is fmt's %v, %s or %w (verb) of the error e, as goesm lowers a
+// Sprintf or Errorf with a constant format, or null for an error that
+// plainErr rejects. A panic of its Error method gives the text fmt prints
+// for it, from the fmt patch's panicText.
+export function errText(e: Iface | null, verb: number, panicText: (arg: Iface | null, verb: number, method: string, err: Iface | null) => string): string | null {
+  if (!plainErr(e)) return null;
+  try {
+    return e!.t.mt.Error(e!.v);
+  } catch (x) {
+    const p = goThrown(x);
+    if (p instanceof Goexit || p instanceof ProgramExit) throw p;
+    return panicText(e, verb, "Error", (p as any).value);
+  }
+}
+
+// quoteText is strconv.Quote(s), fmt's %q of a string, for a string of
+// printable ASCII without " or \, or null.
+export function quoteText(s: string): string | null {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x20 || c > 0x7e || c === 0x22 || c === 0x5c) return null;
+  }
+  return '"' + s + '"';
 }
 
 // fmtF is fmt's %f of a float64 with precision prec, as goesm lowers a

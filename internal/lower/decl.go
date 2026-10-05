@@ -342,8 +342,10 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 		}
 	}
 	w.ln("constructor(%s) { %s }", strings.Join(params, ", "), strings.Join(assigns, " "))
-	w.ln("$clone($t?: $rt.Type): %s { return new %s(%s); }", self, name, strings.Join(clones, ", "))
-	w.ln("$set(o: %s, $t?: $rt.Type): void { %s }", self, strings.Join(sets, " "))
+	if named == nil || !pe.uncopied()[named.Origin().Obj()] {
+		w.ln("$clone($t?: $rt.Type): %s { return new %s(%s); }", self, name, strings.Join(clones, ", "))
+		w.ln("$set(o: %s, $t?: $rt.Type): void { %s }", self, strings.Join(sets, " "))
+	}
 	// The exported methods of the entry package's types are JS methods,
 	// through the export wrappers (jsexport.go). Other packages' types have
 	// none: their methods are called through their functions, so that
@@ -370,7 +372,11 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 					args = append(args, a)
 				}
 				ret := pe.exportResultTS(sig, pe.prog.IsAsync(fn))
-				w.ln("%s(%s): %s { return %s(%s); }", jsPropName(fn.Name()), strings.Join(params, ", "), ret, pe.wrapperName(pe.methodFuncName(fn)), strings.Join(append([]string{"this"}, args...), ", "))
+				// A property for TypeScript; the method is set in $jsm
+				// (emitJSMethods).
+				w.ln("declare %s: (%s) => %s;", jsPropName(fn.Name()), strings.Join(params, ", "), ret)
+				pe.jsMethods = append(pe.jsMethods, fmt.Sprintf("(%s.prototype as any)[%s] = function (%s) { return %s(%s); };", name, jsString(fn.Name()),
+					strings.Join(append([]string{"this: any"}, params...), ", "), pe.wrapperName(pe.methodFuncName(fn)), strings.Join(append([]string{"this"}, args...), ", ")))
 				continue
 			}
 			var params, args []string
@@ -433,7 +439,7 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 		pe.initObjs = append(pe.initObjs, fn)
 	default:
 		name = pe.funcDeclName(fd, fn)
-		if fn.Exported() && !wrap {
+		if (fn.Exported() || isFmtHelper(fn)) && !wrap {
 			pe.export(name, fn.Name())
 		}
 	}

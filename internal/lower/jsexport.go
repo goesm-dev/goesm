@@ -150,10 +150,30 @@ func (pe *pkgEmitter) emitImportedHandleMethods() {
 				params = append(params, a+": any")
 				args = append(args, a)
 			}
-			pe.funcs.ln("(%s.prototype as any)[%s] = function (%s) { return %s(%s); };", class, jsString(fn.Name()),
-				strings.Join(append([]string{"this: any"}, params...), ", "), pe.wrapperName(name), strings.Join(append([]string{"this"}, args...), ", "))
+			pe.jsMethods = append(pe.jsMethods, fmt.Sprintf("(%s.prototype as any)[%s] = function (%s) { return %s(%s); };", class, jsString(fn.Name()),
+				strings.Join(append([]string{"this: any"}, params...), ", "), pe.wrapperName(name), strings.Join(append([]string{"this"}, args...), ", ")))
 		}
 	}
+}
+
+// emitJSMethods gives the classes of handles their JS methods in $jsm. A
+// handle reaches JavaScript only through the conversions of the JS calling
+// ABI that take a type descriptor, so only those reference $jsm: a bundle
+// whose exports convert no handles leaves the methods, their wrappers and
+// the rest of $jsabi out.
+func (pe *pkgEmitter) emitJSMethods() {
+	if !pe.usesJSABI {
+		return
+	}
+	if len(pe.jsMethods) == 0 {
+		pe.funcs.ln("const $jsm = undefined;")
+		return
+	}
+	pe.funcs.ln("const $jsm = /* @__PURE__ */ (() => {")
+	for _, m := range pe.jsMethods {
+		pe.funcs.ln("  %s", m)
+	}
+	pe.funcs.ln("})();")
 }
 
 // exportWrapper emits and exports, as exported, the function JavaScript
@@ -177,7 +197,7 @@ func (pe *pkgEmitter) exportWrapper(fn *types.Func, name, exported string, async
 		if sig.Variadic() && i == len(vars)-1 {
 			elem := t.(*types.Slice).Elem()
 			ps = append(ps, "..."+p+": "+pe.jsTS(elem, true, nil)+"[]")
-			args = append(args, "$jsabi.argToGo("+pe.typeDesc(t, tpScope{})+", "+p+")")
+			args = append(args, "$jsabi.argToGo("+pe.typeDesc(t, tpScope{})+", "+p+", $jsm)")
 			pe.usesJSABI = true
 			continue
 		}
@@ -347,7 +367,26 @@ func (pe *pkgEmitter) exportIn(t types.Type, x string) string {
 		}
 	}
 	pe.usesJSABI = true
-	return "$jsabi.argToGo(" + pe.typeDesc(t, tpScope{}) + ", " + x + ")"
+	if sliceElemKind(t) == types.String {
+		return "$jsabi.stringsToGo(" + x + ")"
+	}
+	return "$jsabi.argToGo(" + pe.typeDesc(t, tpScope{}) + ", " + x + ", $jsm)"
+}
+
+// sliceElemKind returns the kind of the elements of t when t is a slice of
+// a basic type, and types.Invalid otherwise. Export wrappers convert the
+// common slices with functions of their own, so that a bundle that needs no
+// more of the JS calling ABI leaves the rest out.
+func sliceElemKind(t types.Type) types.BasicKind {
+	s, ok := t.Underlying().(*types.Slice)
+	if !ok {
+		return types.Invalid
+	}
+	b, ok := s.Elem().Underlying().(*types.Basic)
+	if !ok {
+		return types.Invalid
+	}
+	return b.Kind()
 }
 
 // exportOut converts the Go result x of type t to JavaScript; x is used
@@ -366,7 +405,13 @@ func (pe *pkgEmitter) exportOut(t types.Type, x string) string {
 		return "$rt.fetchHandler(" + x + ")"
 	}
 	pe.usesJSABI = true
-	return "$jsabi.resultToJS(" + pe.typeDesc(t, tpScope{}) + ", " + x + ")"
+	switch sliceElemKind(t) {
+	case types.String:
+		return "$jsabi.stringsToJS(" + x + ")"
+	case types.Bool, types.Int, types.Int8, types.Int16, types.Int32, types.Int64, types.Uint, types.Uint16, types.Uint32, types.Uint64, types.Uintptr, types.Float32, types.Float64:
+		return "$jsabi.plainSliceToJS(" + x + ")"
+	}
+	return "$jsabi.resultToJS(" + pe.typeDesc(t, tpScope{}) + ", " + x + ", $jsm)"
 }
 
 // isHTTPHandler reports whether t is net/http's Handler, which JavaScript

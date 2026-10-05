@@ -11,7 +11,7 @@ export class Complex {
   }
 }
 
-export const complexZero: Complex = new Complex(0, 0);
+export const complexZero: Complex = /* @__PURE__ */ new Complex(0, 0);
 
 export function complex(re: number, im: number): Complex {
   return new Complex(re, im);

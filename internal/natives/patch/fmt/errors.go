@@ -6,7 +6,8 @@
 
 // goesm's patch of fmt's errors.go: Errorf formats with fastSprintf (see
 // print.go) when it can, as Sprintf does, and wraps the one %w operand
-// the way errorf does after a pp formatted the message.
+// the way errorf does after a pp formatted the message. newError is the
+// error that Errorf returns for a message that goesm's lowering formatted.
 package fmt
 
 import (
@@ -57,4 +58,14 @@ func errorf(format string, a ...any) error {
 	}
 	p.free()
 	return err
+}
+
+// newError returns the error Errorf returns for the message s, with w the
+// operand of its one %w, or nil if it has none. goesm lowers a call of
+// Errorf with a constant format that it formats itself to newError.
+func newError(s string, w error) error {
+	if w == nil {
+		return errors.New(s)
+	}
+	return &wrapError{msg: s, err: w}
 }

@@ -10,9 +10,13 @@
 // a-z and A-Z on ASCII, instead of a loop through a Builder. Split with a
 // separator and Join are the engine's split and join: a Go string's code
 // units are its bytes, so they cut and concatenate the same bytes.
+// TrimSpace removes ASCII white space with the engine's trim.
 package strings
 
-import "unicode"
+import (
+	"unicode"
+	"unicode/utf8"
+)
 
 // ToUpper returns s with all Unicode letters mapped to their upper case.
 func ToUpper(s string) string {
@@ -43,8 +47,20 @@ func Split(s, sep string) []string {
 // string sep is placed between elements in the resulting string.
 func Join(elems []string, sep string) string { return joinAll(elems, sep) }
 
+// TrimSpace returns a slice of the string s, with all leading
+// and trailing white space removed, as defined by Unicode.
+func TrimSpace(s string) string {
+	s = trimASCIISpace(s)
+	if len(s) > 0 && (s[0] >= utf8.RuneSelf || s[len(s)-1] >= utf8.RuneSelf) {
+		// Unicode white space may be left at either end.
+		return TrimFunc(s, unicode.IsSpace)
+	}
+	return s
+}
+
 func splitAll(s, sep string) []string
 func joinAll(elems []string, sep string) string
 func isASCII(s string) bool
+func trimASCIISpace(s string) string
 func upperASCII(s string) string
 func lowerASCII(s string) string

@@ -34,7 +34,7 @@ export function writeSyncAll(fs: any, fd: number, buf: Uint8Array, off: number, 
   }
 }
 
-const decoders = [new TextDecoder("utf-8"), new TextDecoder("utf-8")];
+const decoders = [/* @__PURE__ */ new TextDecoder("utf-8"), /* @__PURE__ */ new TextDecoder("utf-8")];
 const pending = ["", ""];
 
 // writeConsole writes complete lines of fd 1 or 2 to the console.

@@ -18,7 +18,7 @@ export * from "./complex.ts";
 export * from "./host.ts";
 export * from "./print.ts";
 export * from "./unsafe.ts";
-export { fmtF, fmtShortest } from "./fmt.ts";
+export { errText, fmtF, fmtShortest, plainErr, quoteText } from "./fmt.ts";
 export { jsonAbort, jsonFloat, jsonInt, jsonInt64, jsonKey, jsonMarshalString, jsonMarshalStringWith, jsonMarshalWith, jsonStr, jsonUnmarshalString } from "./json.ts";
 
 export * from "./http.ts";

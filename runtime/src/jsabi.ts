@@ -37,7 +37,8 @@
 import {
   GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, addMethods, box, cell, classTypes, errorType, fromJSString, hasMethods,
   fromRef, funcOf, goThrown, implementsIface, interfaceOf, makeMap, mapOf, mapRange, mapSet, named, newBytes, plainPanic,
-  ptrTo, setUnderlying, sliceOf, toJSString, toRef, types,
+  ptrTo, setUnderlying, sliceOf, toJSString, toRef,
+  tBool, tFloat64, tInt64, tString, tUnsafePointer,
 } from "./index.ts";
 
 function jsValueKind(t: Type): number {
@@ -150,15 +151,42 @@ function isHandle(t: Type): boolean {
   return t.elem!.kind === Kind.Struct && hasMethods(t);
 }
 
+// plainSliceToJS, stringsToJS and stringsToGo are goToJS and jsToGo for
+// slices of booleans and numbers other than bytes, and of strings. Export
+// wrappers call them directly, so that a bundle that converts no more
+// leaves the rest of this module out.
+export function plainSliceToJS(s: Slice<any> | null): any[] | null {
+  if (s === null) return null;
+  const a = s.$array, o = s.$offset, n = s.$length, out = new Array(n);
+  for (let i = 0; i < n; i++) out[i] = a[o + i];
+  return out;
+}
+
+export function stringsToJS(s: Slice<string> | null): string[] | null {
+  if (s === null) return null;
+  const a = s.$array, o = s.$offset, n = s.$length, out = new Array<string>(n);
+  for (let i = 0; i < n; i++) out[i] = toJSString(a[o + i]);
+  return out;
+}
+
+export function stringsToGo(x: any): Slice<string> | null {
+  if (x === null || x === undefined) return null;
+  if (x instanceof Slice) return x;
+  const n = x.length >>> 0, a = new Array<string>(n);
+  for (let i = 0; i < n; i++) a[i] = jsString(x[i]);
+  return new Slice(a, 0, n, n);
+}
+
 // resultToJS converts the result v of type t of an exported Go function for
-// its JavaScript caller.
-export function resultToJS(t: Type, v: any): any {
+// its JavaScript caller. methods is the entry module's $jsm, passed so that
+// the handles' JS methods are kept where handles can cross.
+export function resultToJS(t: Type, v: any, methods?: unknown): any {
   return goToJS(t, v, true);
 }
 
 // argToGo converts the argument x JavaScript passes to an exported Go
 // function for a parameter of type t.
-export function argToGo(t: Type, x: any): any {
+export function argToGo(t: Type, x: any, methods?: unknown): any {
   return jsToGo(t, x, true);
 }
 
@@ -425,17 +453,17 @@ export function jsToGo(t: Type, x: any, ex = false, embedding: Type[] | null = n
 function jsonToAny(x: any): Iface | null {
   switch (typeof x) {
     case "undefined": return null;
-    case "boolean": return box(types.bool, x);
-    case "number": return box(types.float64, x);
-    case "bigint": return box(types.int64, BigInt.asIntN(64, x));
-    case "string": return box(types.string, fromJSString(x));
+    case "boolean": return box(tBool, x);
+    case "number": return box(tFloat64, x);
+    case "bigint": return box(tInt64, BigInt.asIntN(64, x));
+    case "string": return box(tString, fromJSString(x));
     case "object":
       if (x === null) return null;
       if (Array.isArray(x)) {
         const t = sliceOf(interfaceOf([]));
         return box(t, jsToGo(t, x));
       }
-      const t = mapOf(types.string, interfaceOf([]));
+      const t = mapOf(tString, interfaceOf([]));
       return box(t, jsToGo(t, x));
   }
   plainPanic(`goesm: a JavaScript ${typeof x} cannot be converted to a Go value`);
@@ -451,9 +479,9 @@ let jsErrorType: Type | null = null;
 function jsErrorT(): Type {
   if (jsErrorType === null) {
     jsErrorType = named("goesm", "jsError");
-    setUnderlying(jsErrorType, types.unsafePointer);
+    setUnderlying(jsErrorType, tUnsafePointer);
     addMethods(jsErrorType, {
-      Error: [(v: any) => "JavaScript error: " + jsString(errorMessage(v)), funcOf([], [types.string], false)],
+      Error: [(v: any) => "JavaScript error: " + jsString(errorMessage(v)), funcOf([], [tString], false)],
     });
   }
   return jsErrorType;

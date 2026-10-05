@@ -206,7 +206,7 @@ export class G {
   baggage: any = null;
 }
 
-export const mainG = new G();
+export const mainG = /* @__PURE__ */ new G();
 let curG = mainG;
 
 export function getG(): G {
