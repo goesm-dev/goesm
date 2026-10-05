@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -116,6 +117,12 @@ func typed() {
 	long[39].SKU = "日本"
 	b, err = json.Marshal(long)
 	fmt.Println("typed long:", len(b), string(b[len(b)-40:]), err)
+	// Texts of 256 bytes and more take the encoder's UTF-8 check.
+	for _, sku := range []string{"plain", "<", ">", "&", "bad\xff", "\u2028", "é"} {
+		long[39].SKU = sku
+		b, err = json.Marshal(long)
+		fmt.Printf("typed long %q: %d %s %v\n", sku, len(b), b[bytes.LastIndexByte(b, '{'):], err)
+	}
 	s, err := json.Marshal(Item{SKU: "s"})
 	fmt.Println("typed string:", string(s), len(s), err)
 }
