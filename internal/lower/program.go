@@ -128,6 +128,22 @@ type Program struct {
 	// decide which methods method tables list (see methods.go).
 	ifaceMethods map[string][]ifaceMethod
 	allMethods   bool
+	// calledMethods are the interface methods that the code reachable
+	// from the program's roots calls, by name: a table lists the other
+	// methods of ifaceMethods without their functions (see reach.go).
+	calledMethods map[string][]ifaceMethod
+	reachOnce     sync.Once
+	// unicodeClasses is set when the program may parse \p or \P in a
+	// regular expression (UnicodeClasses).
+	unicodeClasses bool
+
+	// pureEmitters answer returnsPure for the functions of imported
+	// packages (PureEmitter).
+	pureEmitters map[*types.Package]*pkgEmitter
+
+	// Entry is the path of the package a build starts from, whose exported
+	// functions and methods JavaScript calls (Options.Entry); see reach.go.
+	Entry string
 
 	// TracksGoroutines is set when the program uses goroutine-local storage
 	// (runtime.GetTraceContextFromGLS and friends): async functions then
@@ -1243,4 +1259,22 @@ func sortDiags(diags []Diagnostic) []Diagnostic {
 		return a.Column < b.Column
 	})
 	return d
+}
+
+// PureEmitter returns an emitter of the package pkg that only answers
+// whether its functions return pure expressions (returnsPure), for the
+// lowering of an importer of pkg.
+func (p *Program) PureEmitter(pkg *types.Package) *pkgEmitter {
+	if pe, ok := p.pureEmitters[pkg]; ok {
+		return pe
+	}
+	if p.pureEmitters == nil {
+		p.pureEmitters = map[*types.Package]*pkgEmitter{}
+	}
+	var pe *pkgEmitter
+	if lp := p.byTypes[pkg]; lp != nil {
+		pe = newPkgEmitter(p, lp, false)
+	}
+	p.pureEmitters[pkg] = pe
+	return pe
 }

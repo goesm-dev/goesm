@@ -20,6 +20,9 @@ func (p *Program) LowerPackage(pkg *packages.Package, opts Options) *Module {
 	if pkg.PkgPath == "unsafe" {
 		return nil
 	}
+	if p.Entry == "" {
+		p.Entry = opts.Entry
+	}
 	return newPkgEmitter(p, pkg, pkg.PkgPath == opts.Entry).emit()
 }
 
@@ -116,6 +119,7 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 				if fd, isFunc := d.(*ast.FuncDecl); isFunc && fd.Recv != nil {
 					if fn, isFn := pkg.TypesInfo.Defs[fd.Name].(*types.Func); isFn {
 						add("dynMethod", fn, strconv.FormatBool(p.DynMethod(fn)))
+						add("calledMethod", fn, strconv.FormatBool(p.CalledMethod(fn)))
 					}
 				}
 			}
@@ -131,6 +135,9 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 		sort.Strings(fs)
 		h := sha256.New()
 		fmt.Fprintf(h, "goesm facts\ntracksGoroutines %v\nusesPull %v\nstd %v\ndep %v\n", p.TracksGoroutines, p.usesPull, p.std[pkg], p.Deps[pkg])
+		if pkg.PkgPath == "regexp/syntax" {
+			fmt.Fprintf(h, "unicodeClasses %v\n", p.UnicodeClasses())
+		}
 		for _, f := range fs {
 			fmt.Fprintln(h, f)
 		}

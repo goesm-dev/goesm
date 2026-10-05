@@ -135,8 +135,11 @@ const twTheme = readFileSync(new URL("node_modules/tailwindcss/theme.css", impor
 export const LIBS = [
   { name: "luxon", pkg: "datetime", lib: "luxon 3.7.2", run: datetime },
   { name: "neverthrow", pkg: "result", lib: "neverthrow 8.2.0", run: (m) => [m.Check(orderLines)] },
+  { name: "neverthrow (light)", pkg: "light/result", impl: "result", lib: "neverthrow 8.2.0", run: (m) => [m.Check(orderLines)] },
   { name: "connect-es", pkg: "rpc", lib: "@connectrpc/connect(-web) 2.2.0, @bufbuild/protobuf 2.16.0", run: rpc, setup: installFetch },
+  { name: "connect-es (light)", pkg: "light/rpc", impl: "rpc", lib: "@connectrpc/connect(-web) 2.2.0, @bufbuild/protobuf 2.16.0", run: rpc, setup: installFetch },
   { name: "react", pkg: "render", lib: "react, react-dom 19.3.0", run: (m) => [m.Render("Shop <All> & more", products)] },
+  { name: "react (light)", pkg: "light/render", impl: "render", lib: "react, react-dom 19.3.0", run: (m) => [m.Render("Shop <All> & more", products)] },
   { name: "vitepress", pkg: "markdown", impl: "markdown-it", lib: "markdown-it 15.0.2", run: (m) => [m.Render(doc)], norm: normHTML },
   // Astro renders Markdown when it builds a site, under Node.js: the
   // browser build of remark would decode entities through the DOM.

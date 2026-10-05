@@ -234,7 +234,9 @@ func (fe *funcEmitter) sprintf(e *ast.CallExpr) (string, bool) {
 			}
 		}
 		v := stripMarks(fe.expr(a))
-		if !reusable(v) {
+		// An Error method may change a variable, so with an error among
+		// the operands all are evaluated first, as fmt sees them.
+		if !reusable(v) || nerr > 0 && fe.info.Types[a].Value == nil {
 			t := temp()
 			sets = append(sets, t+" = "+v)
 			v = t
@@ -313,6 +315,8 @@ func sprintfConst(v constant.Value, b *types.Basic, verb byte) (string, bool) {
 		return "", false
 	}
 	switch {
+	case b.Kind() == types.String && verb == 'q':
+		return strconv.Quote(constant.StringVal(v)), true
 	case b.Kind() == types.String:
 		return constant.StringVal(v), true
 	case b.Kind() == types.Bool:

@@ -56,6 +56,12 @@ export function copy(t: Type, v: any): any {
   return v;
 }
 
+// uncalled stands in a method table for a method the program never calls
+// through an interface (internal/lower/methods.go).
+export function uncalled(): never {
+  throw new Error("goesm: a method compiled as never called dynamically was called");
+}
+
 function imethod(x: Iface | null, key: string): (recv: any, ...args: any[]) => any {
   if (x === null) runtimePanic("invalid memory address or nil pointer dereference");
   const m = x.t.methods.get(key);

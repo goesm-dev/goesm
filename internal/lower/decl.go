@@ -148,7 +148,11 @@ func (pe *pkgEmitter) methodEntries(T types.Type, named *types.Named, tp tpScope
 		}
 		s := fn.Signature()
 		sig := types.NewSignatureType(nil, nil, nil, s.Params(), s.Results(), s.Variadic())
-		entries = append(entries, fmt.Sprintf("%s: [%s, %s]", jsString(methodKey(fn)), pe.methodEntry(T, sel, tp), pe.typeDesc(sig, mtp)))
+		impl := "$rt.uncalled"
+		if pe.prog.CalledMethod(fn) {
+			impl = pe.methodEntry(T, sel, tp)
+		}
+		entries = append(entries, fmt.Sprintf("%s: [%s, %s]", jsString(methodKey(fn)), impl, pe.typeDesc(sig, mtp)))
 	}
 	return entries
 }
@@ -421,6 +425,9 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	sig := fn.Signature()
 	if fd.Name.Name == "_" {
 		return
+	}
+	if fd.Recv == nil && fd.Name.Name == "init" && fd.Body != nil && len(fd.Body.List) == 0 {
+		return // an init that does nothing (one a patch replaced) is not called
 	}
 	var name string
 	// JS calls the exported functions and methods of the entry package

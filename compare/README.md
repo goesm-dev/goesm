@@ -17,30 +17,38 @@ What does it cost to write in Go, with goesm, what a web app would otherwise get
 
 For a framework, the comparison takes the part a page depends on most: rendering for React, the Markdown renderer for VitePress and Astro, the reactivity system for Vue, and for Tailwind the compiler that turns a page's class names into CSS. The Go side is ordinary Go code, as one would write it for a native program: `fmt.Errorf` with `%w`, `time.Parse`, the generated protobuf types, `html/template`. Go has no reactivity system to compare, so `reactive` is one written for this comparison with the algorithm of Vue 3.5's: each computation's sources and each source's subscribers are doubly linked lists of the same links, with version numbers, so that a computation that reads the same sources as on its last run reuses its links, and a computed value whose sources did not change is not recomputed. `utility` is likewise written for this comparison. It reads the theme's CSS and builds the utilities from it the way Tailwind does, and takes Tailwind's static utilities, static variants and property order from tables that [js/gen-utility.mjs](js/gen-utility.mjs) generates from the tailwindcss package. It covers the utilities a typical page uses and the variants that do not take a value; `group-*`, `peer-*`, `not-*`, `max-*` and the other compound or functional variants are left out. The JavaScript side is the library's usual API. The Markdown renderers escape a few characters differently, so their HTML is compared with those escapes undone. [js/libs.mjs](js/libs.mjs) holds the inputs and the workloads, and [js/impl/](js/impl) the JavaScript versions.
 
+Three comparisons also have a second Go package under [light/](light), shown as "(light)": the same job written with a bundle in mind, without the standard library packages that make the first package large. [`light/result`](light/result/result.go) builds its messages in an error type of its own instead of with `fmt.Errorf`, which formats any value through `reflect`. [`light/rpc`](light/rpc/rpc.go) encodes and decodes the two messages by hand and calls `fetch` through `syscall/js`, instead of using connect-go, the protobuf runtime and `net/http`. [`light/render`](light/render/render.go) writes the page with one function per component into a `strings.Builder`, escaping with `html.EscapeString`, as templ-generated code does, instead of interpreting a template with `html/template`. Their results, too, must be identical to the library's.
+
 ## Results
 
 <!-- compare:start -->
 | Library | Go package | goesm gzip | JS gzip | ratio |
 | --- | --- | --- | --- | --- |
-| luxon | `datetime` | 21.8 KiB | 21.7 KiB | 1.01× |
-| neverthrow | `result` | 101.3 KiB | 2.4 KiB | 42.41× |
-| connect-es | `rpc` | 1291.4 KiB | 32.9 KiB | 39.30× |
-| react | `render` | 331.8 KiB | 64.3 KiB | 5.16× |
-| vitepress | `markdown` | 238.2 KiB | 40.4 KiB | 5.90× |
-| astro | `markdown` | 238.2 KiB | 47.2 KiB | 5.04× |
+| luxon | `datetime` | 20.7 KiB | 21.7 KiB | 0.96× |
+| neverthrow | `result` | 48.9 KiB | 2.4 KiB | 20.48× |
+| neverthrow (light) | `light/result` | 20.0 KiB | 2.4 KiB | 8.39× |
+| connect-es | `rpc` | 1239.0 KiB | 32.9 KiB | 37.71× |
+| connect-es (light) | `light/rpc` | 14.0 KiB | 32.9 KiB | 0.42× |
+| react | `render` | 313.8 KiB | 64.3 KiB | 4.88× |
+| react (light) | `light/render` | 15.1 KiB | 64.3 KiB | 0.23× |
+| vitepress | `markdown` | 162.8 KiB | 40.4 KiB | 4.03× |
+| astro | `markdown` | 162.8 KiB | 47.2 KiB | 3.45× |
 | vue | `reactive` | 6.4 KiB | 5.3 KiB | 1.22× |
-| tailwind | `utility` | 86.4 KiB | 72.2 KiB | 1.20× |
+| tailwind | `utility` | 69.4 KiB | 72.2 KiB | 0.96× |
 
 | Library | node 26.10.0 goesm | node 26.10.0 JS | ratio | bun 1.4.2 goesm | bun 1.4.2 JS | ratio |
 | --- | --- | --- | --- | --- | --- | --- |
-| luxon | 2.4 ms | 9.4 ms | 0.26× | 4.5 ms | 7.9 ms | 0.57× |
-| neverthrow | 0.62 ms | 0.53 ms | 1.17× | 0.73 ms | 0.54 ms | 1.35× |
-| connect-es | 19 ms | 2.5 ms | 7.48× | 23 ms | 2.1 ms | 10.76× |
-| react | 2.7 ms | 1.7 ms | 1.61× | 3.3 ms | 2.0 ms | 1.62× |
-| vitepress | 0.38 ms | 0.22 ms | 1.71× | 0.61 ms | 0.15 ms | 4.12× |
-| astro | 0.42 ms | 2.1 ms | 0.20× | 0.54 ms | 2.6 ms | 0.21× |
-| vue | 6.2 ms | 6.3 ms | 0.98× | 6.0 ms | 5.5 ms | 1.08× |
-| tailwind | 2.4 ms | 4.2 ms | 0.57× | 3.0 ms | 3.8 ms | 0.80× |
+| luxon | 2.4 ms | 8.9 ms | 0.27× | 4.5 ms | 8.0 ms | 0.57× |
+| neverthrow | 0.58 ms | 0.50 ms | 1.17× | 0.69 ms | 0.58 ms | 1.20× |
+| neverthrow (light) | 0.57 ms | 0.52 ms | 1.09× | 0.76 ms | 0.57 ms | 1.35× |
+| connect-es | 20 ms | 2.7 ms | 7.64× | 23 ms | 2.1 ms | 10.97× |
+| connect-es (light) | 1.8 ms | 2.6 ms | 0.70× | 1.4 ms | 2.0 ms | 0.71× |
+| react | 3.0 ms | 1.7 ms | 1.74× | 3.2 ms | 2.1 ms | 1.56× |
+| react (light) | 0.20 ms | 1.7 ms | 0.12× | 0.23 ms | 2.0 ms | 0.12× |
+| vitepress | 0.41 ms | 0.23 ms | 1.79× | 0.66 ms | 0.15 ms | 4.46× |
+| astro | 0.38 ms | 2.0 ms | 0.19× | 0.56 ms | 2.7 ms | 0.21× |
+| vue | 6.2 ms | 6.5 ms | 0.96× | 6.4 ms | 5.8 ms | 1.11× |
+| tailwind | 2.5 ms | 4.5 ms | 0.56× | 3.5 ms | 3.7 ms | 0.94× |
 <!-- compare:end -->
 
 Sizes are of the minified ES module bundle, compressed with gzip at level 9. Times are the median of one workload run, after a warmup. The connect-es workload answers `fetch` in-process with encoded responses, so it times the client alone: encoding the request, the protocol and decoding the response.
