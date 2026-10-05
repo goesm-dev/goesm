@@ -88,7 +88,7 @@ JS 呼び出し ABI はまだないので、呼び出し側は各モジュール
 - **ネットワークとプロセス:** 生の TCP や UDP に対する `net.Dial` と `net.Listen`、`pgx` や `go-sql-driver/mysql` のように TCP で接続するデータベースドライバ、`os/exec` は使えません。
 - **ブラウザでのタイムゾーン:** ブラウザで `time.LoadLocation` を使うには `import _ "time/tzdata"` が必要です。`time.Local` は、Go 自身の js/wasm 移植と同じく、起動時に決まる固定のオフセットです。
 - **64 ビットの `int` と `uint`:** 2^53 未満では正確ですが、オーバーフローしても折り返しません。`int64` と `uint64` は正確です。
-- **並列実行:** goroutine は 1 本の JavaScript スレッドを共有し、待つ箇所でだけ切り替わります。これは `GOMAXPROCS=1` でプリエンプションのない Go と同じです。待たずに長く計算する Go のコードは、他の goroutine、タイマー、リクエストを待たせます。フラグをポーリングして待つコードは止まったままになります。並列に動かす処理は Worker に切り出します。実行モデル、データ競合、メモリ安全性は [docs/concurrency.ja.md](concurrency.ja.md) にまとめています。
+- **並列実行:** goroutine は 1 本の JavaScript スレッドを共有し、待つ箇所でだけ切り替わります。これは `GOMAXPROCS=1` でプリエンプションのない Go と同じです。待たずに長く計算する Go のコードは、他の goroutine、タイマー、リクエストを待たせます。`runtime.Gosched` を呼ばずにフラグをポーリングするコードは止まったままになります。並列に動かす処理は Worker に切り出します。実行モデル、データ競合、メモリ安全性は [docs/concurrency.ja.md](concurrency.ja.md) にまとめています。
 - **panic:** goroutine の中で誰も recover しない panic は、Go と同じくプロセスを終了させます。Go のコードが Next.js のような Node.js のサーバーにライブラリとして組み込まれている場合も同じです。`js.FuncOf` のコールバックの中の panic は、呼び出し元ではなく `reportError` に渡ります。
 - **配布:** Node.js は `node_modules` の下の `.ts` ファイルから型を取り除かないので、npm パッケージとして公開した goesm の出力にはバンドラが必要です。ソースマップは `.go` ファイルを絶対パスで示します。
 - **ツール:** `syscall/js` を import するパッケージは、`GOOS=js GOARCH=wasm` を指定しない限り、build、vet、gopls での読み込みができません。

@@ -64,13 +64,19 @@ func GOROOT() string { return "" }
 // Goexit terminates the goroutine that calls it.
 func Goexit()
 
-// Gosched yields the processor, allowing other goroutines to run: it waits
-// for a goroutine started behind the ones already runnable.
+// Gosched yields the processor, allowing other goroutines to run. It also
+// yields to the host's event loop, so that timers and I/O that are due run
+// first, as they would on another thread: a loop that polls with Gosched
+// sees what they change.
 func Gosched() {
 	ch := make(chan struct{})
-	go close(ch)
+	hostYield(func() { close(ch) })
 	<-ch
 }
+
+// hostYield calls f in a new goroutine after the goroutines already runnable
+// and the host's pending tasks.
+func hostYield(f func())
 
 // GOMAXPROCS reports 1: JavaScript runs goroutines on one thread.
 func GOMAXPROCS(n int) int { return 1 }
