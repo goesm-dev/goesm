@@ -22,7 +22,13 @@ func TestAsyncStaysLocal(t *testing.T) {
 		{
 			program: "iterpullcalls",
 			async:   []string{"sum", "firstTwo", "closure", "pairs", "main"},
-			syncStd: map[string][]string{"strings": {"ToUpper", "IndexFunc"}, "fmt": {"Sprint"}, "os": {"Getenv"}},
+			syncStd: map[string][]string{
+				"strings": {"ToUpper", "IndexFunc"},
+				"fmt":     {"Sprint", "Sprintf"},
+				"os":      {"Getenv"},
+				"slices":  {"SortFunc"},
+				"reflect": {"rtype$FieldByNameFunc"},
+			},
 		},
 		{
 			program:   "asynccalls",
@@ -47,7 +53,7 @@ func TestAsyncStaysLocal(t *testing.T) {
 			}
 			check := func(ts, pkg string, names []string, async bool) {
 				for _, n := range names {
-					re := regexp.MustCompile(`(?m)^(async )?function ` + regexp.QuoteMeta(n) + `\(`)
+					re := regexp.MustCompile(`(?m)^(async )?function ` + regexp.QuoteMeta(n) + `(?:<[^>]*>)?\(`)
 					m := re.FindStringSubmatch(ts)
 					switch {
 					case m == nil:
