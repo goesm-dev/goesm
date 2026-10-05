@@ -9,6 +9,7 @@ package http
 import (
 	"context"
 	"net"
+	"syscall/js"
 )
 
 var jsFetchDisabled = false
@@ -31,13 +32,35 @@ var fetchTransport = &Transport{}
 //
 //goesm:original roundTripPort
 func (t *Transport) RoundTrip(req *Request) (*Response, error) {
-	if t.DialTLS == nil && t.DialTLSContext == nil && (t.Dial != nil || t.DialContext != nil) &&
-		(t.Dial == nil || plainDialer(dialerOf(t.Dial))) &&
-		(t.DialContext == nil || plainDialer(dialerOfContext(t.DialContext))) {
-		return fetchTransport.roundTripPort(req)
+	if t.Dial != nil || t.DialContext != nil || t.DialTLS != nil || t.DialTLSContext != nil {
+		if t.DialTLS != nil || t.DialTLSContext != nil ||
+			(t.Dial != nil && !plainDialer(dialerOf(t.Dial))) ||
+			(t.DialContext != nil && !plainDialer(dialerOfContext(t.DialContext))) {
+			return t.roundTripPort(req)
+		}
+		t = fetchTransport
+	}
+	if fetchManualRedirect && !jsFetchMissing && req.Header.Get(jsFetchRedirect) == "" {
+		req = req.Clone(req.Context())
+		req.Header.Set(jsFetchRedirect, "manual")
 	}
 	return t.roundTripPort(req)
 }
+
+// fetchManualRedirect reports whether fetch hands redirects to the caller
+// with redirect: "manual", as it does outside browsers (Node.js, Bun, Deno,
+// Cloudflare Workers). There RoundTrip asks for it, so that http.Client
+// follows redirects itself, as natively: CheckRedirect, the cookie jar and
+// the limit of 10 apply. A browser only returns an opaque response for a
+// manual redirect, so there fetch follows them.
+var fetchManualRedirect = func() bool {
+	g := js.Global()
+	if g.Get("document").Truthy() {
+		return false
+	}
+	return g.Get("process").Truthy() || g.Get("Deno").Truthy() || g.Get("Bun").Truthy() ||
+		g.Get("navigator").Truthy() && g.Get("navigator").Get("userAgent").String() == "Cloudflare-Workers"
+}()
 
 // dialerOf and dialerOfContext return the receiver of dial if it is a
 // method value of (*net.Dialer).Dial or DialContext, or nil.

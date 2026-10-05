@@ -188,7 +188,7 @@ func WriteTS(dir string, mods []*lower.Module) error {
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(out, data, 0o644)
+		return os.WriteFile(out, append([]byte(lower.NoCheck), data...), 0o644)
 	})
 }
 

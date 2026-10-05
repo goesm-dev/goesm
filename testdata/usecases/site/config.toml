@@ -1,0 +1,5 @@
+langs = ["en", "ja"]
+
+[site]
+name = "goesm"
+base = "/docs/"
