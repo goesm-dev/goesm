@@ -467,16 +467,33 @@ export function jsonAbort(): never {
 // encodedText is the JSON text of v by the generated encoder f, or null for
 // the runtime's encoder (or Go's code) to do it.
 function encodedText(f: (v: any, d: number) => any, v: any): string | null {
+  const out = plainText(f, v);
+  if (out === null) return null;
+  if (!encSpecial.test(out)) {
+    textIsGo = true; // ASCII, the same as its UTF-8
+    return out;
+  }
+  return carefulText(f, v);
+}
+
+// plainText is the text of f with the strings as they are, or null.
+function plainText(f: (v: any, d: number) => any, v: any): string | null {
   try {
     encCareful = false;
-    let out = JSON.stringify(f(v, 0));
-    if (!encSpecial.test(out)) {
-      textIsGo = true; // ASCII, the same as its UTF-8
-      return out;
-    }
+    return JSON.stringify(f(v, 0));
+  } catch (e) {
+    if (e === NoJS || e === Abort) return null;
+    throw e;
+  }
+}
+
+// carefulText is the text of f with jsonStr converting the strings that
+// need it, or null.
+function carefulText(f: (v: any, d: number) => any, v: any): string | null {
+  try {
     encCareful = true;
     encSlow = false;
-    out = JSON.stringify(f(v, 0));
+    let out = JSON.stringify(f(v, 0));
     textIsGo = !encSlow;
     if (encSlow && htmlChars.test(out)) out = out.replace(htmlCharsAll, htmlEscape);
     return out;
@@ -490,7 +507,20 @@ function encodedText(f: (v: any, d: number) => any, v: any): string | null {
 
 // jsonMarshalWith is json.Marshal(v) by the generated encoder f, or null.
 export function jsonMarshalWith(f: (v: any, d: number) => any, v: any): S<number> | null {
-  const out = encodedText(f, v);
+  let out = plainText(f, v);
+  if (out === null) return null;
+  if (out.length >= 256) {
+    // The plain text is the encoding when it is ASCII without HTML
+    // characters. Its UTF-8 finds a byte past ASCII faster than a scan
+    // would, as each encodes to two, and is the result when there is none.
+    const b = utf8Enc.encode(out);
+    if (b.length === out.length && out.indexOf("<") < 0 && out.indexOf(">") < 0 && out.indexOf("&") < 0) {
+      return new Slice(b as any, 0, b.length, b.length);
+    }
+  } else if (!encSpecial.test(out)) {
+    return stringToBytes(out);
+  }
+  out = carefulText(f, v);
   if (out === null) return null;
   // An ASCII text is its own UTF-8, which the engine's encoder copies.
   if (!textIsGo && out.length < 256) return stringToBytes(fromJSString(out));
