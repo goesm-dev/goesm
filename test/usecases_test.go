@@ -271,7 +271,8 @@ func TestUseCaseServer(t *testing.T) {
 }
 
 // TestUseCaseEdge serves package edge's Handler as the fetch handler of a
-// Cloudflare Worker, `export default { fetch: rt.fetchHandler(Handler()) }`,
+// Cloudflare Worker, `export default { fetch: Handler() }` (an http.Handler
+// result is a fetch handler),
 // in workerd (installed by npm ci in test/), and compares what the client
 // gets with a native server. GREETING is a text binding, which reaches
 // os.Getenv through nodejs_compat's process.env.
@@ -295,8 +296,8 @@ func TestUseCaseEdge(t *testing.T) {
 
 	bundle := buildPkg(t, dir, "./edge")
 	work := filepath.Dir(bundle)
-	worker := `import { Handler, $runtime as rt } from "./` + filepath.Base(bundle) + `";
-export default { fetch: rt.fetchHandler(Handler()) };
+	worker := `import { Handler } from "./` + filepath.Base(bundle) + `";
+export default { fetch: Handler() };
 `
 	if err := os.WriteFile(filepath.Join(work, "worker.js"), []byte(worker), 0o644); err != nil {
 		t.Fatal(err)

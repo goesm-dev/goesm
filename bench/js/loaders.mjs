@@ -38,13 +38,10 @@ export const LOADERS = {
   async js(base) {
     return { ...(await import(new URL("../js/handwritten.mjs", base).href)) };
   },
-  // goesm build output: an ES module exporting the package's functions.
-  // Go strings are byte strings; the runtime converts JS strings in and out.
+  // goesm build output: an ES module exporting the package's functions,
+  // which take and return JS strings (the JS calling ABI converts them).
   async goesm(base) {
-    const m = await import(new URL("goesm/kernels.js", base).href);
-    const rt = m.$runtime;
-    const str = (f) => (s) => rt.toJSString(f(rt.fromJSString(s)));
-    return { ...m, Upper: str(m.Upper), Handle: str(m.Handle) };
+    return { ...(await import(new URL("goesm/kernels.js", base).href)) };
   },
   // GopherJS: a script whose main sets globalThis.goBench.
   async gopherjs(base, host) {

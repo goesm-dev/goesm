@@ -65,7 +65,7 @@ Arguments are converted from Go to JavaScript and results from JavaScript to Go,
 | `any` | to JavaScript, the conversion of the dynamic value; to Go, the value as `encoding/json` decodes it into an `any` |
 | variadic parameter | separate arguments |
 
-Values are copied: a slice, map or struct changed on the other side does not change the original. A JavaScript value that should stay itself, such as a DOM element or a class instance, is a `js.Value`. Several results are an array returned by the JavaScript function. Types without a JavaScript counterpart, such as channels and complex numbers, are compile errors at the directive.
+Values are copied: a slice, map or struct changed on the other side does not change the original. JavaScript calling Go uses the same table in the other direction ([js-exports.md](js-exports.md)). A JavaScript value that should stay itself, such as a DOM element or a class instance, is a `js.Value`. Several results are an array returned by the JavaScript function. Types without a JavaScript counterpart, such as channels and complex numbers, are compile errors at the directive.
 
 ## Errors
 

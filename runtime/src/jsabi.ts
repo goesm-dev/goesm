@@ -20,14 +20,24 @@
 //
 // Everything is copied: a slice or struct changed on the other side does not
 // change the original.
+//
+// The exported functions and methods of the package a build starts from are
+// called from JavaScript through wrappers (exportWrapper in
+// internal/lower/jsexport.go) that use the same table the other way round,
+// with argToGo and resultToJS. There, Go values without a plain JavaScript
+// counterpart pass as they are, as handles JavaScript gives back to Go: a
+// pointer to a struct type with methods, a non-empty interface, a channel.
+// A Go value JavaScript passes back where its type is expected is taken as
+// it is, a struct value copied. An error result is thrown as a GoError.
 
 // jsabi.ts is a separate module (@goesm/runtime/jsabi), imported only by the
-// modules that use //goesm:import; like natives.ts, it uses the runtime only
+// modules that use //goesm:import and by entry modules whose export wrappers
+// convert more than numbers; like natives.ts, it uses the runtime only
 // through its public module, so split builds share one runtime.
 import {
-  GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, addMethods, box, fromJSString, fromRef, funcOf,
-  interfaceOf, makeMap, mapOf, mapRange, mapSet, named, newBytes, plainPanic, setUnderlying, sliceOf, toJSString,
-  goThrown, toRef, types,
+  GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, addMethods, box, classTypes, errorType, fromJSString,
+  fromRef, funcOf, goThrown, implementsIface, interfaceOf, makeMap, mapOf, mapRange, mapSet, named, newBytes, plainPanic,
+  ptrTo, setUnderlying, sliceOf, toJSString, toRef, types,
 } from "./index.ts";
 
 function jsValueKind(t: Type): number {
@@ -54,8 +64,10 @@ export function jsUint64(x: any): bigint {
   return BigInt.asUintN(64, typeof x === "bigint" ? x : BigInt(jsInt(x)));
 }
 
-// goToJS converts the Go value v of type t to a JavaScript value.
-export function goToJS(t: Type, v: any): any {
+// goToJS converts the Go value v of type t to a JavaScript value. ex is set
+// for the results of exported functions, where Go values without a
+// JavaScript counterpart are handles (see the top of this file).
+export function goToJS(t: Type, v: any, ex = false): any {
   switch (t.kind) {
     case Kind.String:
       return toJSString(v);
@@ -63,21 +75,28 @@ export function goToJS(t: Type, v: any): any {
       if (v === null) return null;
       const s = v as Slice<any>, a = s.$array, o = s.$offset, n = s.$length;
       if (t.elem!.kind === Kind.Uint8) {
+        if (a instanceof Uint8Array) return a.slice(o, o + n);
         const b = new Uint8Array(n);
         for (let i = 0; i < n; i++) b[i] = a[o + i];
         return b;
       }
       const out = new Array(n);
       if (plain(t.elem!)) for (let i = 0; i < n; i++) out[i] = a[o + i];
-      else for (let i = 0; i < n; i++) out[i] = goToJS(t.elem!, a[o + i]);
+      else for (let i = 0; i < n; i++) out[i] = goToJS(t.elem!, a[o + i], ex);
       return out;
     }
     case Kind.Array:
-      return plain(t.elem!) ? (v as any[]).slice() : (v as any[]).map((x) => goToJS(t.elem!, x));
+      return plain(t.elem!) ? (v as any[]).slice() : (v as any[]).map((x) => goToJS(t.elem!, x, ex));
     case Kind.Map: {
       if (v === null) return null;
+      if (t.key!.kind !== Kind.String) {
+        if (!ex) plainPanic(`goesm: a ${t.str} cannot be passed to JavaScript`);
+        const m = new Map();
+        for (const [k, x] of mapRange(v as GoMap<any, any>)) m.set(goToJS(t.key!, k, ex), goToJS(t.elem!, x, ex));
+        return m;
+      }
       const o: Record<string, any> = {};
-      for (const [k, x] of mapRange(v as GoMap<any, any>)) setProp(o, toJSString(k), goToJS(t.elem!, x));
+      for (const [k, x] of mapRange(v as GoMap<any, any>)) setProp(o, toJSString(k), goToJS(t.elem!, x, ex));
       return o;
     }
     case Kind.Struct: {
@@ -87,9 +106,9 @@ export function goToJS(t: Type, v: any): any {
       }
       const o: Record<string, any> = {};
       for (const f of jsFields(t)) {
-        if (!f.flatten) setProp(o, f.name, goToJS(f.type, v[f.prop]));
+        if (!f.flatten) setProp(o, f.name, goToJS(f.type, v[f.prop], ex));
         else {
-          const p = goToJS(f.type, v[f.prop]); // null for a nil *T: no fields, as encoding/json
+          const p = goToJS(f.type, v[f.prop], ex && f.type.kind !== Kind.Pointer); // null for a nil *T: no fields, as encoding/json
           if (p !== null) for (const k of Object.keys(p)) setProp(o, k, p[k]);
         }
       }
@@ -97,12 +116,19 @@ export function goToJS(t: Type, v: any): any {
     }
     case Kind.Pointer:
       if (v === null) return null;
-      return goToJS(t.elem!, t.elem!.kind === Kind.Struct || t.elem!.kind === Kind.Array ? v : v.v);
+      if (ex && isHandle(t)) return v;
+      return goToJS(t.elem!, t.elem!.kind === Kind.Struct || t.elem!.kind === Kind.Array ? v : v.v, ex);
     case Kind.Interface:
-      return v === null ? null : goToJS(v.t, v.v);
+      if (v === null) return null;
+      if (ex) {
+        if (t === errorType) return goError(v);
+        if (t.imethods.length > 0) return v;
+      }
+      return goToJS(v.t, v.v, ex);
     case Kind.Func:
       return v === null ? null : goFuncToJS(t, v);
     case Kind.Complex64: case Kind.Complex128: case Kind.Chan: case Kind.UnsafePointer:
+      if (ex) return v;
       plainPanic(`goesm: a ${t.str} cannot be passed to JavaScript`);
   }
   return v;
@@ -113,6 +139,42 @@ export function goToJS(t: Type, v: any): any {
 function setProp(o: Record<string, any>, k: string, x: any): void {
   if (k === "__proto__") Object.defineProperty(o, k, { value: x, enumerable: true, writable: true, configurable: true });
   else o[k] = x;
+}
+
+// isHandle reports whether the pointer type t crosses to JavaScript as the Go
+// object itself: a pointer to a struct type with methods.
+function isHandle(t: Type): boolean {
+  return t.elem!.kind === Kind.Struct && t.methods.size > 0;
+}
+
+// resultToJS converts the result v of type t of an exported Go function for
+// its JavaScript caller.
+export function resultToJS(t: Type, v: any): any {
+  return goToJS(t, v, true);
+}
+
+// argToGo converts the argument x JavaScript passes to an exported Go
+// function for a parameter of type t.
+export function argToGo(t: Type, x: any): any {
+  return jsToGo(t, x, true);
+}
+
+// GoError is what JavaScript receives for a Go error: an exported function's
+// error result is thrown as one. Passed back to Go where an error is
+// expected, it is the Go error again.
+export class GoError extends Error {
+  declare value: Iface;
+  constructor(value: Iface) {
+    const m = value.t.methods.get("Error");
+    super(m ? toJSString(m.fn(value.v)) : value.t.str);
+    this.value = value;
+    this.name = "GoError";
+  }
+}
+
+// goError is the GoError of the non-nil error err.
+export function goError(err: Iface): GoError {
+  return new GoError(err);
 }
 
 interface JSField {
@@ -170,7 +232,7 @@ function goFuncToJS(t: Type, f: (...a: any[]) => any): (...a: any[]) => any {
   const ps = t.params, rs = t.results, n = ps.length;
   const result = (r: any) =>
     rs.length === 0 ? undefined : rs.length === 1 ? goToJS(rs[0], r) : rs.map((rt, i) => goToJS(rt, r[i]));
-  return function (...args: any[]): any {
+  const js = function (...args: any[]): any {
     const a = new Array(n);
     for (let i = 0; i < n; i++) {
       a[i] = t.variadic && i === n - 1
@@ -186,10 +248,52 @@ function goFuncToJS(t: Type, f: (...a: any[]) => any): (...a: any[]) => any {
     // A Go function that blocks was lowered to an async function.
     return r instanceof Promise ? r.then(result, (e) => { throw goThrown(e); }) : result(r);
   };
+  goFuncs.set(js, f);
+  return js;
 }
 
-// jsToGo converts the JavaScript value x to a Go value of type t.
-export function jsToGo(t: Type, x: any): any {
+// goFuncs maps the functions goFuncToJS made to the Go functions they call,
+// so a Go function that comes back to Go is itself again.
+const goFuncs = /* @__PURE__ */ new WeakMap<object, (...a: any[]) => any>();
+
+// jsFuncToGo wraps the JavaScript function f for Go to call as a function of
+// type t: the arguments are converted to JavaScript, the results to Go. An
+// exception is returned as the final error result if there is one, and
+// panics otherwise.
+function jsFuncToGo(t: Type, f: any): any {
+  if (f === null || f === undefined) return null;
+  const g = goFuncs.get(f);
+  if (g !== undefined) return g;
+  if (typeof f !== "function") plainPanic(`goesm: a JavaScript ${typeof f} cannot be converted to ${t.str}`);
+  const ps = t.params, rs = t.results;
+  const hasErr = rs.length > 0 && rs[rs.length - 1] === errorType;
+  const nres = hasErr ? rs.length - 1 : rs.length;
+  return (...a: any[]): any => {
+    const args = new Array(a.length);
+    for (let i = 0; i < a.length; i++) {
+      args[i] = t.variadic && i === ps.length - 1 ? goArgsToJS(ps[i].elem!, a[i]) : goToJS(ps[i], a[i], true);
+    }
+    if (t.variadic) args.push(...args.pop());
+    let r;
+    try {
+      r = f(...args);
+    } catch (e) {
+      if (!hasErr) jsPanic(e, null);
+      const zeros = rs.slice(0, nres).map((rt) => rt.zero());
+      return nres === 0 ? jsError(e, null) : [...zeros, jsError(e, null)];
+    }
+    if (nres === 0) return hasErr ? null : undefined;
+    if (nres === 1 && !hasErr) return jsToGo(rs[0], r, true);
+    const out = rs.slice(0, nres).map((rt, i) => jsToGo(rt, nres === 1 ? r : r?.[i], true));
+    if (hasErr) out.push(null);
+    return out;
+  };
+}
+
+// jsToGo converts the JavaScript value x to a Go value of type t. A Go value
+// of that type is taken as it is (a struct copied). ex is set for the
+// arguments of exported functions (see the top of this file).
+export function jsToGo(t: Type, x: any, ex = false): any {
   switch (t.kind) {
     case Kind.Bool:
       return !!x;
@@ -219,25 +323,29 @@ export function jsToGo(t: Type, x: any): any {
       return jsString(x);
     case Kind.Slice: {
       if (x === null || x === undefined) return null;
+      if (x instanceof Slice) return x;
       const n = x.length >>> 0;
       if (t.elem!.kind === Kind.Uint8) {
         const b = newBytes(n);
-        for (let i = 0; i < n; i++) b[i] = x[i] & 255;
+        if (x instanceof Uint8Array) b.set(x);
+        else for (let i = 0; i < n; i++) b[i] = x[i] & 255;
         return new Slice(b as any, 0, n, n);
       }
       const a = new Array(n);
-      for (let i = 0; i < n; i++) a[i] = jsToGo(t.elem!, x[i]);
+      for (let i = 0; i < n; i++) a[i] = jsToGo(t.elem!, x[i], ex);
       return new Slice(a, 0, n, n);
     }
     case Kind.Array: {
       const a = new Array(t.len);
-      for (let i = 0; i < t.len; i++) a[i] = x === null || x === undefined ? t.elem!.zero() : jsToGo(t.elem!, x[i]);
+      for (let i = 0; i < t.len; i++) a[i] = x === null || x === undefined ? t.elem!.zero() : jsToGo(t.elem!, x[i], ex);
       return a;
     }
     case Kind.Map: {
       if (x === null || x === undefined) return null;
+      if (x instanceof GoMap) return x;
       const m = makeMap(t.key!);
-      for (const k of Object.keys(x)) mapSet(m, jsToGo(t.key!, k), jsToGo(t.elem!, x[k]));
+      if (x instanceof Map) for (const [k, y] of x) mapSet(m, jsToGo(t.key!, k, ex), jsToGo(t.elem!, y, ex));
+      else for (const k of Object.keys(x)) mapSet(m, jsToGo(t.key!, k, ex), jsToGo(t.elem!, x[k], ex));
       return m;
     }
     case Kind.Struct: {
@@ -247,21 +355,46 @@ export function jsToGo(t: Type, x: any): any {
         case 2: v.Value.ref = toRef(x); return v;
       }
       if (x === null || x === undefined) return v;
+      if (t.ctor !== null && x instanceof t.ctor) return x.$clone(t);
       for (const f of jsFields(t)) {
         if (f.flatten) {
-          v[f.prop] = jsToGo(f.type, x);
+          v[f.prop] = jsToGo(f.type, x, ex && f.type.kind !== Kind.Pointer);
           continue;
         }
         const y = f.name === "__proto__" && !Object.hasOwn(x, f.name) ? undefined : x[f.name];
-        if (y !== undefined) v[f.prop] = jsToGo(f.type, y);
+        if (y !== undefined) v[f.prop] = jsToGo(f.type, y, ex);
       }
       return v;
     }
     case Kind.Pointer:
       if (x === null || x === undefined) return null;
-      return jsToGo(t.elem!, x); // a pointer to a struct is the struct object
+      if (t.elem!.ctor !== null && x instanceof t.elem!.ctor) return x;
+      if (t.elem!.kind !== Kind.Struct && t.elem!.kind !== Kind.Array) {
+        if (ex) return x; // a *int is a handle
+        break;
+      }
+      return jsToGo(t.elem!, x, ex); // a pointer to a struct is the struct object
     case Kind.Interface:
+      if (x instanceof Iface) return x;
+      if (ex) {
+        if (t === errorType) return x === null || x === undefined ? null : x instanceof GoError ? x.value : jsError(x, null);
+        if (x === null || x === undefined) return null;
+        // A Go struct object: a handle, or a value of a struct class.
+        const ct = typeof x === "object" ? classTypes.get(x.constructor) : undefined;
+        if (t.imethods.length > 0) {
+          if (ct && implementsIface(ct, t)) return box(ct, x.$clone(ct));
+          if (ct && implementsIface(ptrTo(ct), t)) return box(ptrTo(ct), x);
+          break;
+        }
+        if (ct) return box(ptrTo(ct), x);
+      }
       return jsonToAny(x);
+    case Kind.Func:
+      if (ex) return jsFuncToGo(t, x);
+      break;
+    case Kind.Chan: case Kind.UnsafePointer: case Kind.Complex64: case Kind.Complex128:
+      if (ex) return x;
+      break;
   }
   plainPanic(`goesm: a JavaScript value cannot be converted to ${t.str}`);
 }
