@@ -35,6 +35,8 @@ type pair struct {
 	B int
 }
 
+type coords struct{ X, Y int }
+
 type info struct{ name string }
 
 type state struct {
@@ -81,6 +83,11 @@ func main() {
 	// The pair read through pr is a pair in an interface too.
 	var pi any = pair{3, 40}
 	fmt.Println(pi == *pr, any(*pr).(pair).B)
+	// So is a coords, whose fields have point's names.
+	c := (*coords)(unsafe.Pointer(pp))
+	c.Y = 5
+	_, isCoords := any(*c).(coords)
+	fmt.Println(isCoords, pp.Y)
 
 	// A pointer variable holding its own address, through unsafe.Slice.
 	var self unsafe.Pointer

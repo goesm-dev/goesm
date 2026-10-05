@@ -28,15 +28,23 @@ export class Iface {
 // box converts a value of static type t to an interface value. Aggregates must
 // already be copied by the caller (the lowering emits the copy).
 export function box(t: Type, v: any): Iface | null {
-  if (t.kind === Kind.Interface || t.ifaceSelf) return v;
+  if (t.kind === Kind.Interface || (t.ifaceSelf && v.t === t)) return v;
   return new Iface(t, v);
 }
 
-// ifaceOf is the interface value of v, a value of a struct type t whose
+// selfIface is the interface value of v, a new value of a struct type t whose
 // values are their own interface values. The lowering emits it instead of v
 // so that a bundler keeps t, which sets up v's prototype.
-export function ifaceOf(_t: Type, v: any): Iface {
+export function selfIface(_t: Type, v: any): Iface {
   return v;
+}
+
+// ifaceOf converts v, a value of a struct type t whose values are their own
+// interface values, to an interface value. The object may be of another
+// class, shared by a pointer conversion between struct types of one
+// underlying type, and then gets a box.
+export function ifaceOf(t: Type, v: any): Iface {
+  return v.t === t ? v : new Iface(t, v);
 }
 
 // copy returns a Go copy of v of type t. Used where the static type is a type

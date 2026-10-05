@@ -206,6 +206,10 @@ func (fe *funcEmitter) valueOf(e ast.Expr, target types.Type) string {
 	if !fe.isFresh(e) {
 		s = fe.pe.copyExpr(s, src, fe.tp)
 	}
+	if _, ok := ast.Unparen(e).(*ast.CompositeLit); ok && ifaceSelf(src) && isIface(target) {
+		// A struct literal of src's own class (see ifaceSelf).
+		return fmt.Sprintf("$rt.selfIface(%s, %s)", fe.desc(src), s)
+	}
 	return fe.convert(s, src, target)
 }
 
@@ -230,7 +234,22 @@ func (fe *funcEmitter) convert(s string, from, to types.Type) string {
 			return fmt.Sprintf("$rt.box(%s, %s)", fe.desc(from), s)
 		}
 		if ifaceSelf(from) {
-			return fmt.Sprintf("$rt.ifaceOf(%s, %s)", fe.desc(from), s)
+			// The object is its own interface value if its class is
+			// from's: a pointer conversion such as (*B)(a) between named
+			// struct types of one underlying type shares the object of
+			// another class.
+			t := fe.desc(from)
+			if !fe.inBody {
+				return fmt.Sprintf("$rt.ifaceOf(%s, %s)", t, s)
+			}
+			x := stripMarks(s)
+			first := x
+			if !reusable(x) {
+				v := fe.declareName("$o")
+				fe.temps = append(fe.temps, v)
+				first, x = "("+v+" = "+x+")", v
+			}
+			return fmt.Sprintf("(%s.t === %s ? %s : new $rt.Iface(%s, %s))", first, t, x, t, x)
 		}
 		return fmt.Sprintf("new $rt.Iface(%s, %s)", fe.desc(from), s)
 	}
@@ -1998,7 +2017,13 @@ func (fe *funcEmitter) unsafeConversion(e *ast.CallExpr, to, from types.Type, s 
 	// (*T)(unsafe.Pointer(p)) with p of type *U reinterprets U's memory as T.
 	if inner, ok := unparen(e.Args[0]).(*ast.CallExpr); ok && len(inner.Args) == 1 {
 		if tv, ok := fe.info.Types[inner.Fun]; ok && tv.IsType() && isUnsafePointer(under(tv.Type)) {
-			if up, ok := under(fe.info.TypeOf(inner.Args[0])).(*types.Pointer); ok && !types.Identical(under(up.Elem()), under(tp.Elem())) {
+			up, ok := under(fe.info.TypeOf(inner.Args[0])).(*types.Pointer)
+			if ok && types.Identical(under(up.Elem()), under(tp.Elem())) && !types.Identical(up.Elem(), tp.Elem()) && ifaceSelf(tp.Elem()) {
+				// The same layout, but a value of the struct type T is its own
+				// interface value, which the object's class must then give.
+				return fmt.Sprintf("$rt.reinterpret(%s, %s, %s)", s, fe.desc(up.Elem()), fe.desc(tp.Elem()))
+			}
+			if ok && !types.Identical(under(up.Elem()), under(tp.Elem())) {
 				if pointerShaped(up.Elem()) && pointerShaped(tp.Elem()) {
 					return s // a pointer variable read as another pointer type: the same reference
 				}
