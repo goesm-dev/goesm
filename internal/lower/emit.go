@@ -142,6 +142,10 @@ type pkgEmitter struct {
 	// split holds the int64 and uint64 locals of the function being
 	// lowered that live in two int32 halves (split64.go).
 	split map[*types.Var]bool
+	// strBytes holds the []byte locals kept as strings, and strMarshal the
+	// json.Marshal calls defining them (see json.go).
+	strBytes   map[*types.Var]bool
+	strMarshal map[*ast.CallExpr]bool
 
 	inits    []string
 	initObjs []any

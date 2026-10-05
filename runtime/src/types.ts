@@ -235,7 +235,7 @@ export function structOf(fields: Field[], ctor: any): Type {
     t.ctor = ctor;
     registerCtor(ctor, t);
     t.str = `struct { ${fields.map((f) => (f.embedded ? f.type.str : `${f.name} ${f.type.str}`)).join("; ")} }`;
-    t.zero = () => zeroStruct(t);
+    t.zero = structZero(t);
     return t;
   });
 }
@@ -255,6 +255,15 @@ function registerCtor(ctor: any, t: Type): void {
 
 function sameFields(a: Type, b: Type): boolean {
   return a.fields.length === b.fields.length && a.fields.every((f, i) => f.type === b.fields[i].type);
+}
+
+// structZero returns t's zero function: a clone of a zero value made once,
+// through the class's own monomorphic $clone, instead of zeroStruct's
+// spread of an array into the constructor each time. The first call makes
+// the value, when the field types are complete.
+function structZero(t: Type): () => any {
+  let z: any = null;
+  return () => (z ??= zeroStruct(t)).$clone(t);
 }
 
 // zeroStruct passes the zero fields to the constructor, which takes them in
@@ -333,7 +342,7 @@ export function setUnderlying(t: Type, u: Type, ctor?: any): void {
   if (u.kind === Kind.Struct) {
     t.ctor = ctor ?? u.ctor;
     registerCtor(t.ctor, t);
-    t.zero = () => zeroStruct(t);
+    t.zero = structZero(t);
   } else {
     t.zero = u.zero;
   }

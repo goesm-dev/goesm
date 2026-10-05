@@ -371,7 +371,31 @@ function enc(t: Type, v: any, depth: number): string {
 
 // jsonMarshal is json.Marshal(x), or null for Go's code to do it.
 export function jsonMarshal(x: Iface | null): S<number> {
-  if (x === null) return stringToBytes("null");
+  const out = jsonText(x);
+  if (out === null) return null;
+  // UTF-8: a short text is usually ASCII, which needs no encoding; the
+  // engine's encoder pays off on longer ones.
+  if (textIsGo || out.length < 256) return stringToBytes(textIsGo ? out : fromJSString(out));
+  const b = utf8Enc.encode(out);
+  return new Slice(b as any, 0, b.length, b.length);
+}
+
+// jsonMarshalString is string(json.Marshal(x)) for a result that goesm
+// keeps as a string (see the lowering's json.go), or null for Go's code to
+// do it.
+export function jsonMarshalString(x: Iface | null): string | null {
+  const out = jsonText(x);
+  return out === null || textIsGo ? out : fromJSString(out);
+}
+
+// textIsGo reports whether jsonText's last text is a Go (byte) string,
+// rather than a JS string to encode as UTF-8.
+let textIsGo = false;
+
+// jsonText is the JSON encoding of x, or null.
+function jsonText(x: Iface | null): string | null {
+  textIsGo = true;
+  if (x === null) return "null";
   if (!deepPlain(x.t)) return null;
   try {
     let js: any;
@@ -379,16 +403,12 @@ export function jsonMarshal(x: Iface | null): S<number> {
       js = toJS(x.t, x.v, 0);
     } catch (e) {
       if (e !== NoJS) throw e;
-      return stringToBytes(enc(x.t, x.v, 0));
+      return enc(x.t, x.v, 0);
     }
     let out = JSON.stringify(js);
     if (htmlChars.test(out)) out = out.replace(htmlCharsAll, htmlEscape);
-    // UTF-8: a short text is usually ASCII, which needs no encoding; the
-    // engine's encoder pays off on longer ones.
-    if (out.length < 256) return stringToBytes(fromJSString(out));
-    const b = utf8Enc.encode(out);
-    return new Slice(b as any, 0, b.length, b.length);
-
+    textIsGo = false;
+    return out;
   } catch (e) {
     if (e === Abort) return null;
     throw e;
@@ -824,12 +844,18 @@ function makeDecoder(t: Type): Dec {
 // jsonUnmarshal is json.Unmarshal(data, x) when it succeeds: it reports
 // false, having changed nothing, for Go's code to do it.
 export function jsonUnmarshal(data: S<number>, x: Iface | null): boolean {
+  return jsonUnmarshalString(bytesToString(data), x);
+}
+
+// jsonUnmarshalString is jsonUnmarshal of []byte(s), which goesm calls for
+// json.Unmarshal([]byte(s), v) without converting s.
+export function jsonUnmarshalString(s: string, x: Iface | null): boolean {
   if (x === null || x.t.kind !== Kind.Pointer || x.v === null) return false;
   const e = x.t.elem!, p = x.v;
   const agg = e.kind === Kind.Struct || e.kind === Kind.Array;
   if (e.kind === Kind.Array || !deepPlain(e)) return false;
   try {
-    const d = new Decoder(bytesToString(data));
+    const d = new Decoder(s);
     // A struct is decoded into a copy, which replaces it once all is well.
     const cur = agg ? p.$clone(e) : p.v;
     const v = decoderOf(e)(d, cur, 0);
