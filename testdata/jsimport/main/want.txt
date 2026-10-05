@@ -29,6 +29,24 @@ namespace 1.2.3
 {"__proto__":{"a":1}} true
 __proto__,a true
 c.txt
+{"ascii":1,"名前":"ペン","価格":120,"big":9007199254740992,"ok":true,"none":null,"self":1,"list":[1,"a"]}
+ペン 120 9.007199254740992e+15
+3 零 1.5 1
+string 日本語と2truenull
+xab
+3
+2+4
+recovered: syscall/js: call of Value.Get on number
+recovered: syscall/js: call of Value.Set on string
+recovered: syscall/js: call of Value.SetIndex on null
+recovered: syscall/js: Value.Call: property ないメソッド is not a function, got undefined
+recovered: syscall/js: call of Value.Call on boolean
+recovered: syscall/js: call of Value.Call on string
+recovered: syscall/js: call of Value.Call on string
+recovered: syscall/js: call of Value.Invoke on object
+recovered: syscall/js: call of Value.New on object
+recovered: js.Error SyntaxError
+recovered: js.Error TypeError
 recovered: goesm: main.laterNotAwaited imported from "./lib.ts" returned a Promise; mark its //goesm:import directive with await
 recovered: goesm: main.rejectNotAwaited imported from "./lib.ts" returned a Promise; mark its //goesm:import directive with await
 JavaScript error: plain string plain string

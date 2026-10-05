@@ -50,20 +50,21 @@ export default { fetch: Handler() };
 | Use case | Typical code | Status | Checked by |
 | --- | --- | --- | --- |
 | Domain logic called from a component | structs, methods, errors (`errors.Is`, `As`, `Join`), generics, `encoding/json`, `regexp`, `strings`, `strconv`, `time` | Supported | by hand in Chromium, with Vite |
-| DOM from Go | `syscall/js`: creating and finding elements, event listeners through `js.FuncOf`, reading inputs, timers and goroutines | Supported | by hand in Chromium |
+| DOM from Go | `syscall/js` or `honnef.co/go/js/dom/v2`: creating and finding elements, event listeners through `js.FuncOf`, reading inputs, timers and goroutines ([dom.md](dom.md)) | Supported | by hand in Chromium |
 | Connect client in the browser | Connect, Connect JSON and gRPC-Web, unary and server streaming (incremental), deadlines and errors | Supported | by hand in Chromium, with Vite |
 | React, Preact and Next.js | Go functions called from TSX: in render, event handlers and effects, Next.js Client and Server Components and Route Handlers, with Turbopack and webpack | Supported | by hand in Chromium (React 19 and Preact with Vite 8, Next.js 16) |
 
 The output is ES modules (TypeScript), so Vite, Rolldown, Turbopack, webpack and esbuild bundle it with no plugin; Go is not written inside JSX but called from it like any other module. Every generated file starts with `// @ts-nocheck`, so a project's own strictness flags (`noUnusedLocals`, an ES2017 target) do not re-check generated code, while the exported types still reach the caller. Two settings remain: TypeScript needs `allowImportingTsExtensions` to import a module by its `.ts` name (or import it without the extension), and a goesm tree shipped as a package in `node_modules` needs Next.js's `transpilePackages`.
 
-What the Go code adds to a page's JavaScript, measured with Vite 8 (minified, gzip):
+What the Go code adds to a page's JavaScript, measured with `goesm build -minify` and gzip (the Connect client with Vite 8):
 
 | What the page uses | gzip |
 | --- | ---: |
-| A package that only uses `strings` | 11 KiB |
-| `syscall/js` DOM code | 43 KiB |
-| `fmt` (hello world) | 117 KiB |
-| Domain logic with `encoding/json` (which brings `fmt` and `reflect`) | 276 KiB |
+| `syscall/js` DOM code (a counter button, [dom.md](dom.md)) | 9 KiB |
+| A function using `strings.Fields`, `Join` and `ToLower` | 15 KiB |
+| The counter written with `honnef.co/go/js/dom/v2` | 50 KiB |
+| `fmt` (hello world) | 90 KiB |
+| Decoding JSON into structs with `encoding/json` (which brings `reflect`) | 193 KiB |
 | A Connect client (protobuf, `net/http`) | 1.3 MiB |
 
 ## Go libraries used from JavaScript and TypeScript
