@@ -147,7 +147,7 @@ export function timeTable(data, runtime, lang = "en") {
   rows.push(`| **${t.total}** | | ${nt ? `${fmt(nt.sum)}${nt.partial ? "*" : ""}` : "—"} | ${tot.map((x, j) => (x ? bt(j, `${fmt(x.sum)}${x.partial ? "*" : ""}`) : "—")).join(" | ")} |`);
   const sd = slowdowns(data, runtime);
   const b = bolder(impls, impls.map((i) => sd[i.id]));
-  rows.push(`| **${t.geomean}** | | 1× | ${impls.map((i, j) => (sd[i.id] ? b(j, `${sd[i.id].toFixed(1)}×`) : "—")).join(" | ")} |`);
+  rows.push(`| **${t.geomean}** | | 1.00× | ${impls.map((i, j) => (sd[i.id] ? b(j, `${sd[i.id].toFixed(2)}×`) : "—")).join(" | ")} |`);
   return rows.join("\n");
 }
 
@@ -160,7 +160,7 @@ export function summaryTable(data, lang = "en") {
   for (const runtime of Object.keys(data.runs)) {
     const sd = slowdowns(data, runtime);
     const b = bolder(impls, impls.map((i) => sd[i.id]));
-    rows.push(`| ${runtimeLabel(data, runtime, lang)} | ${impls.map((i, j) => (sd[i.id] === undefined ? "—" : b(j, `${sd[i.id].toFixed(1)}×`))).join(" | ")} |`);
+    rows.push(`| ${runtimeLabel(data, runtime, lang)} | ${impls.map((i, j) => (sd[i.id] === undefined ? "—" : b(j, `${sd[i.id].toFixed(2)}×`))).join(" | ")} |`);
   }
   return rows.join("\n");
 }

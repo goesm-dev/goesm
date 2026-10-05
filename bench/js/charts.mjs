@@ -130,7 +130,7 @@ export function chartFiles(data, lang, h) {
     unit: "×",
     groups: runtimes.map((r) => {
       const sd = h.slowdowns(data, r);
-      return { label: h.runtimeLabel(data, r, lang), bars: impls.map((i) => ({ id: i.id, value: sd[i.id], text: sd[i.id] ? `${sd[i.id].toFixed(1)}×` : "" })) };
+      return { label: h.runtimeLabel(data, r, lang), bars: impls.map((i) => ({ id: i.id, value: sd[i.id], text: sd[i.id] ? `${sd[i.id].toFixed(2)}×` : "" })) };
     }),
   });
 
