@@ -234,6 +234,9 @@ func (fe *funcEmitter) convert(s string, from, to types.Type) string {
 				return fmt.Sprintf("$rt.ptrIface(%s, %s)", fe.desc(from), s)
 			}
 		}
+		if b := fe.pe.boxOf(from); b != nil {
+			return fe.boxValue(s, from, b)
+		}
 		return fmt.Sprintf("new $rt.Iface(%s, %s)", fe.desc(from), s)
 	}
 	return s
@@ -537,11 +540,17 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 		if x, i, ok := fe.checkedIndex(e); ok {
 			return m + x + ".charCodeAt(" + i + ")"
 		}
+		if x, set, i, ok := fe.checkedIndexTemp(e); ok {
+			return m + set + x + ".charCodeAt(" + i + "))"
+		}
 		x, set, i := fe.indexTemp(fe.expr(e.X), fe.intNumber(e.Index))
 		return m + set + strIndex(x, i) + closeIf(set)
 	case *types.Slice:
 		if x, i, ok := fe.checkedIndex(e); ok {
 			return fe.byteBoolLoad(e.X, m+sliceElem(x, i))
+		}
+		if x, set, i, ok := fe.checkedIndexTemp(e); ok {
+			return fe.byteBoolLoad(e.X, m+set+sliceElem(x, i)+")")
 		}
 		x, set, i := fe.indexTemp(fe.expr(e.X), fe.intNumber(e.Index))
 		return fe.byteBoolLoad(e.X, m+set+sliceIndex(x, i)+closeIf(set))
@@ -1406,7 +1415,7 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 				prefix = fe.pe.methodFuncName(slow) + "("
 			}
 			if iface {
-				callee = fe.icall(recv, jsString(methodKey(fn)), args)
+				callee = fe.icall(recv, methodKey(fn), args)
 			} else {
 				if slow, _ := fe.pe.prog.WaitLock(e); slow == nil && fe.pe.prog.SyncClone(fe.info, e, fe.assume) {
 					prefix = strings.TrimSuffix(prefix, "(") + "$sync("
@@ -1536,6 +1545,23 @@ func (fe *funcEmitter) checkedIndex(e *ast.IndexExpr) (string, string, bool) {
 	return x, i, true
 }
 
+// checkedIndexTemp is checkedIndex for a load whose in-range index is an
+// expression (s[x % len(s)]): it is assigned to a variable of the function
+// first, "(t = i, " to be closed after the load, so that it is evaluated, and
+// may panic dividing by zero, before s is read.
+func (fe *funcEmitter) checkedIndexTemp(e *ast.IndexExpr) (string, string, string, bool) {
+	if !fe.pe.inBounds[e] || !fe.inBody {
+		return "", "", "", false
+	}
+	x := stripMarks(fe.expr(e.X))
+	if !simpleRef.MatchString(x) {
+		return "", "", "", false
+	}
+	t := fe.declareName("$i")
+	fe.temps = append(fe.temps, t)
+	return x, "(" + t + " = " + fe.intNumber(e.Index) + ", ", t, true
+}
+
 // sliceElem is the element s[i] of slice s for an index known to be in range.
 func sliceElem(s, i string) string {
 	return fmt.Sprintf("(%[1]s as any).$array[(%[1]s as any).$offset + %[2]s]", s, i)
@@ -1616,15 +1642,15 @@ func icallExpr(recv, key, args string, n int) string {
 }
 
 // icall calls method key of interface value recv with the arguments args
-// straight through its dynamic type's method table (Type.mt). The property
-// access then has an inline cache at this call site, which sees the few
-// dynamic types flowing here, where the shared $rt.icall sees every
-// interface method call of the program. A recv that is not a plain reference
+// as a method of the interface value, which its box class defines (box.go).
+// The property access then has an inline cache at this call site, which
+// sees the few dynamic types flowing here, where the shared $rt.icall sees
+// every interface method call of the program. A recv that is not a plain reference
 // is held in a variable of the function (declared by funcBody, outside one
 // in the module's $ir): JS evaluates the callee and recv.v before the
 // arguments, so an interface call among them (or in recv itself) may reuse
-// it. A nil interface is a TypeError reading recv.t, reported as Go's nil
-// dereference (see nilChecked).
+// it. A nil interface is a TypeError reading the method, reported as Go's
+// nil dereference (see nilChecked).
 func (fe *funcEmitter) icall(recv, key, args string) string {
 	r, set := stripMarks(recv), ""
 	if simpleRef.MatchString(r) {
@@ -1641,10 +1667,8 @@ func (fe *funcEmitter) icall(recv, key, args string) string {
 		}
 		r, set = ir, ir+" = "+recv+", "
 	}
-	if args != "" {
-		args = ", " + args
-	}
-	return fmt.Sprintf("(%s%s.t.mt[%s](%s.v%s))", set, r, key, r, args)
+	access, _ := boxMethodProp(key)
+	return fmt.Sprintf("(%s%s%s(%s))", set, r, access, args)
 }
 
 // isStaticFunc reports whether fun names a declared function (never nil).

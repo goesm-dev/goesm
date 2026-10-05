@@ -10,7 +10,7 @@
 // libraries like protobuf declare them) become views of the value they were
 // reinterpreted from.
 
-import { Iface } from "./iface.ts";
+import { boxOf, Iface } from "./iface.ts";
 import { runtimePanic } from "./panic.ts";
 import { arrayElemPtr, fieldPtr, fieldPtrTarget, indexPtrTarget } from "./ptr.ts";
 import { elemOrigins, reach, Slice } from "./slice.ts";
@@ -203,11 +203,11 @@ export function reinterpret(p: any, from: Type, to: Type): any {
       return {
         [tw.prop]: {
           get(this: any) { const v = this.$p.v; return v === null ? null : v.t; },
-          set(this: any, t: Type | null) { const p = this.$p; p.v = t === null ? null : new Iface(t, p.v === null ? t.zero() : p.v.v); },
+          set(this: any, t: Type | null) { const p = this.$p; p.v = t === null ? null : boxOf(t, p.v === null ? t.zero() : p.v.v); },
         },
         [dw.prop]: {
           get(this: any) { return ifaceData(this.$p.v); },
-          set(this: any, d: any) { const p = this.$p; if (p.v !== null) p.v = new Iface(p.v.t, fromData(p.v.t, d)); },
+          set(this: any, d: any) { const p = this.$p; if (p.v !== null) p.v = boxOf(p.v.t, fromData(p.v.t, d)); },
         },
       };
     });

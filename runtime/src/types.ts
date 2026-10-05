@@ -78,6 +78,10 @@ export class Type {
   zero: () => any = () => null;
   // JS class for struct types (named or not).
   ctor: any = null;
+  // The class of the interface values holding this type, when the lowering
+  // emitted one (setBox), and whether it is the struct class's own subclass.
+  B: any = null;
+  flatBox = false;
   named = false;
   underlying: Type = this;
 
@@ -412,7 +416,53 @@ export function addMethods(t: Type, methods: Record<string, [(recv: any, ...args
     const [fn, type] = methods[k];
     t.methods.set(k, { fn, type });
     Object.getPrototypeOf(t.mt)[k] = fn;
+    addFallback(k);
   }
+}
+
+// An interface method call is a call of a method of the interface value,
+// named "$" + key (icall in the lowering): the box classes the lowering
+// emits for the types that have methods (setBox) call the type's function
+// directly, and Iface's own method, for the interface values of the other
+// types (generic, unnamed or the runtime's), calls through the method table.
+// Iface is in iface.ts, which imports this module: it hands its prototype
+// over (setIfaceProto) once defined.
+let ifaceProto: any = null;
+const pendingKeys: string[] = [];
+
+function addFallback(k: string): void {
+  if (ifaceProto === null) pendingKeys.push(k);
+  else if (!Object.hasOwn(ifaceProto, "$" + k)) ifaceProto["$" + k] = fallback(k);
+}
+
+function fallback(k: string) {
+  return function (this: { t: Type; v: any }, a: any, b: any, c: any, d: any) {
+    const f = this.t.mt[k];
+    switch (arguments.length) {
+      case 0: return f(this.v);
+      case 1: return f(this.v, a);
+      case 2: return f(this.v, a, b);
+      case 3: return f(this.v, a, b, c);
+      case 4: return f(this.v, a, b, c, d);
+    }
+    return f(this.v, ...arguments);
+  };
+}
+
+export function setIfaceProto(p: any): void {
+  ifaceProto = p;
+  for (const k of pendingKeys) addFallback(k);
+  pendingKeys.length = 0;
+}
+
+// setBox registers B as the class of the interface values of type t. A flat
+// box (for a struct type) is a struct object of t's class that is its own
+// interface value (its v is itself): one allocation per boxed struct.
+export function setBox(t: Type, B: any, flat: boolean): void {
+  Object.setPrototypeOf(B.prototype, flat ? t.ctor.prototype : ifaceProto);
+  if (flat) registerCtor(B, t);
+  t.B = B;
+  t.flatBox = flat;
 }
 
 // hasMethods reports whether t has methods in Go, including those its
