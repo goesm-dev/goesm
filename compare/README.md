@@ -13,8 +13,9 @@ What does it cost to write in Go, with goesm, what a web app would otherwise get
 | [VitePress](https://vitepress.dev/) | [`markdown`](markdown/markdown.go) with [goldmark](https://github.com/yuin/goldmark) | render a CommonMark document to HTML with markdown-it 15.0.2, VitePress's renderer |
 | [Astro](https://astro.build/) | the same `markdown` | the same document with remark and rehype (unified 11), Astro's renderer, built for Node.js where Astro renders Markdown |
 | [Vue](https://vuejs.org/) | [`reactive`](reactive/reactive.go), refs, computed values and effects written in Go | build 50 chains of 20 computed values, a diamond and an effect over them, then change the refs 2,000 times, against @vue/reactivity 3.5.43 |
+| [Tailwind CSS](https://tailwindcss.com/) 4.3.3 | [`utility`](utility/utility.go), a utility-first CSS generator written in Go | build the stylesheet for the 154 class names of a landing page ([js/page.html](js/page.html)) from Tailwind's default theme; the Go side's CSS must be byte for byte Tailwind's |
 
-For a framework, the comparison takes the part a page depends on most: rendering for React, the Markdown renderer for VitePress and Astro, the reactivity system for Vue. The Go side is ordinary Go code, as one would write it for a native program: `fmt.Errorf` with `%w`, `time.Parse`, the generated protobuf types, `html/template`. Go has no reactivity system to compare, so `reactive` is one written for this comparison, in the style of Vue's: like Vue, a computation that reads the same sources as on its last run keeps its subscriptions. The JavaScript side is the library's usual API. The Markdown renderers escape a few characters differently, so their HTML is compared with those escapes undone. [js/libs.mjs](js/libs.mjs) holds the inputs and the workloads, and [js/impl/](js/impl) the JavaScript versions.
+For a framework, the comparison takes the part a page depends on most: rendering for React, the Markdown renderer for VitePress and Astro, the reactivity system for Vue, and for Tailwind the compiler that turns a page's class names into CSS. The Go side is ordinary Go code, as one would write it for a native program: `fmt.Errorf` with `%w`, `time.Parse`, the generated protobuf types, `html/template`. Go has no reactivity system to compare, so `reactive` is one written for this comparison, in the style of Vue's: like Vue, a computation that reads the same sources as on its last run keeps its subscriptions. `utility` is likewise written for this comparison. It reads the theme's CSS and builds the utilities from it the way Tailwind does, and takes Tailwind's static utilities, static variants and property order from tables that [js/gen-utility.mjs](js/gen-utility.mjs) generates from the tailwindcss package. It covers the utilities a typical page uses and the variants that do not take a value; `group-*`, `peer-*`, `not-*`, `max-*` and the other compound or functional variants are left out. The JavaScript side is the library's usual API. The Markdown renderers escape a few characters differently, so their HTML is compared with those escapes undone. [js/libs.mjs](js/libs.mjs) holds the inputs and the workloads, and [js/impl/](js/impl) the JavaScript versions.
 
 ## Results
 
@@ -28,16 +29,18 @@ For a framework, the comparison takes the part a page depends on most: rendering
 | vitepress | `markdown` | 241.9 KiB | 40.4 KiB | 5.99× |
 | astro | `markdown` | 241.9 KiB | 47.2 KiB | 5.12× |
 | vue | `reactive` | 11.4 KiB | 5.3 KiB | 2.16× |
+| tailwind | `utility` | 91.8 KiB | 72.2 KiB | 1.27× |
 
 | Library | node 26.10.0 goesm | node 26.10.0 JS | ratio | bun 1.4.2 goesm | bun 1.4.2 JS | ratio |
 | --- | --- | --- | --- | --- | --- | --- |
-| luxon | 2.3 ms | 9.2 ms | 0.25× | 4.8 ms | 8.1 ms | 0.59× |
-| neverthrow | 0.91 ms | 0.52 ms | 1.76× | 1.2 ms | 0.49 ms | 2.44× |
-| connect-es | 20 ms | 2.6 ms | 7.73× | 23 ms | 1.9 ms | 11.99× |
-| react | 3.1 ms | 1.7 ms | 1.80× | 3.4 ms | 2.2 ms | 1.53× |
-| vitepress | 0.41 ms | 0.24 ms | 1.67× | 0.70 ms | 0.15 ms | 4.79× |
-| astro | 0.44 ms | 2.0 ms | 0.21× | 0.51 ms | 2.5 ms | 0.20× |
-| vue | 14 ms | 6.4 ms | 2.22× | 15 ms | 5.6 ms | 2.67× |
+| luxon | 2.2 ms | 8.5 ms | 0.25× | 4.5 ms | 8.0 ms | 0.57× |
+| neverthrow | 0.88 ms | 0.52 ms | 1.68× | 1.2 ms | 0.50 ms | 2.47× |
+| connect-es | 20 ms | 2.5 ms | 8.22× | 20 ms | 2.0 ms | 10.36× |
+| react | 2.7 ms | 1.7 ms | 1.58× | 3.2 ms | 1.9 ms | 1.66× |
+| vitepress | 0.46 ms | 0.24 ms | 1.94× | 0.61 ms | 0.14 ms | 4.33× |
+| astro | 0.38 ms | 2.0 ms | 0.19× | 0.59 ms | 2.6 ms | 0.23× |
+| vue | 14 ms | 6.1 ms | 2.31× | 15 ms | 5.6 ms | 2.72× |
+| tailwind | 2.4 ms | 4.4 ms | 0.55× | 3.2 ms | 3.5 ms | 0.90× |
 <!-- compare:end -->
 
 Sizes are of the minified ES module bundle, compressed with gzip at level 9. Times are the median of one workload run, after a warmup. The connect-es workload answers `fetch` in-process with encoded responses, so it times the client alone: encoding the request, the protocol and decoding the response.

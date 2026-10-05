@@ -124,6 +124,14 @@ const doc = readFileSync(new URL("../../docs/concurrency.md", import.meta.url), 
 // those escapes, so the results compare equal when the documents are.
 const normHTML = (html) => html.replace(/&quot;|&#34;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&gt;/g, ">").replace(/\n+/g, "\n").trim();
 
+// ---- Tailwind CSS ---------------------------------------------------------
+
+// The class names of a landing page, as Tailwind's scanner finds them, two
+// of them unknown, and the theme Tailwind ships.
+const page = readFileSync(new URL("page.html", import.meta.url), "utf8");
+const classes = [...new Set([...page.matchAll(/class="([^"]*)"/g)].flatMap((m) => m[1].split(/\s+/)).filter(Boolean))];
+const twTheme = readFileSync(new URL("node_modules/tailwindcss/theme.css", import.meta.url), "utf8");
+
 export const LIBS = [
   { name: "luxon", pkg: "datetime", lib: "luxon 3.7.2", run: datetime },
   { name: "neverthrow", pkg: "result", lib: "neverthrow 8.2.0", run: (m) => [m.Check(orderLines)] },
@@ -134,6 +142,7 @@ export const LIBS = [
   // browser build of remark would decode entities through the DOM.
   { name: "astro", pkg: "markdown", impl: "remark", platform: "node", lib: "unified 11.0.5, remark-parse 11.0.0, remark-rehype 11.1.2, rehype-stringify 10.0.1", run: (m) => [m.Render(doc)], norm: normHTML },
   { name: "vue", pkg: "reactive", lib: "@vue/reactivity 3.5.43", run: (m) => [m.Bench(50, 20, 2000)] },
+  { name: "tailwind", pkg: "utility", impl: "tailwind", lib: "tailwindcss 4.3.3", run: async (m) => [await m.Build(twTheme, classes)] },
 ];
 
 for (const l of LIBS) l.impl ??= l.pkg;

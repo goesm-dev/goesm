@@ -13,8 +13,9 @@ Web アプリが普段は人気の JavaScript ライブラリに任せる処理�
 | [VitePress](https://vitepress.dev/) | [`markdown`](markdown/markdown.go)、[goldmark](https://github.com/yuin/goldmark) を使う | CommonMark の文書を HTML にする。JS 側は VitePress が使う markdown-it 15.0.2 |
 | [Astro](https://astro.build/) | 同じ `markdown` | 同じ文書を、Astro が使う remark と rehype（unified 11）で HTML にする。Astro は Markdown を Node.js 上で処理するため、Node.js 向けにビルドする |
 | [Vue](https://vuejs.org/) | [`reactive`](reactive/reactive.go)、ref・computed・effect を Go で実装したもの | 20 段の computed の連鎖 50 本、ダイヤモンド型の依存、それらを読む effect を作り、ref を 2,000 回変更する。JS 側は @vue/reactivity 3.5.43 |
+| [Tailwind CSS](https://tailwindcss.com/) 4.3.3 | [`utility`](utility/utility.go)、ユーティリティファーストの CSS を生成する Go の実装 | ランディングページ [js/page.html](js/page.html) の 154 個のクラス名に対するスタイルシートを、Tailwind の既定のテーマから作る。Go 側の CSS は Tailwind の出力とバイト単位で一致しなければならない |
 
-フレームワークについては、ページが最も依存する部分を比べる。React はレンダリング、VitePress と Astro は Markdown のレンダラー、Vue はリアクティビティを対象にする。Go 側は、ネイティブのプログラム向けに書くのと同じ普通の Go のコードである。`%w` 付きの `fmt.Errorf`、`time.Parse`、生成された protobuf の型、`html/template` を使う。Go には比べられるリアクティビティの仕組みがないため、`reactive` はこの比較のために Vue に倣って書いたものである。Vue と同じく、前回と同じ ref や computed を読んだ計算は購読を張り直さない。JavaScript 側はライブラリの通常の API を使う。Markdown のレンダラーはいくつかの文字のエスケープの仕方が異なるため、そのエスケープを戻してから HTML を比べる。入力と処理は [js/libs.mjs](js/libs.mjs) に、JavaScript 版は [js/impl/](js/impl) にある。
+フレームワークについては、ページが最も依存する部分を比べる。React はレンダリング、VitePress と Astro は Markdown のレンダラー、Vue はリアクティビティ、Tailwind はページのクラス名を CSS にするコンパイラを対象にする。Go 側は、ネイティブのプログラム向けに書くのと同じ普通の Go のコードである。`%w` 付きの `fmt.Errorf`、`time.Parse`、生成された protobuf の型、`html/template` を使う。Go には比べられるリアクティビティの仕組みがないため、`reactive` はこの比較のために Vue に倣って書いたものである。Vue と同じく、前回と同じ ref や computed を読んだ計算は購読を張り直さない。`utility` も同様にこの比較のために書いたものである。テーマの CSS を読み、Tailwind と同じ方法でユーティリティを組み立てる。Tailwind の静的なユーティリティ、静的なバリアント、プロパティの並び順は、[js/gen-utility.mjs](js/gen-utility.mjs) が tailwindcss のパッケージから生成する表から読む。対象は一般的なページが使うユーティリティと、値を取らないバリアントである。`group-*`、`peer-*`、`not-*`、`max-*` などの複合的なバリアントや値を取るバリアントは扱わない。JavaScript 側はライブラリの通常の API を使う。Markdown のレンダラーはいくつかの文字のエスケープの仕方が異なるため、そのエスケープを戻してから HTML を比べる。入力と処理は [js/libs.mjs](js/libs.mjs) に、JavaScript 版は [js/impl/](js/impl) にある。
 
 ## 結果
 
@@ -28,16 +29,18 @@ Web アプリが普段は人気の JavaScript ライブラリに任せる処理�
 | vitepress | `markdown` | 241.9 KiB | 40.4 KiB | 5.99× |
 | astro | `markdown` | 241.9 KiB | 47.2 KiB | 5.12× |
 | vue | `reactive` | 11.4 KiB | 5.3 KiB | 2.16× |
+| tailwind | `utility` | 91.8 KiB | 72.2 KiB | 1.27× |
 
 | 比較対象 | node 26.10.0 goesm | node 26.10.0 JS | 比 | bun 1.4.2 goesm | bun 1.4.2 JS | 比 |
 | --- | --- | --- | --- | --- | --- | --- |
-| luxon | 2.3 ms | 9.2 ms | 0.25× | 4.8 ms | 8.1 ms | 0.59× |
-| neverthrow | 0.91 ms | 0.52 ms | 1.76× | 1.2 ms | 0.49 ms | 2.44× |
-| connect-es | 20 ms | 2.6 ms | 7.73× | 23 ms | 1.9 ms | 11.99× |
-| react | 3.1 ms | 1.7 ms | 1.80× | 3.4 ms | 2.2 ms | 1.53× |
-| vitepress | 0.41 ms | 0.24 ms | 1.67× | 0.70 ms | 0.15 ms | 4.79× |
-| astro | 0.44 ms | 2.0 ms | 0.21× | 0.51 ms | 2.5 ms | 0.20× |
-| vue | 14 ms | 6.4 ms | 2.22× | 15 ms | 5.6 ms | 2.67× |
+| luxon | 2.2 ms | 8.5 ms | 0.25× | 4.5 ms | 8.0 ms | 0.57× |
+| neverthrow | 0.88 ms | 0.52 ms | 1.68× | 1.2 ms | 0.50 ms | 2.47× |
+| connect-es | 20 ms | 2.5 ms | 8.22× | 20 ms | 2.0 ms | 10.36× |
+| react | 2.7 ms | 1.7 ms | 1.58× | 3.2 ms | 1.9 ms | 1.66× |
+| vitepress | 0.46 ms | 0.24 ms | 1.94× | 0.61 ms | 0.14 ms | 4.33× |
+| astro | 0.38 ms | 2.0 ms | 0.19× | 0.59 ms | 2.6 ms | 0.23× |
+| vue | 14 ms | 6.1 ms | 2.31× | 15 ms | 5.6 ms | 2.72× |
+| tailwind | 2.4 ms | 4.4 ms | 0.55× | 3.2 ms | 3.5 ms | 0.90× |
 <!-- compare:end -->
 
 サイズは minify した ES モジュールのバンドルを gzip のレベル 9 で圧縮したものである。時間は、ウォームアップ後に処理を 1 回実行した時間の中央値である。connect-es の処理では、エンコード済みの応答を返す `fetch` を同じプロセス内に置く。このため、計測するのはクライアントの処理だけ、すなわちリクエストのエンコード、プロトコルの処理、応答のデコードである。
