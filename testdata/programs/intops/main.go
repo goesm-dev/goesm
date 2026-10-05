@@ -61,6 +61,13 @@ func main() {
 			fmt.Println(a&b, a|b, a^b, a&^b)
 		}
 	}
+	// Masks by constants below 2^31, on either side.
+	for _, a := range vals {
+		fmt.Println(a&255, 1&a, a&0x7fffffff, a&(1<<30), a&0)
+	}
+	for _, a := range uvals {
+		fmt.Println(a&255, 0xffff&a, a&0x7fffffff)
+	}
 
 	// Indexing strings.
 	s := "héllo"
