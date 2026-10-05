@@ -10,10 +10,10 @@
 
 Go のパッケージを、ネイティブな ES モジュールにコンパイルします。出力は TypeScript で、WebAssembly は使いません。
 
-goesm は、普通の Go モジュールにある普通の Go パッケージを、パッケージごとに 1 つの ES モジュールに変換します。Vite、Rolldown、esbuild、Bun、Node.js、ブラウザからそのまま import できます。export された Go の関数は JavaScript の関数に、export された型は TypeScript の型付きのクラスになります。Go の意味論（整数演算、スライス、マップ、インターフェース、goroutine、`defer` / `panic` / `recover`、ジェネリクス、リフレクション）は保たれ、ネイティブ Go と突き合わせて検証しています。
+goesm は、普通の Go モジュールにある普通の Go パッケージを、パッケージごとに 1 つの ES モジュールに変換します。Vite、Rolldown、esbuild、Bun、Node.js、ブラウザからそのまま import できます。export された Go の関数は JavaScript の関数に、export された型は TypeScript の型を持つクラスになります。整数演算、スライス、マップ、インターフェース、goroutine、`defer` / `panic` / `recover`、ジェネリクス、リフレクションは Go と同じ意味で動き、その結果はネイティブ Go と突き合わせて検証しています。
 
 > [!NOTE]
-> goesm は実験段階です。現時点で動くもの・動かないものは[現状](#現状)を参照してください。
+> goesm は実験段階です。現時点で動くものと動かないものは、[現状](#現状)を参照してください。
 
 ```go
 package cart
@@ -47,29 +47,29 @@ Discount(2408, 15);    // 2046: Go の整数除算。2046.8 ではない
 
 ## goesm を使う理由
 
-- **Go の関数がそのまま JavaScript の関数になります。** WebAssembly のインスタンスも、`wasm_exec.js` も、非同期のインスタンス化も、`syscall/js` 経由の値の変換もありません。`Discount` の呼び出しコストは普通の JS 関数の呼び出しと同じで、数値・真偽値・構造体はそのまま境界を越えます。
-- **Go パッケージ 1 つが ES モジュール 1 つになります。** 出力は、相対 `.ts` 指定子で互いを import する TypeScript モジュールのツリーです。tree shaking、コード分割、minify、（`.go` ファイルまで戻る）ソースマップはホストのバンドラーが受け持ち、TypeScript からは Go の API の型が見えます。
-- **Go は Go のままです。** goesm はフロントエンドとして Go のツールチェーン自体（go/packages、go/types）を使います。同じコードに対して `go.mod`、`go.work`、`gopls`、`go vet`、`go test` がそのまま使え、goesm 独自の構文はありません。標準ライブラリも Go 自身のソースからコンパイルします。
-- **ネイティブ Go と突き合わせて検証しています。** すべてのフィクスチャの結果を `go run` と比較し、Go 自身のテストスイート（`$GOROOT/test`）も goesm で実行しています。
+- **Go の関数がそのまま JavaScript の関数になります。** WebAssembly のインスタンスも、`wasm_exec.js` も、非同期のインスタンス化も、`syscall/js` 経由の値の変換もありません。`Discount` の呼び出しコストは普通の JS 関数の呼び出しと同じです。数値、真偽値、構造体は、変換されずにそのまま境界を越えます。
+- **Go パッケージ 1 つが ES モジュール 1 つになります。** 出力は、相対 `.ts` 指定子で互いを import する TypeScript モジュールのツリーです。tree shaking、コード分割、minify、`.go` ファイルを指すソースマップの生成は、ホストのバンドラーが受け持ちます。TypeScript からは Go の API の型が見えます。
+- **Go は Go のままです。** goesm は、Go のツールチェーンの go/packages と go/types をそのままフロントエンドとして使います。同じコードに対して `go.mod`、`go.work`、`gopls`、`go vet`、`go test` がそのまま使えます。goesm 独自の構文はありません。標準ライブラリも Go 自身のソースからコンパイルします。
+- **ネイティブ Go と突き合わせて検証しています。** すべてのフィクスチャの結果を `go run` の結果と比較しています。Go 自身のテストスイートである `$GOROOT/test` も goesm で実行しています。
 
 ## 現状
 
 PoC は Go 言語の大部分と、標準ライブラリのかなりの部分をコンパイルできます。
 
-- **言語**: 関数とクロージャ、構造体、配列、スライス、マップ、ポインタ、インターフェース、型 switch、ジェネリクス（Go 1.27 のジェネリックメソッドを含む）、メソッド値、`defer` / `panic` / `recover`、goroutine、チャネル、`select`、整数と関数に対する range、`goto`、ラベル付き文、パッケージの初期化順序。
-- **標準ライブラリ**（Go のソースからコンパイル）: `strings`、`strconv`、`unicode`、`sort`、`slices`、`maps`、`errors`、`math`、`math/bits`、`fmt`、`reflect`、`encoding/json`、`sync`、`time`（ホストのタイマー上で動作）、`os` の標準入出力など。goesm がまだ変換できない関数は、呼ぶと panic するスタブになります。`goesm build -v` で一覧できます。
-- **compile-time instrumentation**: `goesm build -toolexec "otelc toolexec"` で OpenTelemetry の [otelc](https://github.com/open-telemetry/opentelemetry-go-compile-instrumentation) が計装したプログラムをビルドでき、ネイティブのビルドと同じ span を console や OTLP/HTTP の collector に出力します（[docs/otelc.ja.md](docs/otelc.ja.md)）。package 間の `//go:linkname` と `//go:embed` も動きます。
-- **Go のテストスイート**: `$GOROOT/test` の実行可能なテスト 961 件のうち 898 件で、ネイティブ Go と同じ出力になります（[docs/conformance.ja.md](docs/conformance.ja.md)）。
+- **言語**: 関数とクロージャ、構造体、配列、スライス、マップ、ポインタ、インターフェース、型 switch、ジェネリクスと Go 1.27 のジェネリックメソッド、メソッド値、`defer` / `panic` / `recover`、goroutine、チャネル、`select`、整数と関数に対する range、`goto`、ラベル付き文、パッケージの初期化順序。
+- **標準ライブラリ**: Go のソースからコンパイルします。`strings`、`strconv`、`unicode`、`sort`、`slices`、`maps`、`errors`、`math`、`math/bits`、`fmt`、`reflect`、`encoding/json`、`sync`、`time`、`os` の標準入出力などが動きます。`time` はホストのタイマーの上で動きます。goesm がまだ変換できない関数は、呼ぶと panic するスタブになります。スタブの一覧は `goesm build -v` で表示できます。
+- **compile-time instrumentation**: OpenTelemetry の [otelc](https://github.com/open-telemetry/opentelemetry-go-compile-instrumentation) が計装したプログラムを、`goesm build -toolexec "otelc toolexec"` でビルドできます。ビルドしたプログラムは、ネイティブのビルドと同じ span を console や OTLP/HTTP の collector に出力します。package 間の `//go:linkname` と `//go:embed` も動きます。詳しくは [docs/otelc.ja.md](docs/otelc.ja.md) を参照してください。
+- **Go のテストスイート**: `$GOROOT/test` の実行可能なテスト 961 件のうち 898 件が、ネイティブ Go と同じ出力になります。詳しくは [docs/conformance.ja.md](docs/conformance.ja.md) を参照してください。
 
-まだできないこと（詳細は [ARCHITECTURE.ja.md §11](ARCHITECTURE.ja.md)）:
+まだできないことは次のとおりです。詳細は [ARCHITECTURE.ja.md §11](ARCHITECTURE.ja.md) にあります。
 
-- `int` と `uint` は JS の number です。2^53 未満では正確ですが、64 ビットのオーバーフローで折り返しません。`int64` と `uint64` は正確です（BigInt）。
-- JS 呼び出し ABI はまだありません。Go の文字列とスライスはランタイムのオブジェクトなので、各モジュールが再 export しているランタイム（`rt.fromJSString`、`rt.sliceLit`、`rt.toArray` など）で手作業で変換します。ブロックしうる関数は Promise を返します。
-- goroutine ごとの `recover` の状態、ホストに保留中の処理があるときのデッドロック検出、DOM バインディング。
+- `int` と `uint` は JS の number です。2^53 未満では正確ですが、64 ビットのオーバーフローで折り返しません。`int64` と `uint64` は BigInt で表すので正確です。
+- JS 呼び出し ABI はまだありません。Go の文字列とスライスはランタイムのオブジェクトなので、呼び出し側が変換する必要があります。変換には、各モジュールが再 export しているランタイムの `rt.fromJSString`、`rt.sliceLit`、`rt.toArray` などを使います。ブロックしうる関数は Promise を返します。
+- goroutine ごとの `recover` の状態、ホストに保留中の処理があるときのデッドロック検出、DOM バインディングは、まだ実装していません。
 
 ## インストール
 
-goesm には Go のツールチェーン（Go 1.27 以降。古い `go` は `GOTOOLCHAIN` で 1.27 を自動でダウンロードします）が必要です。Node.js や npm は不要です。ランタイム（`@goesm/runtime`）はバイナリに埋め込まれていて、出力に書き出されます。
+goesm には Go 1.27 以降のツールチェーンが必要です。それより古い `go` は、`GOTOOLCHAIN` の仕組みで Go 1.27 を自動でダウンロードします。Node.js や npm は不要です。ランタイムの `@goesm/runtime` は goesm のバイナリに埋め込まれていて、出力に書き出されます。
 
 自分のモジュールのツールとして追加すると、自分のコードと同じツールチェーンでビルドされます。
 
@@ -84,7 +84,7 @@ go tool goesm emit-ts ./cart     # goesm-ts/<cart の import パス>.ts + goesm-
 go install github.com/goesm-dev/goesm/cmd/goesm@latest
 ```
 
-ビルド済みバイナリはありません。goesm はどのみち `go` を実行しますし、自分のツールチェーンでビルドすれば goesm の go/types がモジュールの使う Go と揃います。実験段階の間、リリースは `v0.0.1-beta.N` という名前のプレリリースです（[GitHub Releases](https://github.com/goesm-dev/goesm/releases)）。`@latest` は最新のものを指します。`goesm version` で goesm のバージョンと、ビルドに使った Go を表示します。
+ビルド済みのバイナリは配布していません。goesm は動作中に必ず `go` を実行するので、Go のツールチェーンはいずれにしても必要です。また、自分のツールチェーンで goesm をビルドすると、goesm の go/types がモジュールの使う Go と同じバージョンになります。実験段階の間、リリースは `v0.0.1-beta.N` という名前のプレリリースとして [GitHub Releases](https://github.com/goesm-dev/goesm/releases) で公開します。`@latest` は最新のリリースを指します。`goesm version` は、goesm のバージョンと、goesm のビルドに使った Go のバージョンを表示します。
 
 ## 使い方
 
@@ -106,10 +106,10 @@ goesm-ts/
     └── ...                    その他のランタイムのファイル
 ```
 
-Go パッケージ `p` のモジュールは `<dir>/<p>.ts` です（標準ライブラリも同じで、`strings.ts`、`internal/bytealg.ts` など）。ランタイムは `<dir>/@goesm/runtime/` です（Go の import パスは `@` で始まれません）。モジュールどうしは `.ts` で終わる相対指定子で import し合うので、リゾルバーもプラグインもバンドラーの設定も要りません。エントリのパッケージを自分のコードから import します。
+Go パッケージ `p` のモジュールは `<dir>/<p>.ts` に出力されます。標準ライブラリも同じで、`strings.ts` や `internal/bytealg.ts` のようになります。ランタイムは `<dir>/@goesm/runtime/` に出力されます。Go の import パスは `@` で始められないので、ランタイムの名前が Go のパッケージとぶつかることはありません。モジュールどうしは `.ts` で終わる相対指定子で import し合うので、リゾルバーもプラグインもバンドラーの設定も要りません。エントリのパッケージを自分のコードから import します。
 
 ```ts
-// Vite プロジェクトの index.ts。または直接実行: bun index.ts / node index.ts（Node.js 22.18 以降）
+// Vite プロジェクトの index.ts。bun index.ts や node index.ts で直接実行することもできる。Node.js は 22.18 以降が必要
 import { Result } from "./goesm-ts/example.com/app/main.ts";
 console.log(Result()); // 3
 ```
@@ -118,10 +118,10 @@ console.log(Result()); // 3
 
 ### `goesm build`: バンドル済みの ES モジュール
 
-`goesm build` は同じツリーを一時ディレクトリに書き出し、esbuild の Go API でバンドルします。バンドラーがない場合（と goesm 自身のテスト）向けです。
+`goesm build` は同じツリーを一時ディレクトリに書き出し、esbuild の Go API でバンドルします。バンドラーを使わない場合と、goesm 自身のテストのための機能です。
 
 ```sh
-go run ../../cmd/goesm build ./main            # dist/main.js（+ .go を指す .js.map）
+go run ../../cmd/goesm build ./main            # dist/main.js と、.go を指す dist/main.js.map を出力
 go run ../../cmd/goesm build -minify ./main
 go run ../../cmd/goesm build -split ./main     # Go パッケージごとに 1 つの ES モジュール: dist/example.com/app/main.js など
 ```
@@ -135,16 +135,27 @@ Result(); // 3
 
 ### JavaScript から Go を呼ぶ
 
-- export された関数と型は、パッケージのモジュールの export になり、TypeScript 上も Go の型を持ちます（`Total(items: $rt.S<Item>): number`）。
-- 数値と真偽値は JS の number と boolean、`int64` / `uint64` は BigInt です。構造体は、フィールドを順に受け取るコンストラクタを持つクラスです（`new Item(name, price, quantity)`）。
-- Go の文字列はバイト列です。渡すときは `rt.fromJSString(s)`、受け取るときは `rt.toJSString(s)` を使います。スライスは `rt.sliceLit([...])` で渡し、`rt.toArray(s)` で受け取ります。複数の戻り値は配列で、`error` は Go のインターフェース値で返ります。
-- ブロックしうる関数（チャネル操作、`time.Sleep`、ミューテックスの待ち）は `async function` で Promise を返します。それ以外は同期関数です。
+- export された関数と型は、パッケージのモジュールの export になります。TypeScript の型も Go の型に対応していて、たとえば `Total` の型は `Total(items: $rt.S<Item>): number` です。
+- 数値と真偽値は JS の number と boolean、`int64` / `uint64` は BigInt です。構造体は、フィールドを順に受け取るコンストラクタを持つクラスで、`new Item(name, price, quantity)` のように作ります。
+- Go の文字列はバイト列です。渡すときは `rt.fromJSString(s)`、受け取るときは `rt.toJSString(s)` を使います。スライスは `rt.sliceLit([...])` で渡し、`rt.toArray(s)` で受け取ります。複数の戻り値は配列として返ります。`error` は Go のインターフェース値として返ります。
+- チャネル操作、`time.Sleep`、ミューテックスの待ちのようにブロックしうる関数は、Promise を返す `async function` になります。それ以外の関数は同期関数です。
 
-`rt` はランタイムで、すべてのモジュールが `$runtime` として再 export しています。[examples/](examples) に、呼び出し側の JavaScript 付きで実行できる例（cart、標準ライブラリの利用、goroutine）があります。
+`rt` はランタイムで、すべてのモジュールが `$runtime` として再 export しています。[examples/](examples) には、呼び出し側の JavaScript と組み合わせて実行できる例があります。
 
 ## 性能
 
-[bench/](bench) では、同じ Go のカーネルを goesm、[GopherJS](https://github.com/gopherjs/gopherjs)、Go 公式の `GOOS=js GOARCH=wasm`、[TinyGo](https://tinygo.org) の wasm ターゲットでコンパイルし、Node.js、Bun、Chromium で実行します。すべての結果をネイティブ Go と照合し、起動時間と出力サイズも計測します。ネイティブ Go と、同じカーネルを JavaScript で手書きしたものを基準として載せています。各カーネルの内容、出力のビルド方法と呼び出し方、公平性についての注意は [bench/README.ja.md](bench/README.ja.md) に、ランタイムごとの全数値は [bench/results/results.md](bench/results/results.md) にあります。
+[bench/](bench) では、同じ Go のカーネルを goesm、[GopherJS](https://github.com/gopherjs/gopherjs)、Go 公式の `GOOS=js GOARCH=wasm`、[TinyGo](https://tinygo.org) の wasm ターゲットでコンパイルし、Node.js、Bun、Chromium で実行します。すべての結果をネイティブ Go と照合し、起動時間と出力サイズも計測します。ネイティブ Go と、同じカーネルを JavaScript で手書きしたものを基準として載せています。各カーネルの内容、出力のビルド方法と呼び出し方、公平性についての注意は [bench/README.ja.md](bench/README.ja.md) にあります。ランタイムごとの全数値は [bench/results/results.md](bench/results/results.md) にあります。
+
+計測方法は次のとおりです。
+
+- どの実装についても、事前にビルドした出力を読み込んでから計測します。ビルド、TypeScript から JavaScript への変換、wasm のコンパイルとインスタンス化にかかる時間は、計測する時間に含みません。
+- ネイティブ Go については、`go build` で作ったバイナリの中で、同じ計測ループを Go で実行します。
+- 手書き JS については、[bench/js/handwritten.mjs](bench/js/handwritten.mjs) を ES モジュールとしてそのまま読み込みます。
+- goesm については、`goesm build -minify` が出力した TypeScript を、goesm に組み込まれた esbuild で 1 つの ES モジュール `kernels.js` にバンドルし、それを読み込みます。
+- GopherJS については、`gopherjs build -m` が出力したスクリプトを読み込みます。Go wasm と TinyGo wasm については、`.wasm` ファイルと `wasm_exec.js` を読み込みます。
+- 各カーネルは JavaScript から呼び出します。ウォームアップとして 300 ms 以上かつ 3 回以上実行したあと、10 回以上かつ 1000 ms 以上計測し、その中央値を結果とします。
+- Add、Upper、Handle では、JavaScript から関数を 1 回呼び出すのにかかる時間を測ります。goesm と wasm の時間には、JS の文字列と Go の文字列を相互に変換する時間が含まれます。この変換は、呼び出し側が実際に負担するコストだからです。
+- 出力の読み込みにかかる時間は 1 回あたりの時間に含めず、起動時間として別に示します。
 
 <!-- bench:start -->
 - Intel(R) Xeon(R) Processor @ 2.10GHz (4 threads), linux 6.18.44-fc-v70
@@ -152,13 +163,13 @@ Result(); // 3
 - GopherJS 1.21.0+go1.21.13
 - tinygo version 0.42.0 linux/amd64 (using go version go1.27.1 and LLVM version 22.1.4)
 - Node.js v26.10.0, Bun 1.4.2, Chromium 141.0.7390.37
-- 2026-10-04 計測。300 ms 以上ウォームアップしたあと、カーネルごとに 10 回以上かつ 1000 ms 以上計測した中央値
+- 2026-10-04 に計測しました。各カーネルについて、300 ms 以上ウォームアップしたあと 10 回以上かつ 1000 ms 以上計測し、その中央値を結果としています。
 
 ![ネイティブ Go に対する遅さ](bench/results/charts/slowdown.ja.svg)
 
 ![合計時間](bench/results/charts/total.ja.svg)
 
-ネイティブ Go に対する遅さ（各カーネルの時間の比の幾何平均。小さいほど速い）:
+次の表は、ネイティブ Go に対する遅さを、カーネルごとの時間の比の幾何平均で示します。値が小さいほど速いことを表します。
 
 | ランタイム | 手書き JS | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -166,7 +177,7 @@ Result(); // 3
 | Bun 1.4.2 | 1.08× | **1.39×** | 8.37× | 2.25× | 2.23× |
 | Chromium 141.0.7390.37 | 0.95× | **1.23×** | 8.74× | 2.63× | 1.99× |
 
-全カーネルを 1 回ずつ実行した合計時間（ms、中央値の和。呼び出し系カーネルはループ全体。* はないカーネルを除いた値。小さいほど速い）:
+次の表は、全カーネルを 1 回ずつ実行した合計時間を ms で示します。合計は各カーネルの中央値の和で、呼び出し系のカーネルはループ全体の時間を足しています。* の付いた値は、その実装にないカーネルを除いた合計です。値が小さいほど速いことを表します。
 
 | ランタイム | 手書き JS | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -174,7 +185,7 @@ Result(); // 3
 | Bun 1.4.2 | 685* | **853** | 6697 | 923 | 1271 |
 | Chromium 141.0.7390.37 | 244* | **378** | 6919 | 1153 | 1182 |
 
-Node.js v26.10.0 での 1 回あたりの時間（ms、中央値。小さいほど速い）:
+次の表は、Node.js v26.10.0 での 1 回あたりの時間の中央値を ms で示します。ns/回 と書いた行だけは、JS から関数を 1 回呼び出すのにかかる時間を ns で示します。値が小さいほど速いことを表します。
 
 | カーネル | 対象 | ネイティブ Go | 手書き JS | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -193,13 +204,13 @@ Node.js v26.10.0 での 1 回あたりの時間（ms、中央値。小さいほ�
 | JSON | encoding/json の Marshal + Unmarshal | 7.22 | 2.42 | **4.28** | 443 | 20.6 | 29.2 |
 | Sprintf | fmt.Sprintf | 13.5 | 5.64 | **14.0** | 1261 | 51.2 | 29.5 |
 | Channels | goroutine、バッファなしチャネル | 76.7 | — | 94.5 | 252 | 182 | **19.9** |
-| Add (ns/回) | JS からの呼び出し: 数値 2 つを渡して 1 つ受け取る | — | 0.62 | **0.61** | 2764 | 5.08 | 1.75 |
-| Upper (ns/回) | JS からの呼び出し: strings.ToUpper、文字列を渡して受け取る | 139 | 48.8 | **110** | 12373 | 830 | 673 |
-| Handle (ns/回) | JS からの呼び出し: JSON のリクエストハンドラ、文字列を渡して受け取る | 3109 | 1318 | **2999** | 302264 | 12960 | 25846 |
-| **合計 ms（全カーネルを 1 回ずつ）** | | 338* | 296* | **410** | 8387 | 1011 | 1074 |
+| Add, ns/回 | JS からの呼び出し: 数値 2 つを渡して 1 つ受け取る | — | 0.62 | **0.61** | 2764 | 5.08 | 1.75 |
+| Upper, ns/回 | JS からの呼び出し: strings.ToUpper、文字列を渡して受け取る | 139 | 48.8 | **110** | 12373 | 830 | 673 |
+| Handle, ns/回 | JS からの呼び出し: JSON のリクエストハンドラ、文字列を渡して受け取る | 3109 | 1318 | **2999** | 302264 | 12960 | 25846 |
+| **全カーネルを 1 回ずつ実行した合計 ms** | | 338* | 296* | **410** | 8387 | 1011 | 1074 |
 | **ネイティブ Go 比の幾何平均** | | 1.00× | 1.03× | **1.25×** | 10.39× | 2.46× | 1.90× |
 
-起動時間（出力を読み込み始めてから関数を呼べるようになるまで、ms）:
+次の表は起動時間を ms で示します。起動時間は、出力を読み込み始めてから関数を呼べるようになるまでの時間です。
 
 | ランタイム | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | ---: | ---: | ---: | ---: |
@@ -207,7 +218,7 @@ Node.js v26.10.0 での 1 回あたりの時間（ms、中央値。小さいほ�
 | Bun | 162 | 222 | 47.1 | **15.5** |
 | Chromium | 75.1 | 67.5 | 68.7 | **24.0** |
 
-出力サイズ（カーネル一式と、使っている標準ライブラリ）:
+次の表は出力サイズを示します。サイズには、カーネル一式と、カーネルが使う標準ライブラリが含まれます。
 
 | | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | ---: | ---: | ---: | ---: |
@@ -217,41 +228,44 @@ Node.js v26.10.0 での 1 回あたりの時間（ms、中央値。小さいほ�
 | brotli -11 | 188 KiB | **169 KiB** | 894 KiB | 299 KiB |
 <!-- bench:end -->
 
-この数値から読み取れる goesm の現状:
+この数値から読み取れる goesm の現状は次のとおりです。
 
-- **合計時間は、どのランタイムでも 4 つの中で goesm が最速です。** 全カーネルを 1 回ずつ実行すると、goesm は 0.38〜0.85 秒、Go wasm は 0.92〜1.15 秒、TinyGo は 1.07〜1.27 秒、GopherJS は 6.7〜8.4 秒かかります。手書き JS は Channels を除いて 0.24〜0.69 秒です。ネイティブ Go に対する幾何平均では、goesm が 1.23〜1.39 倍（最適化を始める前は 4.2〜4.6 倍）、手書き JS が 0.95〜1.08 倍、Go wasm が 2.25〜2.63 倍、TinyGo が 1.90〜2.23 倍、GopherJS が 8.37〜10.39 倍です。
-- **JavaScript から呼ぶコストは、数値ならゼロで、文字列でも wasm より小さくなっています。** goesm の関数は JS の関数そのものなので、`Add` のコストは手書き JS と同じ 0.6 ns です。素の wasm export 経由では TinyGo が 1.8〜2.4 ns、Go wasm が 4.7〜6.0 ns（`syscall/js` 経由ならマイクロ秒単位）、GopherJS は 1.8〜2.8 µs です。文字列を渡して受け取る `Upper` は、goesm が 1 回 103〜110 ns、wasm が 0.7〜1.5 µs です（手書き JS は 49〜54 ns）。JSON のリクエストハンドラは、goesm が 1 回 3.0〜3.9 µs、Go wasm が 12.6〜13.9 µs、TinyGo が 26〜34 µs です（手書き JS は 0.95〜1.3 µs）。
-- **手書き JS と並ぶところと、まだ離れているところ。** Node.js では Fib、Sieve、Mandelbrot、NBody、FNV32、FNV64、BinaryTrees、map のカーネル、Sort で、手書き JS との差が 20% 程度以内か、手書き JS より速くなっています。最も離れているのは Sprintf（2.2〜2.5 倍）、JSON ハンドラ（2.3〜3.9 倍）、Upper（1.9〜2.3 倍）、JSON（1.8〜2.2 倍）、Interfaces（1.5〜1.8 倍。インターフェースに入れた値はすべて箱に包まれます）です。FNV64 は手書き JS と同じく BigInt を使うため、Bun では遅くなります。起動は 75〜162 ms で、Go wasm の 47〜69 ms、TinyGo の 16〜24 ms より遅いです。サイズは brotli で 188 KiB です（GopherJS 169 KiB、TinyGo 299 KiB、Go wasm 894 KiB）。
-- **残る差は変換のオーバーヘッドではなく値の表現にあります。** まだ手書き JS に届かないカーネルは、インターフェース値の箱、JS 境界でのバイト文字列の変換、バイト列の上で動く `fmt` と `encoding/json` に時間を使っています。引き続きそこを最適化していきます。
+- **合計時間は、どのランタイムでも 4 つの変換方式の中で goesm が最も短くなっています。** 全カーネルを 1 回ずつ実行すると、goesm は 0.38〜0.85 秒、Go wasm は 0.92〜1.15 秒、TinyGo は 1.07〜1.27 秒、GopherJS は 6.7〜8.4 秒かかります。手書き JS は、Channels を除いて 0.24〜0.69 秒です。ネイティブ Go に対する遅さの幾何平均は、goesm が 1.23〜1.39 倍、手書き JS が 0.95〜1.08 倍、Go wasm が 2.25〜2.63 倍、TinyGo が 1.90〜2.23 倍、GopherJS が 8.37〜10.39 倍です。goesm の値は、最適化を始める前は 4.2〜4.6 倍でした。
+- **幾何平均は、ネイティブ Go より遅いカーネルと速いカーネルが打ち消し合った値です。** Node.js では、手書き JS は Fib で 1.9 倍、FNV64 で 4.0 倍、MapString で 3.2 倍の時間がかかる一方、JSON では 0.34 倍、Sprintf では 0.42 倍、Upper では 0.35 倍の時間で済みます。これは、JSON と文字列の処理では JS エンジンの組み込み関数が Go の標準ライブラリより速いためです。goesm も同じ傾向を示します。goesm は、数値計算のカーネルではネイティブ Go の 0.97〜3.7 倍の時間がかかり、JSON、Upper、BinaryTrees ではネイティブ Go より短い時間で終わります。
+- **JavaScript から呼ぶコストは wasm より小さくなっています。** goesm の関数は JS の関数そのものなので、`Add` の 1 回の呼び出しは手書き JS と同じ 0.6 ns で終わります。wasm の export を直接呼ぶ場合、TinyGo は 1.8〜2.4 ns、Go wasm は 4.7〜6.0 ns かかります。Go wasm を `syscall/js` 経由で呼ぶと、1 回にマイクロ秒単位の時間がかかります。GopherJS は 1 回に 1.8〜2.8 µs かかります。文字列を渡して受け取る `Upper` の 1 回の呼び出しは、goesm が 103〜110 ns、wasm が 0.7〜1.5 µs、手書き JS が 49〜54 ns です。JSON のリクエストハンドラの 1 回の呼び出しは、goesm が 3.0〜3.9 µs、Go wasm が 12.6〜13.9 µs、TinyGo が 26〜34 µs、手書き JS が 0.95〜1.3 µs です。
+- **手書き JS に近いカーネルと、まだ差が大きいカーネルがあります。** Node.js では、Fib、Sieve、Mandelbrot、NBody、FNV32、FNV64、BinaryTrees、map のカーネル、Sort で、goesm と手書き JS の差は 20% 程度以内に収まっています。このうちいくつかのカーネルでは、goesm が手書き JS より速くなっています。差が大きいのは、Sprintf の 2.2〜2.5 倍、JSON ハンドラの 2.3〜3.9 倍、Upper の 1.9〜2.3 倍、JSON の 1.8〜2.2 倍、Interfaces の 1.5〜1.8 倍です。Interfaces が遅いのは、インターフェースに入れた値をすべて箱に包むためです。FNV64 は手書き JS と同じく BigInt を使うので、Bun ではどちらも遅くなります。
+- **起動時間は wasm より長く、出力サイズは GopherJS に近くなっています。** goesm の出力は、起動に 75〜162 ms かかります。Go wasm は 47〜69 ms、TinyGo は 16〜24 ms です。brotli で圧縮したサイズは、goesm が 188 KiB、GopherJS が 169 KiB、TinyGo が 299 KiB、Go wasm が 894 KiB です。
+- **残る差の原因は、変換のオーバーヘッドではなく値の表現にあります。** まだ手書き JS に届かないカーネルは、インターフェース値の箱、JS 境界でのバイト文字列の変換、バイト列の上で動く `fmt` と `encoding/json` に時間を使っています。今後もこれらを最適化します。
 
 ## 仕組み
 
 ```text
 .go ──► go/packages + go/types ──► goesm: Go の意味論 → TypeScript ──► バンドラー / ランタイム ──► ES モジュール
-         （Go のツールチェーン）                                         （Vite、Rolldown、esbuild、Bun、Node.js）
 ```
 
-goesm は、ソース言語については Go のツールチェーンを、出力については現代の JS ツールを権威として扱います。Go のパーサー、型システム、モジュールを置き換えることも、バンドラーを実装することもしません。型検査済みの Go を TypeScript と、TypeScript で書いた小さなランタイムに変換します。主な設計判断は次のとおりで、すべて [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md) で説明しています。
+go/packages と go/types は Go のツールチェーンの一部です。バンドラーやランタイムには、Vite、Rolldown、esbuild、Bun、Node.js などを使えます。
+
+goesm は、ソース言語については Go のツールチェーンを、出力については現代の JS ツールを権威として扱います。Go のパーサー、型システム、モジュールを置き換えることも、バンドラーを実装することもしません。goesm は、型検査済みの Go を TypeScript に変換し、TypeScript で書いた小さなランタイムと組み合わせます。主な設計判断は次のとおりで、すべて [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md) で説明しています。
 
 - コンパイルの単位は Go のプログラムではなく Go のパッケージです。goesm のプロジェクトに `package main` は要らず、どこから実行を始めるかは JS のアプリケーションが決めます。
-- goroutine は協調的です。プログラム全体の解析でブロックしうる関数を見つけ、それらはブロック箇所に `await` を置いた `async` 関数になります。それ以外はすべて素の同期 JavaScript のままです。
-- 標準ライブラリのパッケージは Go 自身のソースからコンパイルします。gc ランタイムに結びついた少数のパッケージ（`runtime`、`reflect`、`internal/reflectlite`、`sync`、`syscall/js`）は goesm 独自の Go ソースに置き換え、Go の本体を持たない関数はランタイムで実装します。
-- Go の各型は実行時の型記述子を持ち、インターフェース、ジェネリクス（型辞書）、構造体をキーにしたマップ、リフレクションがそれを使います。
+- goroutine は協調的に動きます。goesm はプログラム全体を解析してブロックしうる関数を見つけ、それらをブロック箇所に `await` を置いた `async` 関数に変換します。それ以外の関数は、すべて普通の同期関数のままです。
+- 標準ライブラリのパッケージは Go 自身のソースからコンパイルします。`runtime`、`reflect`、`internal/reflectlite`、`sync`、`syscall/js` など、gc ランタイムに結びついた少数のパッケージは、goesm 独自の Go ソースに置き換えます。Go の本体を持たない関数は、ランタイムで実装します。
+- Go の各型は、実行時の型記述子を持ちます。インターフェース、型辞書を使うジェネリクス、構造体をキーにしたマップ、リフレクションは、この型記述子を使います。
 
 設計を GopherJS と比べたものは [docs/gopherjs-comparison.ja.md](docs/gopherjs-comparison.ja.md) にあります。
 
 ### 目標と目標外
 
-goesm は、Go の開発体験（`go.mod`、`go.work`、`go fmt`、`gopls`、`go test`、`go vet`、`golangci-lint`、`govulncheck`）をそのまま保ち、出力側では JavaScript エコシステムのツールを再利用することを目指します。
+goesm は、`go.mod`、`go.work`、`go fmt`、`gopls`、`go test`、`go vet`、`golangci-lint`、`govulncheck` といった Go の開発体験をそのまま保ち、出力側では JavaScript エコシステムのツールを再利用することを目指します。
 
-Go 風の言語、WebAssembly ランタイム、パッケージマネージャー、Vite や Rolldown の代替、フレームワークではありません。フレームワークとの統合は別のアダプターの役割です。たとえば `<script setup lang="go">` を持つ Vue SFC は、Go の部分を goesm に渡し、テンプレート層は Vue が受け持つ、という形にできます。
+goesm は、Go 風の言語、WebAssembly ランタイム、パッケージマネージャー、Vite や Rolldown の代替、フレームワークのいずれでもありません。フレームワークとの統合は別のアダプターの役割です。たとえば `<script setup lang="go">` を持つ Vue SFC は、Go の部分を goesm に渡し、テンプレート層は Vue が受け持つ、という形にできます。
 
 ## ドキュメント
 
 - [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md): 設計、値の表現、goroutine、標準ライブラリ、実装済みの範囲とネイティブ Go との違い
 - [docs/example-output.ja.md](docs/example-output.ja.md): 生成される TypeScript と JavaScript
 - [docs/conformance.ja.md](docs/conformance.ja.md): Go 自身のテストスイートを goesm で実行する
-- [docs/otelc.ja.md](docs/otelc.ja.md): OpenTelemetry の compile-time instrumentation (otelc) を goesm で使う
+- [docs/otelc.ja.md](docs/otelc.ja.md): OpenTelemetry の compile-time instrumentation である otelc を goesm で使う
 - [docs/gopherjs-comparison.ja.md](docs/gopherjs-comparison.ja.md): GopherJS との違い
 - [bench/README.ja.md](bench/README.ja.md): ベンチマーク
 - [examples/](examples): 実行できる例
@@ -261,12 +275,12 @@ Go 風の言語、WebAssembly ランタイム、パッケージマネージャ�
 ## 開発
 
 ```sh
-mise install           # mise.toml で固定したバージョンの Go、Node.js、Bun（CI と同じ）
-npm ci --prefix test   # TestTSC / TestOxlint 用の tsc と oxlint（ローカルでは任意、CI では必須）
+mise install           # mise.toml で固定した Go、Node.js、Bun を入れる。CI も同じバージョンを使う
+npm ci --prefix test   # TestTSC と TestOxlint が使う tsc と oxlint を入れる。ローカルでは任意で、CI では必須
 go test ./...          # Go 1.27 以降と Node.js 22.18 以降が必要。Bun は任意
 ```
 
-`TestGolden` はフィクスチャの引数なしの export 関数をすべてネイティブ Go と goesm でビルドした ESM で実行し、結果が一致することを確認します。残りは `TestExamples`、`TestJS`、`TestTSC`（出力した TypeScript の strict な型検査）、`TestOxlint`、オプトインの `TestGoConformance` が確認します。各テストとプルリクエストに必要なものは [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) にあります。
+`TestGolden` はフィクスチャの引数なしの export 関数をすべてネイティブ Go と goesm でビルドした ESM で実行し、結果が一致することを確認します。残りは `TestExamples`、`TestJS`、`TestTSC`、`TestOxlint`、オプトインの `TestGoConformance` が確認します。`TestTSC` は、出力した TypeScript を strict モードで型検査します。各テストとプルリクエストに必要なものは [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) にあります。
 
 ## ライセンス
 
