@@ -8,7 +8,7 @@
 
 [日本語](README.ja.md)
 
-Compile Go packages into native ES modules: plain JavaScript (emitted as TypeScript), no WebAssembly.
+Compile Go packages into native ES modules, emitted as TypeScript. No WebAssembly.
 
 goesm takes ordinary Go packages from an ordinary Go module and turns each one into an ES module that Vite, Rolldown, esbuild, Bun, Node.js or a browser can import directly. Exported Go functions become JavaScript functions, exported types become classes with TypeScript types, and Go's semantics (integer arithmetic, slices, maps, interfaces, goroutines, `defer` / `panic` / `recover`, generics, reflection) are preserved and checked against native Go.
 
@@ -162,9 +162,9 @@ Slowdown vs native Go (geometric mean of the per-kernel time ratios; lower is be
 
 | Runtime | Hand-written JS | goesm | GopherJS | Go wasm | TinyGo wasm |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Node.js v26.10.0 | 1.0× | **1.3×** | 10.4× | 2.5× | 1.9× |
-| Bun 1.4.2 | 1.1× | **1.4×** | 8.4× | 2.3× | 2.2× |
-| Chromium 141.0.7390.37 | 1.0× | **1.2×** | 8.7× | 2.6× | 2.0× |
+| Node.js v26.10.0 | 1.03× | **1.25×** | 10.39× | 2.46× | 1.90× |
+| Bun 1.4.2 | 1.08× | **1.39×** | 8.37× | 2.25× | 2.23× |
+| Chromium 141.0.7390.37 | 0.95× | **1.23×** | 8.74× | 2.63× | 1.99× |
 
 Total ms to run every kernel once (the sum of the medians, the calling kernels' whole loops included; * leaves out kernels the implementation lacks; lower is better):
 
@@ -197,7 +197,7 @@ Median ms per call under Node.js v26.10.0 (lower is better):
 | Upper (ns/call) | calls from JS: strings.ToUpper, a string in and out | 139 | 48.8 | **110** | 12373 | 830 | 673 |
 | Handle (ns/call) | calls from JS: a JSON request handler, a string in and out | 3109 | 1318 | **2999** | 302264 | 12960 | 25846 |
 | **Total ms, every kernel once** | | 338* | 296* | **410** | 8387 | 1011 | 1074 |
-| **Geometric mean vs native Go** | | 1× | 1.0× | **1.3×** | 10.4× | 2.5× | 1.9× |
+| **Geometric mean vs native Go** | | 1.00× | 1.03× | **1.25×** | 10.39× | 2.46× | 1.90× |
 
 Startup (ms from starting to load the output to the first callable function):
 
@@ -219,7 +219,7 @@ Output size (all kernels and the standard library they use):
 
 What these numbers say about goesm today:
 
-- **Total time: goesm is the fastest of the four on every runtime.** Running every kernel once takes goesm 0.38–0.85 s, Go wasm 0.92–1.15 s, TinyGo 1.07–1.27 s and GopherJS 6.7–8.4 s; hand-written JS takes 0.24–0.69 s without Channels. In geometric mean against native Go that is 1.2–1.4× for goesm (4.2–4.6× before optimization started), 1.0–1.1× for hand-written JS, 2.3–2.6× for Go wasm, 1.9–2.2× for TinyGo and 8.4–10.4× for GopherJS.
+- **Total time: goesm is the fastest of the four on every runtime.** Running every kernel once takes goesm 0.38–0.85 s, Go wasm 0.92–1.15 s, TinyGo 1.07–1.27 s and GopherJS 6.7–8.4 s; hand-written JS takes 0.24–0.69 s without Channels. In geometric mean against native Go that is 1.23–1.39× for goesm (4.2–4.6× before optimization started), 0.95–1.08× for hand-written JS, 2.25–2.63× for Go wasm, 1.90–2.23× for TinyGo and 8.37–10.39× for GopherJS.
 - **Crossing from JavaScript is free for numbers and cheaper than wasm for strings.** A goesm function is a JS function, so `Add` costs what it costs in hand-written JS (0.6 ns). Through plain wasm exports, TinyGo takes 1.8–2.4 ns and Go wasm 4.7–6.0 ns (microseconds through `syscall/js`); GopherJS takes 1.8–2.8 µs. With a string in and out (`Upper`), goesm takes 103–110 ns per call against 0.7–1.5 µs in wasm (hand-written JS: 49–54 ns). The JSON request handler takes goesm 3.0–3.9 µs per call, against 12.6–13.9 µs for Go wasm and 26–34 µs for TinyGo (hand-written JS: 0.95–1.3 µs).
 - **Where goesm matches hand-written JS and where it lags.** It is within about 20% of hand-written JS, or ahead of it, on Fib, Sieve, Mandelbrot, NBody, FNV32, FNV64, BinaryTrees, the map kernels and Sort under Node.js. It is furthest from hand-written JS on Sprintf (2.2–2.5×), the JSON handler (2.3–3.9×), Upper (1.9–2.3×), JSON (1.8–2.2×) and Interfaces (1.5–1.8×, where every value stored in an interface is boxed). FNV64 uses BigInt like the hand-written JS, which is slow under Bun. Its output starts in 75–162 ms, against 47–69 ms for Go wasm and 16–24 ms for TinyGo. It is 188 KiB with brotli, against 169 KiB for GopherJS, 299 KiB for TinyGo and 894 KiB for Go wasm.
 - **What remains is representation, not lowering overhead.** The kernels that still trail hand-written JS spend their time on boxed interface values, Go's byte strings at the JS boundary, and `fmt` and `encoding/json` working over bytes, which is where optimization continues.
