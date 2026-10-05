@@ -69,7 +69,18 @@ func (fe *funcEmitter) stmts(list []ast.Stmt) {
 		spans = append(spans, sp)
 	}
 	var open []*span
+	skip := 0 // statements lowered by promotedRun
 	for i, s := range list {
+		if i < skip {
+			continue
+		}
+		if len(spans) == 0 {
+			if n, key, sel := fe.fieldRun(list, i); n > 0 {
+				fe.promotedRun(list, i, n, key, sel)
+				skip = i + n
+				continue
+			}
+		}
 		for len(open) > 0 && open[len(open)-1].end == i {
 			fe.w.indent--
 			fe.w.ln("}")
@@ -620,6 +631,9 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 		if _, ok := fe.info.Selections[x]; !ok {
 			v := fe.info.Uses[x.Sel].(*types.Var) // package-qualified variable
 			return fe.simpleLvalue(fe.varRef(v), t)
+		}
+		if name, ok := fe.promotedField(x); ok {
+			return fe.simpleLvalue(name, t) // see fieldRun
 		}
 		// p.f = v, ...: p is evaluated first, the nil check happens when
 		// this assignment is carried out (nilChecked).

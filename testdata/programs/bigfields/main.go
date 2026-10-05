@@ -25,6 +25,29 @@ type mix struct {
 //go:noinline
 func id[T any](x T) T { return x }
 
+// steps assigns x.s in runs that are held in a local (see the lowering's
+// fieldRun) and ones that are not: a division, a variable shift count, a
+// read through another pointer, which may be x.
+func steps(x, y *xorshift, n uint) {
+	var k uint64 = 3
+	m := int32(-1)
+	x.s += uint64(n)
+	x.s *= k + 1
+	x.s = ^x.s - -x.s
+	x.s /= 3
+	x.s <<= n
+	x.s ^= y.s
+	x.s |= uint64(m) &^ k
+}
+
+// nilRun panics in the first assignment of a run, before changing anything.
+func nilRun(x *xorshift) (r string) {
+	defer func() { r = fmt.Sprint(recover() != nil) }()
+	x.s ^= x.s << 13
+	x.s ^= x.s >> 7
+	return "no panic"
+}
+
 func main() {
 	r := &xorshift{88172645463325252}
 	var acc uint64
@@ -32,6 +55,15 @@ func main() {
 		acc += r.next() >> 40
 	}
 	fmt.Println(r.s, acc)
+
+	a, b := &xorshift{5}, &xorshift{7}
+	steps(a, b, 3)
+	steps(a, a, 70)
+	var v xorshift
+	v.s = 1
+	v.s += v.s << 40
+	v.s -= 9
+	fmt.Println(a.s, b.s, v.s, nilRun(nil))
 
 	m := &mix{u: math.MaxUint64 - 5, i: math.MinInt64 + 9}
 	k := id(uint64(0x9e3779b97f4a7c15))
