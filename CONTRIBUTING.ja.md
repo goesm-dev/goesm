@@ -35,7 +35,7 @@ go test ./...
 | `TestJS` | build した bundle に対する `test/js/*.test.mjs` (node:test) |
 | `TestKnownGaps` | 文書化した native Go との差分がまだ存在する (`testdata/semantics/gaps`) |
 | `TestExamples` | `examples/*` が Node.js (インストールされていれば Bun でも) で動き、`output.txt` どおりに出力する |
-| `TestTSC` | 出力した TypeScript が strict な `tsc` で型検査を通る |
+| `TestTSC` | 出力した TypeScript が、`@ts-nocheck` の行を除くと strict な `tsc` の型検査を通る。その行がある状態でも、TypeScript の呼び出し側には Go の型が見える |
 | `TestOxlint` | build した ESM に oxlint の correctness の指摘がない |
 | `TestPrograms` | `testdata/programs` の command が native Go と goesm (Node.js と Bun) で同じ出力をし、同じ status で終了する |
 | `TestToolexec` | `-toolexec` program による module と標準 library の書き換えが、`go build` と同じように goesm の出力に反映される (`testdata/toolexec`) |

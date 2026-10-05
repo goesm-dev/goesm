@@ -54,6 +54,28 @@ const notPromise: number = workers.SumSquares(10, 2);
 export { notPromise };
 `
 
+// projectConfig is a stock application setup, as create-next-app writes
+// it, plus the unused-code checks many projects add. goesm's output does not
+// pass it (BigInt literals need ES2020, generated code has unused locals), so
+// the generated files carry @ts-nocheck; callers must keep their Go types.
+const projectConfig = `{
+  "compilerOptions": {
+    "target": "es2017",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "isolatedModules": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "lib": ["es2022", "dom"]
+  },
+  "include": ["**/*.ts"]
+}
+`
+
 // TestTSC type-checks the TypeScript goesm emits (fixtures, examples and
 // the runtime) with tsc (pinned in test/package.json) in strict mode, and
 // checks that exported Go APIs carry their Go types for TypeScript callers.
@@ -69,6 +91,29 @@ func TestTSC(t *testing.T) {
 	}
 	out := t.TempDir()
 	examples, _ := filepath.Abs(filepath.Join("..", "examples"))
+
+	// In a project with its own settings, @ts-nocheck silences the generated
+	// files but not the consumer: its @ts-expect-error lines still need the
+	// Go types.
+	project := t.TempDir()
+	for _, pattern := range []string{"./cart", "./workers"} {
+		l, err := build.Lower(examples, []string{pattern})
+		if err != nil {
+			t.Fatalf("goesm %s: %v", pattern, err)
+		}
+		if err := build.WriteTS(project, l.Mods); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, src := range map[string]string{"tsconfig.json": projectConfig, "consumer.ts": consumer} {
+		if err := os.WriteFile(filepath.Join(project, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if res, err := exec.Command(bin, "-p", project).CombinedOutput(); err != nil {
+		t.Fatalf("tsc reported errors in a project that imports goesm's output: %v\n%s", err, res)
+	}
+
 	for _, tg := range []struct{ dir, pattern string }{
 		{testdata("example"), "./main"},
 		{testdata("semantics"), "./basics"},

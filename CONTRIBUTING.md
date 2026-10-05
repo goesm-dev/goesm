@@ -35,7 +35,7 @@ go test ./...
 | `TestJS` | `test/js/*.test.mjs` (node:test) against built bundles |
 | `TestKnownGaps` | the documented differences from native Go still exist (`testdata/semantics/gaps`) |
 | `TestExamples` | `examples/*` run under Node.js, and Bun when it is installed, and print their `output.txt` |
-| `TestTSC` | the emitted TypeScript type-checks with strict `tsc` |
+| `TestTSC` | the emitted TypeScript type-checks with strict `tsc` once its `@ts-nocheck` header is removed, and TypeScript callers see the Go types with the header in place |
 | `TestOxlint` | the built ESM has no oxlint correctness findings |
 | `TestPrograms` | the commands in `testdata/programs` print the same output and exit with the same status under native Go and goesm (Node.js and Bun) |
 | `TestToolexec` | a `-toolexec` program's rewrites of a module and of the standard library reach goesm's output as they reach `go build`'s (`testdata/toolexec`) |
