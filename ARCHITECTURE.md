@@ -272,7 +272,7 @@ Status (`go test ./test -run TestStdlibStatus -v`; golden tests in `testdata/sem
 * `append` capacity growth is approximated (no size-class rounding), so `cap()` can differ from gc.
 * Map range order is insertion order (Go randomises it; both are unspecified).
 * When the deferred function is only known at run time (a function value, an interface method), `recover()` also works in the functions it calls (Go requires a direct call).
-* Goroutines switch only at blocking points (cooperative). Blocking exported functions return Promises to JS.
+* Goroutines switch only at blocking points (cooperative). Blocking exported functions return Promises to JS. [docs/concurrency.md](docs/concurrency.md) describes what this means for data races and parallelism.
 * Blocking of dynamic calls is decided conservatively (§5), which can add unneeded `await`s (behaviour is unchanged).
 * `print` / `println` write to stderr in the Go runtime's format, but pointer, map, channel, func, slice and interface values print a fixed address instead of a real one.
 * `sync`: a `Lock` the analysis (§5) left synchronous panics if it would have to wait; the analysis is meant to rule that out, so it is a goesm bug. A second `Once.Do` while the first call's function is blocked panics instead of waiting; misuse such as unlocking an unlocked `Mutex` is a recoverable panic, not a fatal error. `runtime.Caller` / `Callers` / `Stack` report nothing and `SetFinalizer` is a no-op.

@@ -272,7 +272,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * `append` の capacity 拡張は近似 (size class の丸めなし)。`cap()` の値が gc と異なることがある。
 * map の range 順は挿入順 (Go はランダム)。どちらも仕様上未定義。
 * deferred 関数が実行時にしか分からない場合 (関数値、interface の method) は、そこから呼んだ関数の中の `recover()` も効く (Go では直接呼んだときだけ)。
-* goroutine は blocking 点でしか切り替わらない (協調的)。blocking する exported 関数は JS からは Promise を返す。
+* goroutine は blocking 点でしか切り替わらない (協調的)。blocking する exported 関数は JS からは Promise を返す。データ競合と並列実行への影響は [docs/concurrency.ja.md](docs/concurrency.ja.md) にまとめている。
 * 動的呼び出しの blocking 判定は保守的 (§5) なので、不要な `await` が入ることがある (意味は変わらない)。
 * `print` / `println` は Go ランタイムと同じ書式で stderr に出力するが、ポインタ・map・channel・func・スライス・interface の値は実アドレスではなく固定のアドレスを表示する。
 * `sync`: 解析 (§5) が同期のままにした `Lock` は、待つ必要があると panic する。解析はこれを起こさないはずなので、goesm の bug である。最初の呼び出しの関数が block している間に 2 回目の `Once.Do` を呼ぶと、待たずに panic する。unlock 済み `Mutex` の unlock などの誤用は fatal error ではなく recover できる panic。`runtime.Caller` / `Callers` / `Stack` は何も報告せず、`SetFinalizer` は何もしない。
