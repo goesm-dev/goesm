@@ -39,6 +39,22 @@ export function modBig(a: bigint, b: bigint): bigint {
   return a % b;
 }
 
+// A local int64 or uint64 that the lowering splits into two int32 halves
+// (see split64.go) becomes a BigInt again with pairU64 or pairI64, and a BigInt
+// is split with pairHi and pairLo.
+export function pairU64(hi: number, lo: number): bigint {
+  return (BigInt(hi >>> 0) << 32n) | BigInt(lo >>> 0);
+}
+export function pairI64(hi: number, lo: number): bigint {
+  return (BigInt(hi | 0) << 32n) | BigInt(lo >>> 0);
+}
+export function pairHi(x: bigint): number {
+  return Number(BigInt.asIntN(32, x >> 32n));
+}
+export function pairLo(x: bigint): number {
+  return Number(BigInt.asIntN(32, x));
+}
+
 // bigShifts[n] is BigInt(n) for the shift counts 0 to 64.
 const bigShifts: bigint[] = [];
 for (let i = 0; i <= 64; i++) bigShifts.push(BigInt(i));

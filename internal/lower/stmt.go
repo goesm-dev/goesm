@@ -116,10 +116,19 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 		}
 		w.ln("%s%s;", m, fe.expr(s.X))
 	case *ast.DeclStmt:
+		if fe.splitStmt(s, m) {
+			return
+		}
 		fe.declStmt(s)
 	case *ast.AssignStmt:
+		if fe.splitStmt(s, m) {
+			return
+		}
 		fe.assign(s)
 	case *ast.IncDecStmt:
+		if fe.splitStmt(s, m) {
+			return
+		}
 		lv := fe.lvalue(s.X, true)
 		t := fe.info.TypeOf(s.X)
 		op := token.ADD
@@ -650,6 +659,8 @@ func (fe *funcEmitter) stmtExpr(s ast.Stmt) string {
 	c := *fe
 	c.w = w
 	c.stmt(s, "")
+	// Temporaries the statement hoisted are declared with the function's.
+	fe.temps, fe.ir = c.temps, c.ir
 	body := strings.TrimSpace(w.String())
 	if strings.Count(body, "\n") == 0 && strings.HasSuffix(body, ";") && !strings.HasPrefix(stripMarks(body), "const ") && !strings.HasPrefix(stripMarks(body), "let ") {
 		return strings.TrimSuffix(body, ";")
