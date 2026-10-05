@@ -41,6 +41,11 @@ func (fe *funcEmitter) jsValueCall(e *ast.CallExpr) (string, bool) {
 	if !ok || e.Ellipsis.IsValid() {
 		return "", false
 	}
+	if len(e.Args) == 1 {
+		if _, ok := fe.info.TypeOf(e.Args[0]).(*types.Tuple); ok {
+			return "", false // f(g()) with several results of g
+		}
+	}
 	s := fe.info.Selections[sel]
 	if s == nil || s.Kind() != types.MethodVal {
 		return "", false

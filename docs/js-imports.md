@@ -84,7 +84,7 @@ if errors.As(err, &jerr) {
 
 ## Performance
 
-A call through `//goesm:import` costs a few nanoseconds more than a call from JavaScript to the same function when the arguments are numbers, ASCII strings or structs of such fields. The same call through `syscall/js` costs 20 to 50 ns more with numbers and strings, and 8 to 40 times as much with a slice or a struct, which `syscall/js` code builds one element or property at a time ([dom.md](dom.md#performance)). [bench/jsimport](../bench/jsimport) measures them:
+A call through `//goesm:import` costs a few nanoseconds more than a call from JavaScript to the same function when the arguments are numbers, ASCII strings or structs of such fields. The same call through `syscall/js` costs 20 to 50 ns more with numbers and strings, and 8 to 50 times as much with a slice or a struct, which `syscall/js` code builds one element or property at a time ([dom.md](dom.md#performance)). [bench/jsimport](../bench/jsimport) measures them:
 
 | Call | JS → JS | Go → JS, `//goesm:import` | Go → JS, `syscall/js` |
 | --- | ---: | ---: | ---: |
@@ -92,8 +92,8 @@ A call through `//goesm:import` costs a few nanoseconds more than a call from Ja
 | `strlen(string) int`, ASCII | 2.9 ns | 9.1 ns | 36 ns |
 | `strlen(string) int`, Japanese | 5.3 ns | 124 ns | 158 ns |
 | `upper(string) string`, ASCII | 29 ns | 44 ns | 83 ns |
-| `total(struct) int` | 8.1 ns | 5.0 ns | 218 ns |
-| `sum([]float64) float64`, 8 elements | 18 ns | 35 ns | 278 ns |
+| `total(struct) int` | 8.1 ns | 5.0 ns | 238 ns |
+| `sum([]float64) float64`, 8 elements | 18 ns | 35 ns | 303 ns |
 
 Node.js 22 on a 4 vCPU Intel Xeon 2.10 GHz cloud VM, the median of 7 runs. On Bun, calls with numbers and strings cost about the same, and calls with a struct or a slice two to four times as much. A string with non-ASCII characters is re-encoded between UTF-8 and UTF-16 each way, which is the remaining cost; slices are copied element by element.
 
