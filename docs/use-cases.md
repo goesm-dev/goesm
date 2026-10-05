@@ -31,8 +31,8 @@ Node.js here also means Bun, and for servers Deno. Files, environment variables,
 An `http.Handler` becomes the Worker's fetch handler:
 
 ```ts
-import { Handler, $runtime as rt } from "./goesm-ts/example.com/app/api.ts";
-export default { fetch: rt.fetchHandler(Handler()) };
+import { Handler } from "./goesm-ts/example.com/app/api.ts";
+export default { fetch: Handler() };
 ```
 
 | Use case | Typical code | Status | Checked by |
@@ -68,14 +68,14 @@ What the Go code adds to a page's JavaScript, measured with Vite 8 (minified, gz
 
 ## Go libraries used from JavaScript and TypeScript
 
-Every exported function and type of a Go package is an export of its module, typed in TypeScript, in any of the places above.
+Every exported function of the Go package you build is an export of its module, typed in TypeScript, in any of the places above.
 
 | Use case | Typical code | Status | Checked by |
 | --- | --- | --- | --- |
-| Calling exported Go functions and types from TS | functions, structs as classes, value methods, multiple results as tuples, `error`, functions that block returning Promises | Supported, with the conversions done by hand (below) | `TestTSC`, `TestJS`, `TestExamples` |
+| Calling exported Go functions from TS | functions taking and returning strings, arrays and plain objects, handles with methods, multiple results as arrays, `error` thrown, functions that block returning Promises | Supported | `TestTSC`, `TestJS`, `TestExamples` |
 | Popular pure-Go libraries | `google/uuid`, `golang.org/x/mod/semver`, `Masterminds/semver`, `shopspring/decimal`, `go-playground/validator`, `expr-lang/expr`, `tidwall/gjson`, `golang.org/x/text`, `yuin/goldmark`, `gopkg.in/yaml.v3` | Supported | `TestUseCaseLibraries` (`testdata/usecases/libs`) and `TestUseCaseBuildTool` |
 
-There is no JS calling ABI for JavaScript calling Go yet, so the caller converts values with the runtime every module re-exports as `$runtime`: strings with `rt.fromJSString` and `rt.toJSString`, slices with `rt.sliceLit` and `rt.toArray`, errors with `rt.icall(err, "Error")`. In practice that is one small wrapper module per Go API. A string passed without `fromJSString` reaches Go with its non-ASCII characters wrong.
+Arguments and results are converted at the boundary by their Go types: strings, arrays and plain objects are passed and returned as they are in JavaScript. [js-exports.md](js-exports.md) has the details.
 
 ## JavaScript and TypeScript used from Go
 
@@ -91,7 +91,7 @@ Go code calls the functions and uses the values of ES modules it declares with `
 
 These are known gaps between the 75th and 95th percentiles; code that needs them may still work in part.
 
-- **Calling Go from JS without conversions.** Strings, slices, maps and errors are converted by hand (above). Pointer results and function parameters are typed `any`, pointer-receiver methods are free functions (`Cart$Add(c, item)`), and a Go struct cannot be passed from a Next.js Server Component to a Client Component as a prop without copying it into a plain object.
+- **Fields of handles:** a pointer to a struct type with methods reaches JavaScript as the Go object itself, so its fields hold Go's own representation; data is read through methods and functions.
 - **Bundle size.** `fmt`, `encoding/json` and `reflect` cost about 200 KiB gzip, and package variables initialized by calls (`errors.New`, `regexp.MustCompile`) keep their packages in the bundle even when the importer uses none of them. `net/http`'s client keeps its TLS and HTTP/2 code although requests go through `fetch`.
 - **HTTP servers:** HTTP/2 and gRPC's own protocol (Connect and gRPC-Web work), TLS (`ListenAndServeTLS`), WebSockets and `Hijack`, trailers, request bodies streamed while the handler runs, client and bidirectional streaming RPCs, and `Serve` on a `net.Listener`.
 - **Workers beyond `fetch`:** bindings such as KV, D1, R2 and Durable Objects are reachable only through `syscall/js`, and `ctx.waitUntil` is not connected, so goroutines still running after the response may be stopped.

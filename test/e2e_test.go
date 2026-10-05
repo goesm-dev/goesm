@@ -74,6 +74,7 @@ func TestJS(t *testing.T) {
 	panics := buildPkg(t, testdata("semantics"), "./panics")
 	jsfuncs := buildPkg(t, testdata("semantics"), "./jsfuncs")
 	jsfuncsBlocking := buildPkg(t, testdata("semantics"), "./jsfuncsblocking")
+	jsexport := buildPkg(t, testdata("semantics"), "./jsexport")
 	files, _ := filepath.Glob("js/*.test.mjs")
 	cmd := exec.Command("node", append([]string{"--test", "--enable-source-maps"}, files...)...)
 	cmd.Env = append(os.Environ(),
@@ -84,6 +85,7 @@ func TestJS(t *testing.T) {
 		"GOESM_PANICS="+panics,
 		"GOESM_JSFUNCS="+jsfuncs,
 		"GOESM_JSFUNCS_BLOCKING="+jsfuncsBlocking,
+		"GOESM_JSEXPORT="+jsexport,
 	)
 	out, err := cmd.CombinedOutput()
 	t.Logf("%s", out)
@@ -190,7 +192,7 @@ func nativeResults(t *testing.T, dir, pkgPath string, funcs []goldenFunc) map[st
 
 const esmDriver = `
 const m = await import(process.argv[process.argv.length - 1]);
-const rt = m.$runtime;
+const rt = m.$goesm;
 const out = {};
 for (const [name, f] of Object.entries(m.$goesm.funcs)) {
   if (f.type.params.length !== 0 || f.type.results.length === 0) continue;
