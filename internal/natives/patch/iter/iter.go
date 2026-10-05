@@ -1,5 +1,9 @@
 //go:build goesm
 
+// Copyright 2023 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 // goesm's patch of iter's iter.go: Pull's coroutines are goroutines that the
 // runtime switches between by resolving Promises (natives.ts: newcoro and
 // coroswitch are internal/natives overrides). The Go bodies below are what
@@ -10,8 +14,18 @@
 // A sequence that is a function literal calling yield only directly, and
 // blocking on nothing else, also has a JS generator (see the lowering's
 // seqGenerator): Pull and Pull2 then step it synchronously, each yield a
-// generator yield, instead of switching goroutines.
+// generator yield, instead of switching goroutines. Pull and Pull2 are Go's,
+// with that fast path first. They are copies rather than calls of the
+// originals (//goesm:original) because a generic call from Pull would
+// instantiate them with Pull's own type parameters, and their blocking yield
+// function would then match the calls of every func(T) bool value.
 package iter
+
+import (
+	"internal/race"
+	"runtime"
+	"unsafe"
+)
 
 type coro struct {
 	inside bool          // the coroutine is running
@@ -117,23 +131,196 @@ func pull2Gen[K, V any](g *genSeq) (next func() (K, V, bool), stop func()) {
 	return next, stop
 }
 
-// Pull steps seq's generator if it has one, and otherwise runs it on a
-// coroutine as Go's Pull, which it keeps as pullCoro.
-//
-//goesm:original pullCoro
 func Pull[V any](seq Seq[V]) (next func() (V, bool), stop func()) {
 	if g := seqGen(seq); g != nil {
 		return pullGen[V](g)
 	}
-	return pullCoro(seq)
+	var pull struct {
+		v          V
+		ok         bool
+		done       bool
+		yieldNext  bool
+		seqDone    bool // to detect Goexit
+		racer      int
+		panicValue any
+	}
+	c := newcoro(func(c *coro) {
+		race.Acquire(unsafe.Pointer(&pull.racer))
+		if pull.done {
+			race.Release(unsafe.Pointer(&pull.racer))
+			return
+		}
+		yield := func(v1 V) bool {
+			if pull.done {
+				return false
+			}
+			if !pull.yieldNext {
+				panic("iter.Pull: yield called again before next")
+			}
+			pull.yieldNext = false
+			pull.v, pull.ok = v1, true
+			race.Release(unsafe.Pointer(&pull.racer))
+			coroswitch(c)
+			race.Acquire(unsafe.Pointer(&pull.racer))
+			return !pull.done
+		}
+		// Recover and propagate panics from seq.
+		defer func() {
+			if p := recover(); p != nil {
+				pull.panicValue = p
+			} else if !pull.seqDone {
+				pull.panicValue = goexitPanicValue
+			}
+			pull.done = true // Invalidate iterator
+			race.Release(unsafe.Pointer(&pull.racer))
+		}()
+		seq(yield)
+		var v0 V
+		pull.v, pull.ok = v0, false
+		pull.seqDone = true
+	})
+	next = func() (v1 V, ok1 bool) {
+		race.Write(unsafe.Pointer(&pull.racer)) // detect races
+
+		if pull.done {
+			return
+		}
+		if pull.yieldNext {
+			panic("iter.Pull: next called again before yield")
+		}
+		pull.yieldNext = true
+		race.Release(unsafe.Pointer(&pull.racer))
+		coroswitch(c)
+		race.Acquire(unsafe.Pointer(&pull.racer))
+
+		// Propagate panics and goexits from seq.
+		if pull.panicValue != nil {
+			if pull.panicValue == goexitPanicValue {
+				// Propagate runtime.Goexit from seq.
+				runtime.Goexit()
+			} else {
+				panic(pull.panicValue)
+			}
+		}
+		return pull.v, pull.ok
+	}
+	stop = func() {
+		race.Write(unsafe.Pointer(&pull.racer)) // detect races
+
+		if !pull.done {
+			pull.done = true
+			race.Release(unsafe.Pointer(&pull.racer))
+			coroswitch(c)
+			race.Acquire(unsafe.Pointer(&pull.racer))
+
+			// Propagate panics and goexits from seq.
+			if pull.panicValue != nil {
+				if pull.panicValue == goexitPanicValue {
+					// Propagate runtime.Goexit from seq.
+					runtime.Goexit()
+				} else {
+					panic(pull.panicValue)
+				}
+			}
+		}
+	}
+	return next, stop
 }
 
-// Pull2 is Pull for a Seq2.
-//
-//goesm:original pull2Coro
 func Pull2[K, V any](seq Seq2[K, V]) (next func() (K, V, bool), stop func()) {
 	if g := seqGen(seq); g != nil {
 		return pull2Gen[K, V](g)
 	}
-	return pull2Coro(seq)
+	var pull struct {
+		k          K
+		v          V
+		ok         bool
+		done       bool
+		yieldNext  bool
+		seqDone    bool
+		racer      int
+		panicValue any
+	}
+	c := newcoro(func(c *coro) {
+		race.Acquire(unsafe.Pointer(&pull.racer))
+		if pull.done {
+			race.Release(unsafe.Pointer(&pull.racer))
+			return
+		}
+		yield := func(k1 K, v1 V) bool {
+			if pull.done {
+				return false
+			}
+			if !pull.yieldNext {
+				panic("iter.Pull2: yield called again before next")
+			}
+			pull.yieldNext = false
+			pull.k, pull.v, pull.ok = k1, v1, true
+			race.Release(unsafe.Pointer(&pull.racer))
+			coroswitch(c)
+			race.Acquire(unsafe.Pointer(&pull.racer))
+			return !pull.done
+		}
+		// Recover and propagate panics from seq.
+		defer func() {
+			if p := recover(); p != nil {
+				pull.panicValue = p
+			} else if !pull.seqDone {
+				pull.panicValue = goexitPanicValue
+			}
+			pull.done = true // Invalidate iterator.
+			race.Release(unsafe.Pointer(&pull.racer))
+		}()
+		seq(yield)
+		var k0 K
+		var v0 V
+		pull.k, pull.v, pull.ok = k0, v0, false
+		pull.seqDone = true
+	})
+	next = func() (k1 K, v1 V, ok1 bool) {
+		race.Write(unsafe.Pointer(&pull.racer)) // detect races
+
+		if pull.done {
+			return
+		}
+		if pull.yieldNext {
+			panic("iter.Pull2: next called again before yield")
+		}
+		pull.yieldNext = true
+		race.Release(unsafe.Pointer(&pull.racer))
+		coroswitch(c)
+		race.Acquire(unsafe.Pointer(&pull.racer))
+
+		// Propagate panics and goexits from seq.
+		if pull.panicValue != nil {
+			if pull.panicValue == goexitPanicValue {
+				// Propagate runtime.Goexit from seq.
+				runtime.Goexit()
+			} else {
+				panic(pull.panicValue)
+			}
+		}
+		return pull.k, pull.v, pull.ok
+	}
+	stop = func() {
+		race.Write(unsafe.Pointer(&pull.racer)) // detect races
+
+		if !pull.done {
+			pull.done = true
+			race.Release(unsafe.Pointer(&pull.racer))
+			coroswitch(c)
+			race.Acquire(unsafe.Pointer(&pull.racer))
+
+			// Propagate panics and goexits from seq.
+			if pull.panicValue != nil {
+				if pull.panicValue == goexitPanicValue {
+					// Propagate runtime.Goexit from seq.
+					runtime.Goexit()
+				} else {
+					panic(pull.panicValue)
+				}
+			}
+		}
+	}
+	return next, stop
 }
