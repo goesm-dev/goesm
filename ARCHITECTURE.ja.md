@@ -123,7 +123,7 @@ docs/                 GopherJS 比較、生成物の実例
 
 V8 (Chrome、Node、Deno) では BigInt が 4 つ中 3 つで最速の正確な表現で、hash では number とほぼ同じです。JavaScriptCore (Safari、Bun) では uint32 2 つより 3〜18 倍遅くなります。2 分割は lowering と JS API で、すべての `int64` の変数・field・引数・戻り値を 2 倍にします。BigInt は lowering と exported API を単純に保ち、どこでも正確なので、これを表現として採用しました。
 
-ループの中で多く演算するローカル変数については、値の表現を変えずに 2 分割の経路を使います。実装は `internal/lower/split64.go` にあります。最も深いループでの演算が BigInt との変換より多い `int64` と `uint64` のローカル変数は、`x$hi` と `x$lo` の 2 つの int32 のローカル変数で持ちます。この変数の加算、減算、乗算、ビット演算、定数でのシフトは、int32 の演算と `Math.imul` になります。BigInt に変換するのは、値が関数の演算から出る箇所だけです。たとえば、関数の呼び出し、メモリへの格納、戻り値がこれにあたります。これにより、FNV-1a 64 は V8 でも JavaScriptCore でもネイティブに近い速さで動きます。テストのために、`GOESM_SPLIT64=off` でこの lowering を止め、`GOESM_SPLIT64=all` ですべての候補に適用できます。
+ループの中で多く演算するローカル変数については、値の表現を変えずに 2 分割の経路を使います。実装は `internal/lower/split64.go` にあります。最も深いループでの演算が BigInt との変換より多い `int64` と `uint64` のローカル変数は、`x$hi` と `x$lo` の 2 つの int32 のローカル変数で持ちます。この変数の加算、減算、乗算、ビット演算、定数でのシフトは、int32 の演算と `Math.imul` になります。BigInt に変換するのは、値が関数の演算から出る箇所だけです。たとえば、関数の呼び出し、メモリへの格納、戻り値がこれにあたります。これにより、FNV-1a 64 は V8 でも JavaScriptCore でもネイティブに近い速さで動きます。xorshift のように、ローカル変数の `int64` か `uint64` のフィールド 1 つに、そのフィールド、ローカル変数、定数から代入する文が続く場合も、その間はフィールドをローカル変数に写して計算し、最後に 1 回だけ書き戻します (`internal/lower/fieldpromo.go`)。テストのために、`GOESM_SPLIT64=off` でこの lowering を止め、`GOESM_SPLIT64=all` ですべての候補に適用できます。
 
 ### 型 metadata
 
@@ -250,7 +250,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * `time` (`Sleep`、`Stop` / `Reset` 付きの `Timer`、`Ticker`、`AfterFunc`、`select` 内の `After`、時計、`Duration`、format と parse) は `testdata/programs/timers` で native Go と一致します。
 * `crypto` の hash と暗号 (MD5、SHA-1、SHA-2、SHA-3、HMAC、AES-GCM、CTR)、`crypto/rand` (host の `crypto.getRandomValues`)、`math/rand`、`math/rand/v2`、`hash/maphash`、`sync/atomic.Value`、slice から配列 pointer への変換は `testdata/programs/stdlibmisc` で native Go と一致します。
 * `math/big` (`testdata/programs/mathbig`) と公開鍵暗号 (`crypto/rsa`、`crypto/ecdsa`、`crypto/ecdh`、`crypto/ed25519`、`crypto/x509`。`testdata/programs/cryptopk`) は native Go と一致します。`uint` が JS の number なので、goesm では `math/big.Word` は `uint32` (32-bit platform と同じ `_W = 32`)、`crypto/internal/fips140/bigmod` は 32-bit limb を使います。乗算の内側ループと `bits.{Add,Sub,Mul,Div,Rem}32` は native です。P-384、P-521、Ed25519 の 64-bit limb の体演算は BigInt 上で動くので遅いです。
-* `iter.Pull` / `Pull2` (`testdata/programs/iterpull`): coroutine を goroutine 上で動かし、`coroswitch` は channel で制御を渡します (patch)。それらの関数リテラルは、`Pull` か `Pull2` を参照する program でだけ blocking 解析上の関数値として数えます。そうした program では `func()`、`func(T) bool`、`func() (T, bool)` の値の動的呼び出しが async になります。
+* `iter.Pull` / `Pull2` (`testdata/programs/iterpull`): `Pull` か `Pull2` を参照する program では、yield を直接呼ぶだけで他にブロックしない関数リテラルのシーケンスに、本体を JS のジェネレータにしたものも付けます (`internal/lower/seqgen.go`)。`Pull` はそのジェネレータを同期的に進めます。それ以外のシーケンスは goroutine 上の coroutine として動かし、`coroswitch` は channel で制御を渡します (patch)。coroutine の関数リテラルは、`Pull` か `Pull2` を参照する program でだけ blocking 解析上の関数値として数えます。`next` と `stop` は、ローカル変数として呼ぶだけであれば、そうした program でも関数値として数えません (`TestAsyncStaysLocal`)。
 
 ## 10. Tooling compatibility と security
 
