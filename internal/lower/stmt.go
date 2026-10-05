@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -1907,8 +1908,19 @@ func (fe *funcEmitter) branchesFromMachine(s ast.Stmt, loop bool) bool {
 }
 
 // litRecoverTok is the recover token (funcEmitter.recoverTok) of a function
-// literal.
-func litRecoverTok(lit *ast.FuncLit) string { return fmt.Sprintf("func@%d", lit.Pos()) }
+// literal: its package, file and position, which do not depend on the order
+// in which packages were loaded, so a module's code is the same in every
+// build (internal/build caches it). A file on disk is named by its base
+// name; the natives replacements and patches keep their whole name, since a
+// patch has the base name of the file it patches.
+func (pe *pkgEmitter) litRecoverTok(lit *ast.FuncLit) string {
+	p := pe.prog.Fset.PositionFor(lit.Pos(), false)
+	name := p.Filename
+	if filepath.IsAbs(name) {
+		name = filepath.Base(name)
+	}
+	return fmt.Sprintf("func@%s/%s:%d:%d", pe.pkg.PkgPath, name, p.Line, p.Column)
+}
 
 // deferredTok is the recover token of the function a defer statement calls,
 // so that recover() recovers only in that function (Go's "called directly by
@@ -1922,7 +1934,7 @@ func (fe *funcEmitter) deferredTok(call *ast.CallExpr) string {
 	}
 	switch f := fun.(type) {
 	case *ast.FuncLit:
-		return litRecoverTok(f)
+		return fe.pe.litRecoverTok(f)
 	case *ast.IndexExpr:
 		fun = unparen(f.X)
 	case *ast.IndexListExpr:
