@@ -60,6 +60,9 @@ type Lowered struct {
 	// Warnings name standard library and dependency functions that goesm
 	// cannot lower yet; they were replaced by stubs that panic when called.
 	Warnings []string
+	// Cached is the number of modules taken from the module cache (see
+	// modCache) instead of being lowered.
+	Cached int
 }
 
 // Lower runs the Go frontend and the semantic lowering.
@@ -86,7 +89,14 @@ func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) (*Lo
 	entry := prog.Roots[0].PkgPath
 	lp := lower.NewProgram(prog.Fset, prog.All, prog.Std)
 	lp.Deps = prog.Deps
-	mods := lp.LowerAll(lower.Options{Entry: entry})
+	opts := lower.Options{Entry: entry}
+	var mods []*lower.Module
+	cached := 0
+	if c := openCache(); c != nil {
+		mods, cached = lowerCached(c, lp, prog.Std, overlay, opts)
+	} else {
+		mods = lp.LowerAll(opts)
+	}
 	if len(lp.Diags) > 0 {
 		var lines []string
 		for _, d := range lp.SortedDiags() {
@@ -94,7 +104,7 @@ func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) (*Lo
 		}
 		return nil, &DiagError{Layer: "goesm", Lines: lines}
 	}
-	l := &Lowered{Mods: mods, Entry: entry}
+	l := &Lowered{Mods: mods, Entry: entry, Cached: cached}
 	for _, d := range lp.SortedWarns() {
 		l.Warnings = append(l.Warnings, d.String())
 	}

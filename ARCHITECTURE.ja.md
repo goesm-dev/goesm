@@ -44,7 +44,7 @@ internal/lower/       typed AST → TypeScript lowering
   expr.go types.go    式、変換、演算子、型 descriptor / zero value
   writer.go           位置 marker 付き code writer (source location を codegen 中に保持)
 internal/sourcemap/   TS→Go の Source Map v3 builder
-internal/build/       pipeline 結合、TS tree の書き出し、esbuild Go API 呼び出し (goesm build) と split 用 resolver
+internal/build/       pipeline 結合、モジュールキャッシュ、TS tree の書き出し、esbuild Go API 呼び出し (goesm build) と split 用 resolver
 runtime/              @goesm/runtime (TypeScript)。goesm binary に embed し、<dir>/@goesm/runtime/ に書き出す
 test/                 end-to-end テスト (Node.js 実行、native Go との golden 比較)
 testdata/             fixture module (普通の Go module。gofmt / go vet / go test がそのまま通る)
@@ -163,6 +163,14 @@ function F() {
 * つまり「async/await に変換すれば Go と同じ」とは扱っていません。blocking の意味論は wait queue という runtime 側の境界にあり、async/await は「goroutine を中断・再開する手段」に限定しています。`runtime.Goexit` (deferred 呼び出しは実行され、`recover` では止まらない) と `sync` の置換 (§9) はこの境界の上に実装しました。deadlock 検出、goroutine-local な panic 状態、timer も同様に載せます。
 * JS 境界: blocking する exported 関数は Promise を返します (例: `await Example()` は 42)。
 * **プログラム**: main package の module は `$rt.runMain` で `main` を実行します。Go と同じく、`main` が return すると (他の goroutine が動いていても) process は終了し、`os.Exit` は deferred 呼び出しを実行せずにその code で終了し、どこでも recover されない panic は `panic: ...` と `goroutine 1 [running]:`、JS の stack を標準エラーに出して status 2 で終了します。package の初期化中の panic も同じです: main module は最初に `@goesm/runtime/program.ts` を import し、これが捕捉されない例外を同じ crash に変えるので、すべての依存 package の変数初期化と `init` 関数も対象になります。`main` 内の `runtime.Goexit` は main goroutine だけを終わらせ、他の goroutine がすべて終わると `fatal error: no goroutines (main called runtime.Goexit) - deadlock!` を出します。`main` が block したまま host の event loop が空になると (Node と Bun の `beforeExit`。JavaScript のコードが求めた終了は含まない)、もう goroutine を起こせるものはないので、Go と同じ `fatal error: all goroutines are asleep - deadlock!` を出して status 2 で終了します。この監視は `program.ts` が始めるので、永久に block する `init` 関数も Node では同じく報告されます。Bun は決着しない top-level `await` で spin し続けるため、そのような program は Bun では止まりません。process の無い browser では、recover されない panic は `reportError` で報告し、block した `main` はそのまま block し続け、`os.Exit` は deferred 呼び出しを実行せずに goroutine を巻き戻します (recover はできません)。
+
+### インクリメンタルビルド: モジュールキャッシュ
+
+ビルド時間のうち最も大きな部分は、パッケージの lowering です。goesm.dev の `site` パッケージは 77 個のパッケージを含み、その大半は標準ライブラリです。このビルドでは、読み込みと型検査に約 0.28 秒、プログラム全体の解析に約 0.23 秒、lowering に約 0.64 秒かかります。そこで `internal/build` は、各パッケージのモジュールをキャッシュに保存し、キーがキャッシュにないパッケージだけを lowering します。実装は `internal/build/cache.go` にあります。フロントエンドと解析は、毎回のビルドで実行します。パッケージのモジュールはプログラム全体に依存するからです。たとえば、同じ signature の関数値がプログラムのどこかで block しうる場合、関数は async になります。また、別のパッケージが代入するパッケージ変数は `Cell` を必要とします。
+
+パッケージのモジュールのキーは、次の要素から作ります。1 つ目は goesm の実行ファイルです。lowering、ランタイム、natives は実行ファイルに含まれます。2 つ目は `GOESM_SPLIT64` です。3 つ目は、そのパッケージがエントリかどうかです。4 つ目は、そのパッケージと、それが依存するすべてのパッケージについての、import path、ファイル、解析結果のダイジェストです。ファイルについては、名前、Go のバージョン、内容をキーに含めます。解析結果のダイジェストは `lower.Program.Facts` が計算し、lowering が読む解析結果を表します。このダイジェストには、パッケージが宣言する関数、関数リテラル、range-over-func 文、変数について解析が決めた事項を含めます。具体的には、async かどうか、同期でのみ実行するかどうか、`Cell` に入れるかどうか、linkname の pull と provider です。さらに、lowering がパッケージ自身のノードについて問い合わせる `CallBlocks`、`RangeBlocks`、`WaitLock`、`WaitLockVal` の答えも含めます。ダイジェスト内の位置はファイル内のオフセットで表すので、編集が変えるのは、その編集が影響するパッケージのダイジェストだけです。lowering が、ダイジェストの対象外である `Program` の要素を読むようになると、`TestFactsCoverProgram` が失敗します。パッケージの lowering で生じた警告は、モジュールと一緒に保存します。
+
+キャッシュは、ユーザーキャッシュディレクトリの `goesm/modules` に置きます。`GOESMCACHE` で場所を変更でき、`GOESMCACHE=off` でキャッシュを無効にできます。go コマンドのビルドキャッシュと同じく、5 日間使われなかったエントリは削除します。goesm.dev の `site` は、1 つのパッケージを編集した後の再ビルドに、キャッシュがない場合の 1.2 秒ではなく 0.7 秒かかります。サイト全体の `astro build` は、11.1 秒から 8.7 秒になります。`TestModuleCache` は、キャッシュから取り出したモジュールが lowering の結果とバイト単位で一致することを確かめます。他のプログラムが保存した標準ライブラリのモジュールも、この確認の対象です。`TestModuleCacheFollowsFacts` は、あるパッケージの変更が依存先の解析結果を変えた場合に、その依存先を lowering し直すことを確かめます。
 
 ## 6. runtime 構成 (`runtime/src`、`<dir>/@goesm/runtime/*.ts` として出力)
 
