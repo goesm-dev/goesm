@@ -112,6 +112,47 @@ export function native$iter$coroswitch(c: Coro): Promise<void> {
   return new Promise<void>((resolve) => { c.wakeOut = resolve; wake(); });
 }
 
+// A sequence that is a function literal calling yield only directly, and
+// blocking on nothing else, carries a generator of its body as $gen (see the
+// lowering's seqGenerator), and Pull steps that instead: yield is a
+// generator yield, unless the state's d (stop) makes it return false.
+interface GenSeq {
+  it: Generator<any, void, boolean>;
+  // s is the generator's state: d once stop was called, and k the key of a
+  // Seq2's last yield, whose value it yields.
+  s: { d: boolean; k: any };
+  v: any;
+  started: boolean;
+}
+
+export function native$iter$seqGen(seq: Iface): GenSeq | null {
+  const gen = seq.v?.$gen;
+  if (gen === undefined) return null;
+  const s = { d: false, k: null };
+  return { it: gen(s), s, v: null, started: false };
+}
+
+export function native$iter$genNext(g: GenSeq): boolean {
+  g.started = true;
+  const r = g.it.next(true);
+  if (r.done) return false;
+  g.v = r.value;
+  return true;
+}
+
+export function native$iter$genValue(g: GenSeq): any {
+  return g.v;
+}
+
+export function native$iter$genKey(g: GenSeq): any {
+  return g.s.k;
+}
+
+export function native$iter$genStop(g: GenSeq): void {
+  g.s.d = true;
+  if (g.started) g.it.next(false); // runs to the end: yield no longer waits
+}
+
 // ---- math and internal/strconv: float bits ----
 
 const scratch = new DataView(new ArrayBuffer(8));

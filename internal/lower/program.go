@@ -113,6 +113,9 @@ type Program struct {
 	// pullKept the coroutine functions some of whose results go elsewhere.
 	pullCalls map[*ast.CallExpr]bool
 	pullKept  map[string]bool
+	// usesPull is set when the program calls iter.Pull or Pull2: function
+	// literals that are sequences then have generators (seqgen.go).
+	usesPull bool
 
 	// //go:linkname pulls (bodyless functions) and the functions providing
 	// their symbols (see linkname.go).
@@ -298,6 +301,7 @@ type unit struct {
 
 func (p *Program) analyzeBlocking() {
 	p.findPullCalls()
+	p.usesPull = p.usesPullFuncs()
 	p.encls = map[ast.Node]*types.Func{}
 	var units []*unit
 	add := func(u *unit, encl *types.Func) {
@@ -1161,6 +1165,9 @@ func (p *Program) CallBlocksIn(info *types.Info, call *ast.CallExpr, assume *typ
 // method, or a waiting lock. A call of a function value or an interface
 // method may be of a function that is not async.
 func (p *Program) CallAlwaysAsync(info *types.Info, call *ast.CallExpr) bool {
+	if p.pullCalls[call] {
+		return false // Pull's next and stop do not switch for a generator
+	}
 	u := &unit{}
 	p.classifyCall(info, call, u, false)
 	if u.blocking {
