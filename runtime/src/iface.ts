@@ -20,6 +20,19 @@ export class Iface {
   }
 }
 
+// ptrIface converts a pointer p to a struct, of type t, to an interface
+// value. Interface values never change, so the one made last for p is kept
+// on the struct (under a symbol, which JS code does not see): code storing
+// the same pointer in interfaces again and again, as Go does freely since
+// the conversion costs nothing there, allocates once.
+const ifaceOf = Symbol("iface");
+export function ptrIface(t: Type, p: any): Iface {
+  if (p === null) return new Iface(t, null);
+  const c: Iface | undefined = p[ifaceOf];
+  if (c !== undefined && c.t === t) return c;
+  return (p[ifaceOf] = new Iface(t, p));
+}
+
 // box converts a value of static type t to an interface value. Aggregates must
 // already be copied by the caller (the lowering emits the copy).
 export function box(t: Type, v: any): Iface | null {
