@@ -26,7 +26,8 @@ type dep struct {
 
 // tracker collects the sources a computation reads.
 type tracker struct {
-	deps []dep
+	deps  []dep
+	spare []dep // the buffer of the run before last, reused
 }
 
 var active *tracker
@@ -158,21 +159,38 @@ func changed(deps []dep) bool {
 }
 
 // run calls fn with t tracking what it reads, and moves sub's
-// subscriptions to the sources read.
+// subscriptions to the sources read. As in Vue, a run that reads the
+// same sources as the one before keeps its subscriptions.
 func run[T any](t *tracker, sub subscriber, fn func() T) T {
 	old := t.deps
-	t.deps = make([]dep, 0, len(old))
+	t.deps = t.spare[:0]
 	prev := active
 	active = t
 	v := fn()
 	active = prev
-	for _, d := range old {
-		d.src.unsubscribe(sub)
+	if !sameSources(old, t.deps) {
+		for _, d := range old {
+			d.src.unsubscribe(sub)
+		}
+		for _, d := range t.deps {
+			d.src.subscribe(sub)
+		}
 	}
-	for _, d := range t.deps {
-		d.src.subscribe(sub)
-	}
+	t.spare = old
 	return v
+}
+
+// sameSources reports whether a and b list the same sources in order.
+func sameSources(a, b []dep) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].src != b[i].src {
+			return false
+		}
+	}
+	return true
 }
 
 // Effect is a function run again whenever what it read changes.
@@ -227,7 +245,7 @@ func (e *Effect) Stop() {
 	for _, d := range e.deps {
 		d.src.unsubscribe(e)
 	}
-	e.deps = nil
+	e.deps, e.spare = nil, nil
 }
 
 // Bench builds width chains of depth computed values over width refs, a

@@ -288,29 +288,36 @@ function readOnly(): never {
 class Addr {
   readonly base: object;
   readonly off: number;
+  // The last *T it was converted to (ptrAt), which is the same every time:
+  // code such as protobuf's converts the same addresses again and again.
+  t: Type | null = null;
+  p: any = null;
   constructor(base: object, off: number) {
     this.base = base;
     this.off = off;
   }
 }
 
-const addrs = new WeakMap<object, Map<number, Addr>>();
+// The Addrs into an object are kept on it, under a symbol.
+const addrsOf = Symbol("addrs");
 
 // addr returns the canonical pointer to off bytes into base, so that equal
 // addresses are equal pointers.
-function addr(base: object, off: number): any {
+function addr(base: any, off: number): any {
   if (off === 0) return base;
-  let m = addrs.get(base);
-  if (m === undefined) addrs.set(base, (m = new Map()));
+  let m: Map<number, Addr> | undefined = base[addrsOf];
+  if (m === undefined) base[addrsOf] = m = new Map();
   let a = m.get(off);
   if (a === undefined) m.set(off, (a = new Addr(base, off)));
   return a;
 }
 
-const parents = new WeakMap<object, { o: object; off: number }>();
+// A struct or array reached inside another keeps where it lies in it, under
+// a symbol.
+const parentOf = Symbol("parent");
 
 function setParent(child: any, o: object, off: number): void {
-  if (typeof child === "object" && child !== null && !parents.has(child)) parents.set(child, { o, off });
+  if (typeof child === "object" && child !== null && child[parentOf] === undefined) child[parentOf] = { o, off };
 }
 
 function structType(o: any): Type | null | undefined {
@@ -371,7 +378,7 @@ function locate(p: any): { base: any; off: number } | undefined {
     base = f!.o;
     off = slot.off;
   }
-  for (let par = parents.get(base); par !== undefined; par = parents.get(base)) {
+  for (let par = base[parentOf]; par !== undefined; par = base[parentOf]) {
     off += par.off;
     base = par.o;
   }
@@ -447,8 +454,15 @@ export function ptrAt(p: any, t: Type): any {
       return p; // a pointer to a variable: as is
     }
   }
+  const isAddr = p instanceof Addr;
+  if (isAddr && p.t === t) return p.p;
   const at = locate(p)!;
-  return resolve(at.base, at.off, t, p);
+  const r = resolve(at.base, at.off, t, p);
+  if (isAddr && typeof r === "object" && r !== null) {
+    p.t = t;
+    p.p = r;
+  }
+  return r;
 }
 
 function resolve(base: any, off: number, t: Type, orig: any): any {

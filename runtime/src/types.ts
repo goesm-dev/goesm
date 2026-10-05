@@ -401,7 +401,7 @@ export function generic(
 ): (...targs: Type[]) => Type {
   const cache = new Map<string, Type>();
   const byArg = new Map<Type, Type>(); // the instantiations with one type argument
-  return (...targs: Type[]) => {
+  const inst = (targs: Type[]): Type => {
     if (targs.length === 1) {
       const t = byArg.get(targs[0]);
       if (t !== undefined) return t;
@@ -416,6 +416,19 @@ export function generic(
     if (targs.length === 1) byArg.set(targs[0], t);
     return t;
   };
+  if (init.length !== 2) return (...targs: Type[]) => inst(targs);
+  // Generic code looks its types up on every call: with one type argument
+  // (init is (t, targ) => ...) the lookup allocates nothing, and the last
+  // one is remembered.
+  let lastArg: Type | undefined;
+  let last: Type | undefined;
+  return ((t0: Type): Type => {
+    if (t0 === lastArg) return last!;
+    const t = byArg.get(t0) ?? inst([t0]);
+    lastArg = t0;
+    last = t;
+    return t;
+  }) as (...targs: Type[]) => Type;
 }
 
 export function methodKey(name: string, pkgPath: string): string {

@@ -351,7 +351,19 @@ func (pe *pkgEmitter) zeroFn(t types.Type, tp tpScope) string {
 	if b, ok := types.Unalias(t).Underlying().(*types.Basic); ok && b.Kind() == types.Uint8 {
 		return "$rt.zeroByte" // []byte is backed by a Uint8Array (runtime/src/slice.ts)
 	}
-	return "() => " + pe.zeroOf(t, tp)
+	z := pe.zeroOf(t, tp)
+	if tp.inline || hasTypeParam(t) {
+		return "() => " + z
+	}
+	// Hoisted: a function expression in a loop or a hot function would
+	// otherwise be made anew on each evaluation.
+	if name, ok := pe.zeroConsts[z]; ok {
+		return name
+	}
+	name := pe.fresh("z")
+	pe.zeroConsts[z] = name
+	pe.consts.ln("const %s = () => %s;", name, z)
+	return name
 }
 
 // structClass returns the JS class constructing values of struct type t.

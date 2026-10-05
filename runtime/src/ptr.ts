@@ -59,25 +59,30 @@ export function indexPtrTarget(p: unknown): { a: any[]; i: number } | undefined 
   return p instanceof IndexPtr ? { a: (p as any).a, i: (p as any).i } : undefined;
 }
 
-const fieldPtrs = new WeakMap<object, Map<string | number, any>>();
+// The pointers made into an object are kept on it, under a symbol (which JS
+// code does not see), so that equal addresses are equal pointers.
+const ptrsOf = Symbol("ptrs");
 
-function cached(o: object, k: string | number, make: () => any): any {
-  let m = fieldPtrs.get(o);
-  if (m === undefined) {
-    m = new Map();
-    fieldPtrs.set(o, m);
-  }
-  let p = m.get(k);
-  if (p === undefined) {
-    p = make();
-    m.set(k, p);
-  }
+function ptrs(o: any): Map<string | number, any> {
+  let m: Map<string | number, any> | undefined = o[ptrsOf];
+  if (m === undefined) o[ptrsOf] = m = new Map();
+  return m;
+}
+
+function cached(o: object, k: string | number, p: any): any {
+  const m = ptrs(o);
+  const q = m.get(k);
+  if (q !== undefined) return q;
+  m.set(k, p);
   return p;
 }
 
 export function fieldPtr(o: any, k: string): any {
   if (o === null) runtimePanic("invalid memory address or nil pointer dereference");
-  return cached(o, k, () => new FieldPtr(o, k));
+  const m = ptrs(o);
+  let p = m.get(k);
+  if (p === undefined) m.set(k, (p = new FieldPtr(o, k)));
+  return p;
 }
 
 // arrayViews maps the arrays that view part of another array (see
@@ -91,7 +96,10 @@ export function arrayElemPtr(a: any[], i: number): any {
     a = v.a;
     i += v.off;
   }
-  return cached(a, i, () => new IndexPtr(a, i));
+  const m = ptrs(a);
+  let p = m.get(i);
+  if (p === undefined) m.set(i, (p = new IndexPtr(a, i)));
+  return p;
 }
 
 export function sliceElemPtr(s: Slice<any> | null, i: number): any {
@@ -126,8 +134,8 @@ export function sliceElemRef(s: Slice<any> | null, i: number): any {
 }
 
 export function canonical(p: any): any {
-  if (p instanceof FieldPtr) return cached((p as any).o, (p as any).k, () => p);
-  if (p instanceof IndexPtr) return cached((p as any).a, (p as any).i, () => p);
+  if (p instanceof FieldPtr) return cached((p as any).o, (p as any).k, p);
+  if (p instanceof IndexPtr) return cached((p as any).a, (p as any).i, p);
   return p;
 }
 

@@ -307,11 +307,10 @@ export function appendNew1<T = any>(s: S<T>, v: T, zero: () => T, et: Type): Sli
 }
 
 // appendSlice is append(dst, src...) for a slice src of non-aggregates. When
-// src shares dst's backing array, the elements are read before any is
-// written (append(a[:1], a[:2]...)).
+// src shares dst's backing array, copyInto moves the elements as memmove
+// does (append(a[:1], a[:2]...), append(a[:i], a[i+1:]...)).
 export function appendSlice<T = any>(dst: S<T>, src: S<T>, zero: () => T): S<T> {
   if (src === null || src.$length === 0) return dst;
-  if (dst !== null && dst.$array === src.$array) return append(dst, toArray(src), zero);
   const n = dst === null ? 0 : dst.$length;
   const m = src.$length;
   let r: Slice<T>;
@@ -322,10 +321,14 @@ export function appendSlice<T = any>(dst: S<T>, src: S<T>, zero: () => T): S<T> 
 }
 
 // copyInto copies src[so:so+n] to dst[do:] for non-aggregate elements, in
-// bulk between Uint8Arrays (correct for overlapping ranges too).
+// bulk between Uint8Arrays, and correctly for overlapping ranges.
 function copyInto(dst: any, d: number, src: any, so: number, n: number): void {
   if (isBytes(dst) && isBytes(src)) {
     dst.set(so === 0 && n === src.length ? src : src.subarray(so, so + n), d);
+    return;
+  }
+  if (dst === src && d > so) {
+    for (let i = n - 1; i >= 0; i--) dst[d + i] = src[so + i];
     return;
   }
   for (let i = 0; i < n; i++) dst[d + i] = src[so + i];

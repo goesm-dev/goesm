@@ -105,8 +105,9 @@ type pkgEmitter struct {
 	direct      map[*types.Package]string // aliases of the Go source's imports
 	importOrder []*types.Package
 
-	typeConsts  typeutil.Map // types.Type -> hoisted descriptor const name
-	anonStructs typeutil.Map // *types.Struct -> class name
+	typeConsts  typeutil.Map      // types.Type -> hoisted descriptor const name
+	zeroConsts  map[string]string // zero value expression -> hoisted zero function
+	anonStructs typeutil.Map      // *types.Struct -> class name
 	localTypes  map[*types.TypeName]string
 	localGen    map[*types.TypeName]int // gc's numbering of local types
 	counter     int
@@ -182,6 +183,7 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		reserved:   map[string]bool{"$rt": true, "$natives": true, "$ir": true, "$jsabi": true},
 		imports:    map[*types.Package]string{},
 		localTypes: map[*types.TypeName]string{},
+		zeroConsts: map[string]string{},
 		localGen:   map[*types.TypeName]int{},
 		classes:    newWriter(tab),
 		phase1:     newWriter(tab),

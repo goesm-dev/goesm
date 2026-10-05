@@ -229,6 +229,11 @@ func (fe *funcEmitter) convert(s string, from, to types.Type) string {
 			// leaves as it is.
 			return fmt.Sprintf("$rt.box(%s, %s)", fe.desc(from), s)
 		}
+		if p, ok := under(from).(*types.Pointer); ok {
+			if _, ok := under(p.Elem()).(*types.Struct); ok {
+				return fmt.Sprintf("$rt.ptrIface(%s, %s)", fe.desc(from), s)
+			}
+		}
 		return fmt.Sprintf("new $rt.Iface(%s, %s)", fe.desc(from), s)
 	}
 	return s
