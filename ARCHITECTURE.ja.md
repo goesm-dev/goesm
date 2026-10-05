@@ -120,7 +120,9 @@ docs/                 GopherJS 比較、生成物の実例
 | xorshift64* | n/a | 209 / 684 ms | 97 / 273 ms | 113 / 86 ms | n/a |
 | Unix nanosecond (加算・除算・剰余) | 13 / 45 ms | 41 / 296 ms | 758 / 978 ms | 306 / 845 ms | 147 / 359 ms |
 
-V8 (Chrome、Node、Deno) では BigInt が 4 つ中 3 つで最速の正確な表現で、hash では number とほぼ同じです。JavaScriptCore (Safari、Bun) では uint32 2 つより 3〜18 倍遅くなります。2 分割は lowering と JS API で、すべての `int64` の変数・field・引数・戻り値を 2 倍にします。BigInt は lowering と exported API を単純に保ち、どこでも正確なので、これを表現として採用しました。hot な local 演算に 2 分割の fast path を入れる余地は、値の表現を変えずに後から残せます。
+V8 (Chrome、Node、Deno) では BigInt が 4 つ中 3 つで最速の正確な表現で、hash では number とほぼ同じです。JavaScriptCore (Safari、Bun) では uint32 2 つより 3〜18 倍遅くなります。2 分割は lowering と JS API で、すべての `int64` の変数・field・引数・戻り値を 2 倍にします。BigInt は lowering と exported API を単純に保ち、どこでも正確なので、これを表現として採用しました。
+
+ループの中で多く演算するローカル変数については、値の表現を変えずに 2 分割の経路を使います。実装は `internal/lower/split64.go` にあります。最も深いループでの演算が BigInt との変換より多い `int64` と `uint64` のローカル変数は、`x$hi` と `x$lo` の 2 つの int32 のローカル変数で持ちます。この変数の加算、減算、乗算、ビット演算、定数でのシフトは、int32 の演算と `Math.imul` になります。BigInt に変換するのは、値が関数の演算から出る箇所だけです。たとえば、関数の呼び出し、メモリへの格納、戻り値がこれにあたります。これにより、FNV-1a 64 は V8 でも JavaScriptCore でもネイティブに近い速さで動きます。テストのために、`GOESM_SPLIT64=off` でこの lowering を止め、`GOESM_SPLIT64=all` ですべての候補に適用できます。
 
 ### 型 metadata
 
