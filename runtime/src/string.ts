@@ -162,6 +162,10 @@ export function toJSString(s: string): string {
   const units: number[] = [];
   let out = "";
   for (let i = 0; i < n; ) {
+    if (units.length >= chunk) {
+      out += String.fromCharCode.apply(null, units);
+      units.length = 0;
+    }
     const c = s.charCodeAt(i);
     if (c < 0x80) {
       units.push(c);
@@ -182,10 +186,6 @@ export function toJSString(s: string): string {
       else units.push(r);
       i += w;
     }
-    if (units.length >= chunk) {
-      out += String.fromCharCode.apply(null, units);
-      units.length = 0;
-    }
   }
   return out + String.fromCharCode.apply(null, units);
 }
@@ -200,6 +200,10 @@ export function fromJSString(s: string): string {
   const units: number[] = [];
   let out = "";
   for (let i = 0; i < n; i++) {
+    if (units.length >= chunk) {
+      out += String.fromCharCode.apply(null, units);
+      units.length = 0;
+    }
     let r = s.charCodeAt(i);
     if (r < 0x80) {
       units.push(r);
@@ -217,10 +221,6 @@ export function fromJSString(s: string): string {
       }
       if (r >= 0xd800 && r <= 0xdfff) r = 0xfffd; // a lone surrogate
       units.push(0xe0 | (r >> 12), 0x80 | ((r >> 6) & 0x3f), 0x80 | (r & 0x3f));
-    }
-    if (units.length >= chunk) {
-      out += String.fromCharCode.apply(null, units);
-      units.length = 0;
     }
   }
   return out + String.fromCharCode.apply(null, units);

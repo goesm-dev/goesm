@@ -142,6 +142,8 @@ test("strings convert between UTF-8 Go strings and UTF-16 JS strings", async () 
   const rt = (await load("GOESM_BASICS")).$runtime;
   const latin1 = (bytes) => String.fromCharCode(...bytes);
   const samples = ["", "hello", "こんにちは、世界", "é ß ü", "😀 𝄞 emoji", "ǅࠀ￿\u{10000}\u{10ffff}", "あ".repeat(20000)];
+  // Long runs of ASCII or of surrogate pairs still go to String.fromCharCode in bounded chunks.
+  samples.push("é" + "a".repeat(1 << 20), "😀".repeat(1 << 18));
   for (const s of samples) {
     const goStr = rt.fromJSString(s);
     if (s.length < 100) assert.equal(goStr, latin1(new TextEncoder().encode(s)), s);
