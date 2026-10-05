@@ -285,6 +285,7 @@ goesm は、Go 風の言語、WebAssembly ランタイム、パッケージマ�
 
 - [ARCHITECTURE.ja.md](ARCHITECTURE.ja.md): 設計、値の表現、goroutine、標準ライブラリ、実装済みの範囲とネイティブ Go との違い
 - [docs/use-cases.ja.md](docs/use-cases.ja.md): Node.js、エッジ、ブラウザでの対応範囲と未対応の項目
+- [docs/concurrency.ja.md](docs/concurrency.ja.md): goroutine が 1 本の JavaScript スレッドで動く仕組み、データ競合とメモリ安全性の Go との違い
 - [docs/example-output.ja.md](docs/example-output.ja.md): 生成される TypeScript と JavaScript
 - [docs/conformance.ja.md](docs/conformance.ja.md): Go 自身のテストスイートを goesm で実行する
 - [docs/otelc.ja.md](docs/otelc.ja.md): OpenTelemetry の compile-time instrumentation である otelc を goesm で使う

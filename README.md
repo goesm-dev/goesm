@@ -284,6 +284,7 @@ It is not a Go-inspired language, a WebAssembly runtime, a package manager, a re
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): the design, value representation, goroutines, the standard library, what is implemented and the differences from native Go
 - [docs/use-cases.md](docs/use-cases.md): what is supported on Node.js, the edge and in browsers, and what is not yet
+- [docs/concurrency.md](docs/concurrency.md): how goroutines run on one JavaScript thread, data races and memory safety compared with Go
 - [docs/example-output.md](docs/example-output.md): generated TypeScript and JavaScript
 - [docs/conformance.md](docs/conformance.md): running Go's own test suite through goesm
 - [docs/otelc.md](docs/otelc.md): OpenTelemetry compile-time instrumentation (otelc) with goesm
