@@ -13,271 +13,273 @@
 <rect x="381" y="50" width="11" height="11" rx="2" fill="#3fb950"/>
 <text class="t" x="397" y="60">TinyGo wasm</text>
 <line class="g" x1="150.0" y1="74" x2="150.0" y2="2112"/>
-<text class="m" x="150.0" y="2126" text-anchor="middle">0.10×</text>
-<line class="g" x1="189.9" y1="74" x2="189.9" y2="2112"/>
-<text class="m" x="189.9" y="2126" text-anchor="middle">0.20×</text>
-<line class="g" x1="242.6" y1="74" x2="242.6" y2="2112"/>
-<text class="m" x="242.6" y="2126" text-anchor="middle">0.50×</text>
-<line class="g" x1="282.5" y1="74" x2="282.5" y2="2112"/>
-<text class="m" x="282.5" y="2126" text-anchor="middle">1.00×</text>
-<line class="g" x1="322.4" y1="74" x2="322.4" y2="2112"/>
-<text class="m" x="322.4" y="2126" text-anchor="middle">2.00×</text>
-<line class="g" x1="375.1" y1="74" x2="375.1" y2="2112"/>
-<text class="m" x="375.1" y="2126" text-anchor="middle">5.00×</text>
-<line class="g" x1="415.0" y1="74" x2="415.0" y2="2112"/>
-<text class="m" x="415.0" y="2126" text-anchor="middle">10.0×</text>
-<line class="g" x1="454.9" y1="74" x2="454.9" y2="2112"/>
-<text class="m" x="454.9" y="2126" text-anchor="middle">20.0×</text>
-<line class="g" x1="507.6" y1="74" x2="507.6" y2="2112"/>
-<text class="m" x="507.6" y="2126" text-anchor="middle">50.0×</text>
-<line class="g" x1="547.5" y1="74" x2="547.5" y2="2112"/>
-<text class="m" x="547.5" y="2126" text-anchor="middle">100×</text>
-<line class="g" x1="587.4" y1="74" x2="587.4" y2="2112"/>
-<text class="m" x="587.4" y="2126" text-anchor="middle">200×</text>
-<line class="g" x1="640.1" y1="74" x2="640.1" y2="2112"/>
-<text class="m" x="640.1" y="2126" text-anchor="middle">500×</text>
+<text class="m" x="150.0" y="2126" text-anchor="middle">0.050×</text>
+<line class="g" x1="187.1" y1="74" x2="187.1" y2="2112"/>
+<text class="m" x="187.1" y="2126" text-anchor="middle">0.10×</text>
+<line class="g" x1="224.2" y1="74" x2="224.2" y2="2112"/>
+<text class="m" x="224.2" y="2126" text-anchor="middle">0.20×</text>
+<line class="g" x1="273.2" y1="74" x2="273.2" y2="2112"/>
+<text class="m" x="273.2" y="2126" text-anchor="middle">0.50×</text>
+<line class="g" x1="310.3" y1="74" x2="310.3" y2="2112"/>
+<text class="m" x="310.3" y="2126" text-anchor="middle">1.00×</text>
+<line class="g" x1="347.4" y1="74" x2="347.4" y2="2112"/>
+<text class="m" x="347.4" y="2126" text-anchor="middle">2.00×</text>
+<line class="g" x1="396.5" y1="74" x2="396.5" y2="2112"/>
+<text class="m" x="396.5" y="2126" text-anchor="middle">5.00×</text>
+<line class="g" x1="433.5" y1="74" x2="433.5" y2="2112"/>
+<text class="m" x="433.5" y="2126" text-anchor="middle">10.0×</text>
+<line class="g" x1="470.6" y1="74" x2="470.6" y2="2112"/>
+<text class="m" x="470.6" y="2126" text-anchor="middle">20.0×</text>
+<line class="g" x1="519.7" y1="74" x2="519.7" y2="2112"/>
+<text class="m" x="519.7" y="2126" text-anchor="middle">50.0×</text>
+<line class="g" x1="556.8" y1="74" x2="556.8" y2="2112"/>
+<text class="m" x="556.8" y="2126" text-anchor="middle">100×</text>
+<line class="g" x1="593.9" y1="74" x2="593.9" y2="2112"/>
+<text class="m" x="593.9" y="2126" text-anchor="middle">200×</text>
+<line class="g" x1="642.9" y1="74" x2="642.9" y2="2112"/>
+<text class="m" x="642.9" y="2126" text-anchor="middle">500×</text>
 <line class="g" x1="680.0" y1="74" x2="680.0" y2="2112"/>
 <text class="m" x="680.0" y="2126" text-anchor="middle">1000×</text>
 <text class="t" x="140" y="120.5" text-anchor="end">Fib</text>
-<rect x="150" y="78" width="162.6" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 8.10 ms</title></rect>
-<text class="t" x="316.6" y="89" font-size="11">1.69×</text>
-<rect x="150" y="94" width="168.9" height="13" rx="2" fill="#2f81f7"><title>goesm: 9.04 ms</title></rect>
-<text class="t" x="322.9" y="105" font-size="11">1.88×</text>
-<rect x="150" y="110" width="164.4" height="13" rx="2" fill="#d29922"><title>GopherJS: 8.36 ms</title></rect>
-<text class="t" x="318.4" y="121" font-size="11">1.74×</text>
-<rect x="150" y="126" width="212.3" height="13" rx="2" fill="#a371f7"><title>Go wasm: 19.2 ms</title></rect>
-<text class="t" x="366.3" y="137" font-size="11">4.00×</text>
-<rect x="150" y="142" width="148.2" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 6.31 ms</title></rect>
-<text class="t" x="302.2" y="153" font-size="11">1.31×</text>
+<rect x="150" y="78" width="174.9" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 5.33 ms</title></rect>
+<text class="t" x="328.9" y="89" font-size="11">1.31×</text>
+<rect x="150" y="94" width="175.5" height="13" rx="2" fill="#2f81f7"><title>goesm: 5.39 ms</title></rect>
+<text class="t" x="329.5" y="105" font-size="11">1.33×</text>
+<rect x="150" y="110" width="173.7" height="13" rx="2" fill="#d29922"><title>GopherJS: 5.22 ms</title></rect>
+<text class="t" x="327.7" y="121" font-size="11">1.28×</text>
+<rect x="150" y="126" width="211.4" height="13" rx="2" fill="#a371f7"><title>Go wasm: 10.6 ms</title></rect>
+<text class="t" x="365.4" y="137" font-size="11">2.60×</text>
+<rect x="150" y="142" width="170.6" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 4.92 ms</title></rect>
+<text class="t" x="324.6" y="153" font-size="11">1.21×</text>
 <text class="t" x="140" y="213.5" text-anchor="end">Sieve</text>
-<rect x="150" y="171" width="152.3" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 15.2 ms</title></rect>
-<text class="t" x="306.3" y="182" font-size="11">1.41×</text>
-<rect x="150" y="187" width="144.9" height="13" rx="2" fill="#2f81f7"><title>goesm: 13.4 ms</title></rect>
-<text class="t" x="298.9" y="198" font-size="11">1.24×</text>
-<rect x="150" y="203" width="243.4" height="13" rx="2" fill="#d29922"><title>GopherJS: 74.2 ms</title></rect>
-<text class="t" x="397.4" y="214" font-size="11">6.87×</text>
-<rect x="150" y="219" width="163.2" height="13" rx="2" fill="#a371f7"><title>Go wasm: 18.4 ms</title></rect>
-<text class="t" x="317.2" y="230" font-size="11">1.71×</text>
-<rect x="150" y="235" width="161.1" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 17.7 ms</title></rect>
-<text class="t" x="315.1" y="246" font-size="11">1.64×</text>
+<rect x="150" y="171" width="180.7" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 10.4 ms</title></rect>
+<text class="t" x="334.7" y="182" font-size="11">1.46×</text>
+<rect x="150" y="187" width="174.8" height="13" rx="2" fill="#2f81f7"><title>goesm: 9.29 ms</title></rect>
+<text class="t" x="328.8" y="198" font-size="11">1.31×</text>
+<rect x="150" y="203" width="244.9" height="13" rx="2" fill="#d29922"><title>GopherJS: 34.5 ms</title></rect>
+<text class="t" x="398.9" y="214" font-size="11">4.86×</text>
+<rect x="150" y="219" width="175.1" height="13" rx="2" fill="#a371f7"><title>Go wasm: 9.35 ms</title></rect>
+<text class="t" x="329.1" y="230" font-size="11">1.32×</text>
+<rect x="150" y="235" width="178.8" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 10.0 ms</title></rect>
+<text class="t" x="332.8" y="246" font-size="11">1.41×</text>
 <text class="t" x="140" y="306.5" text-anchor="end">Mandelbrot</text>
-<rect x="150" y="264" width="132.5" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 16.5 ms</title></rect>
-<text class="t" x="286.5" y="275" font-size="11">1.00×</text>
-<rect x="150" y="280" width="135.8" height="13" rx="2" fill="#2f81f7"><title>goesm: 17.5 ms</title></rect>
-<text class="t" x="289.8" y="291" font-size="11">1.06×</text>
-<rect x="150" y="296" width="129.2" height="13" rx="2" fill="#d29922"><title>GopherJS: 15.6 ms</title></rect>
-<text class="t" x="283.2" y="307" font-size="11">0.95×</text>
-<rect x="150" y="312" width="140.5" height="13" rx="2" fill="#a371f7"><title>Go wasm: 18.9 ms</title></rect>
-<text class="t" x="294.5" y="323" font-size="11">1.15×</text>
-<rect x="150" y="328" width="127.9" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 15.2 ms</title></rect>
-<text class="t" x="281.9" y="339" font-size="11">0.92×</text>
+<rect x="150" y="264" width="164.4" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 10.7 ms</title></rect>
+<text class="t" x="318.4" y="275" font-size="11">1.08×</text>
+<rect x="150" y="280" width="163.8" height="13" rx="2" fill="#2f81f7"><title>goesm: 10.6 ms</title></rect>
+<text class="t" x="317.8" y="291" font-size="11">1.07×</text>
+<rect x="150" y="296" width="160.3" height="13" rx="2" fill="#d29922"><title>GopherJS: 9.96 ms</title></rect>
+<text class="t" x="314.3" y="307" font-size="11">1.00×</text>
+<rect x="150" y="312" width="165.8" height="13" rx="2" fill="#a371f7"><title>Go wasm: 11.0 ms</title></rect>
+<text class="t" x="319.8" y="323" font-size="11">1.11×</text>
+<rect x="150" y="328" width="164.3" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 10.7 ms</title></rect>
+<text class="t" x="318.3" y="339" font-size="11">1.08×</text>
 <text class="t" x="140" y="399.5" text-anchor="end">NBody</text>
-<rect x="150" y="357" width="163.1" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 19.0 ms</title></rect>
-<text class="t" x="317.1" y="368" font-size="11">1.70×</text>
-<rect x="150" y="373" width="179.0" height="13" rx="2" fill="#2f81f7"><title>goesm: 25.0 ms</title></rect>
-<text class="t" x="333.0" y="384" font-size="11">2.24×</text>
-<rect x="150" y="389" width="364.9" height="13" rx="2" fill="#d29922"><title>GopherJS: 632 ms</title></rect>
-<text class="t" x="518.9" y="400" font-size="11">56.7×</text>
-<rect x="150" y="405" width="148.6" height="13" rx="2" fill="#a371f7"><title>Go wasm: 14.7 ms</title></rect>
-<text class="t" x="302.6" y="416" font-size="11">1.32×</text>
-<rect x="150" y="421" width="134.8" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 11.6 ms</title></rect>
-<text class="t" x="288.8" y="432" font-size="11">1.04×</text>
+<rect x="150" y="357" width="173.6" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 10.4 ms</title></rect>
+<text class="t" x="327.6" y="368" font-size="11">1.28×</text>
+<rect x="150" y="373" width="177.4" height="13" rx="2" fill="#2f81f7"><title>goesm: 11.2 ms</title></rect>
+<text class="t" x="331.4" y="384" font-size="11">1.38×</text>
+<rect x="150" y="389" width="353.4" height="13" rx="2" fill="#d29922"><title>GopherJS: 300 ms</title></rect>
+<text class="t" x="507.4" y="400" font-size="11">36.9×</text>
+<rect x="150" y="405" width="166.2" height="13" rx="2" fill="#a371f7"><title>Go wasm: 9.08 ms</title></rect>
+<text class="t" x="320.2" y="416" font-size="11">1.12×</text>
+<rect x="150" y="421" width="142.4" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 5.82 ms</title></rect>
+<text class="t" x="296.4" y="432" font-size="11">0.72×</text>
 <text class="t" x="140" y="492.5" text-anchor="end">FNV32</text>
-<rect x="150" y="450" width="143.4" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 14.5 ms</title></rect>
-<text class="t" x="297.4" y="461" font-size="11">1.21×</text>
-<rect x="150" y="466" width="143.9" height="13" rx="2" fill="#2f81f7"><title>goesm: 14.7 ms</title></rect>
-<text class="t" x="297.9" y="477" font-size="11">1.22×</text>
-<rect x="150" y="482" width="162.9" height="13" rx="2" fill="#d29922"><title>GopherJS: 20.4 ms</title></rect>
-<text class="t" x="316.9" y="493" font-size="11">1.69×</text>
-<rect x="150" y="498" width="209.0" height="13" rx="2" fill="#a371f7"><title>Go wasm: 45.4 ms</title></rect>
-<text class="t" x="363.0" y="509" font-size="11">3.78×</text>
-<rect x="150" y="514" width="131.1" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 11.7 ms</title></rect>
-<text class="t" x="285.1" y="525" font-size="11">0.98×</text>
+<rect x="150" y="450" width="174.8" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 14.0 ms</title></rect>
+<text class="t" x="328.8" y="461" font-size="11">1.31×</text>
+<rect x="150" y="466" width="168.0" height="13" rx="2" fill="#2f81f7"><title>goesm: 12.4 ms</title></rect>
+<text class="t" x="322.0" y="477" font-size="11">1.16×</text>
+<rect x="150" y="482" width="182.8" height="13" rx="2" fill="#d29922"><title>GopherJS: 16.3 ms</title></rect>
+<text class="t" x="336.8" y="493" font-size="11">1.52×</text>
+<rect x="150" y="498" width="167.3" height="13" rx="2" fill="#a371f7"><title>Go wasm: 12.2 ms</title></rect>
+<text class="t" x="321.3" y="509" font-size="11">1.14×</text>
+<rect x="150" y="514" width="162.6" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 11.2 ms</title></rect>
+<text class="t" x="316.6" y="525" font-size="11">1.04×</text>
 <text class="t" x="140" y="585.5" text-anchor="end">FNV64</text>
-<rect x="150" y="543" width="383.3" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 894 ms</title></rect>
-<text class="t" x="537.3" y="554" font-size="11">78.1×</text>
-<rect x="150" y="559" width="179.4" height="13" rx="2" fill="#2f81f7"><title>goesm: 25.9 ms</title></rect>
-<text class="t" x="333.4" y="570" font-size="11">2.26×</text>
-<rect x="150" y="575" width="426.3" height="13" rx="2" fill="#d29922"><title>GopherJS: 1891 ms</title></rect>
-<text class="t" x="580.3" y="586" font-size="11">165×</text>
-<rect x="150" y="591" width="185.0" height="13" rx="2" fill="#a371f7"><title>Go wasm: 28.5 ms</title></rect>
-<text class="t" x="339.0" y="602" font-size="11">2.49×</text>
-<rect x="150" y="607" width="134.3" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 11.8 ms</title></rect>
-<text class="t" x="288.3" y="618" font-size="11">1.03×</text>
+<rect x="150" y="543" width="378.9" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 652 ms</title></rect>
+<text class="t" x="532.9" y="554" font-size="11">59.4×</text>
+<rect x="150" y="559" width="172.2" height="13" rx="2" fill="#2f81f7"><title>goesm: 13.7 ms</title></rect>
+<text class="t" x="326.2" y="570" font-size="11">1.25×</text>
+<rect x="150" y="575" width="401.6" height="13" rx="2" fill="#d29922"><title>GopherJS: 996 ms</title></rect>
+<text class="t" x="555.6" y="586" font-size="11">90.7×</text>
+<rect x="150" y="591" width="168.2" height="13" rx="2" fill="#a371f7"><title>Go wasm: 12.7 ms</title></rect>
+<text class="t" x="322.2" y="602" font-size="11">1.16×</text>
+<rect x="150" y="607" width="160.7" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 11.0 ms</title></rect>
+<text class="t" x="314.7" y="618" font-size="11">1.01×</text>
 <text class="t" x="140" y="678.5" text-anchor="end">BinaryTrees</text>
-<rect x="150" y="636" width="130.7" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 87.5 ms</title></rect>
-<text class="t" x="284.7" y="647" font-size="11">0.97×</text>
-<rect x="150" y="652" width="129.4" height="13" rx="2" fill="#2f81f7"><title>goesm: 85.5 ms</title></rect>
-<text class="t" x="283.4" y="663" font-size="11">0.95×</text>
-<rect x="150" y="668" width="140.7" height="13" rx="2" fill="#d29922"><title>GopherJS: 104 ms</title></rect>
-<text class="t" x="294.7" y="679" font-size="11">1.15×</text>
-<rect x="150" y="684" width="210.4" height="13" rx="2" fill="#a371f7"><title>Go wasm: 349 ms</title></rect>
-<text class="t" x="364.4" y="695" font-size="11">3.87×</text>
-<rect x="150" y="700" width="171.9" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 179 ms</title></rect>
-<text class="t" x="325.9" y="711" font-size="11">1.98×</text>
+<rect x="150" y="636" width="145.4" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 39.6 ms</title></rect>
+<text class="t" x="299.4" y="647" font-size="11">0.76×</text>
+<rect x="150" y="652" width="164.4" height="13" rx="2" fill="#2f81f7"><title>goesm: 56.5 ms</title></rect>
+<text class="t" x="318.4" y="663" font-size="11">1.08×</text>
+<rect x="150" y="668" width="165.1" height="13" rx="2" fill="#d29922"><title>GopherJS: 57.2 ms</title></rect>
+<text class="t" x="319.1" y="679" font-size="11">1.09×</text>
+<rect x="150" y="684" width="236.0" height="13" rx="2" fill="#a371f7"><title>Go wasm: 215 ms</title></rect>
+<text class="t" x="390.0" y="695" font-size="11">4.11×</text>
+<rect x="150" y="700" width="204.5" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 119 ms</title></rect>
+<text class="t" x="358.5" y="711" font-size="11">2.28×</text>
 <text class="t" x="140" y="771.5" text-anchor="end">Interfaces</text>
-<rect x="150" y="729" width="108.6" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 28.5 ms</title></rect>
-<text class="t" x="262.6" y="740" font-size="11">0.66×</text>
-<rect x="150" y="745" width="122.0" height="13" rx="2" fill="#2f81f7"><title>goesm: 36.0 ms</title></rect>
-<text class="t" x="276.0" y="756" font-size="11">0.83×</text>
-<rect x="150" y="761" width="181.8" height="13" rx="2" fill="#d29922"><title>GopherJS: 102 ms</title></rect>
-<text class="t" x="335.8" y="772" font-size="11">2.35×</text>
-<rect x="150" y="777" width="202.5" height="13" rx="2" fill="#a371f7"><title>Go wasm: 146 ms</title></rect>
-<text class="t" x="356.5" y="788" font-size="11">3.38×</text>
-<rect x="150" y="793" width="145.5" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 54.1 ms</title></rect>
-<text class="t" x="299.5" y="804" font-size="11">1.25×</text>
+<rect x="150" y="729" width="147.2" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 13.2 ms</title></rect>
+<text class="t" x="301.2" y="740" font-size="11">0.78×</text>
+<rect x="150" y="745" width="174.7" height="13" rx="2" fill="#2f81f7"><title>goesm: 22.0 ms</title></rect>
+<text class="t" x="328.7" y="756" font-size="11">1.31×</text>
+<rect x="150" y="761" width="229.1" height="13" rx="2" fill="#d29922"><title>GopherJS: 60.8 ms</title></rect>
+<text class="t" x="383.1" y="772" font-size="11">3.62×</text>
+<rect x="150" y="777" width="228.8" height="13" rx="2" fill="#a371f7"><title>Go wasm: 60.4 ms</title></rect>
+<text class="t" x="382.8" y="788" font-size="11">3.59×</text>
+<rect x="150" y="793" width="198.8" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 34.5 ms</title></rect>
+<text class="t" x="352.8" y="804" font-size="11">2.05×</text>
 <text class="t" x="140" y="864.5" text-anchor="end">MapInt</text>
-<rect x="150" y="822" width="132.8" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 64.3 ms</title></rect>
-<text class="t" x="286.8" y="833" font-size="11">1.01×</text>
-<rect x="150" y="838" width="128.0" height="13" rx="2" fill="#2f81f7"><title>goesm: 59.1 ms</title></rect>
-<text class="t" x="282.0" y="849" font-size="11">0.93×</text>
-<rect x="150" y="854" width="145.5" height="13" rx="2" fill="#d29922"><title>GopherJS: 80.1 ms</title></rect>
-<text class="t" x="299.5" y="865" font-size="11">1.25×</text>
-<rect x="150" y="870" width="169.6" height="13" rx="2" fill="#a371f7"><title>Go wasm: 122 ms</title></rect>
-<text class="t" x="323.6" y="881" font-size="11">1.91×</text>
-<rect x="150" y="886" width="201.4" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 212 ms</title></rect>
-<text class="t" x="355.4" y="897" font-size="11">3.31×</text>
+<rect x="150" y="822" width="156.5" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 27.0 ms</title></rect>
+<text class="t" x="310.5" y="833" font-size="11">0.93×</text>
+<rect x="150" y="838" width="168.9" height="13" rx="2" fill="#2f81f7"><title>goesm: 34.0 ms</title></rect>
+<text class="t" x="322.9" y="849" font-size="11">1.17×</text>
+<rect x="150" y="854" width="194.9" height="13" rx="2" fill="#d29922"><title>GopherJS: 55.3 ms</title></rect>
+<text class="t" x="348.9" y="865" font-size="11">1.91×</text>
+<rect x="150" y="870" width="191.4" height="13" rx="2" fill="#a371f7"><title>Go wasm: 51.8 ms</title></rect>
+<text class="t" x="345.4" y="881" font-size="11">1.79×</text>
+<rect x="150" y="886" width="225.1" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 97.3 ms</title></rect>
+<text class="t" x="379.1" y="897" font-size="11">3.35×</text>
 <text class="t" x="140" y="957.5" text-anchor="end">MapString</text>
-<rect x="150" y="915" width="198.7" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 39.6 ms</title></rect>
-<text class="t" x="352.7" y="926" font-size="11">3.16×</text>
-<rect x="150" y="931" width="192.6" height="13" rx="2" fill="#2f81f7"><title>goesm: 35.6 ms</title></rect>
-<text class="t" x="346.6" y="942" font-size="11">2.84×</text>
-<rect x="150" y="947" width="262.7" height="13" rx="2" fill="#d29922"><title>GopherJS: 120 ms</title></rect>
-<text class="t" x="416.7" y="958" font-size="11">9.61×</text>
-<rect x="150" y="963" width="214.1" height="13" rx="2" fill="#a371f7"><title>Go wasm: 51.7 ms</title></rect>
-<text class="t" x="368.1" y="974" font-size="11">4.13×</text>
-<rect x="150" y="979" width="245.0" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 88.4 ms</title></rect>
-<text class="t" x="399.0" y="990" font-size="11">7.06×</text>
+<rect x="150" y="915" width="204.1" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 16.8 ms</title></rect>
+<text class="t" x="358.1" y="926" font-size="11">2.26×</text>
+<rect x="150" y="931" width="210.0" height="13" rx="2" fill="#2f81f7"><title>goesm: 18.8 ms</title></rect>
+<text class="t" x="364.0" y="942" font-size="11">2.53×</text>
+<rect x="150" y="947" width="283.2" height="13" rx="2" fill="#d29922"><title>GopherJS: 73.7 ms</title></rect>
+<text class="t" x="437.2" y="958" font-size="11">9.94×</text>
+<rect x="150" y="963" width="213.3" height="13" rx="2" fill="#a371f7"><title>Go wasm: 20.0 ms</title></rect>
+<text class="t" x="367.3" y="974" font-size="11">2.69×</text>
+<rect x="150" y="979" width="277.9" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 66.7 ms</title></rect>
+<text class="t" x="431.9" y="990" font-size="11">8.99×</text>
 <text class="t" x="140" y="1050.5" text-anchor="end">Strings</text>
-<rect x="150" y="1008" width="206.4" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 43.9 ms</title></rect>
-<text class="t" x="360.4" y="1019" font-size="11">3.61×</text>
-<rect x="150" y="1024" width="185.9" height="13" rx="2" fill="#2f81f7"><title>goesm: 30.8 ms</title></rect>
-<text class="t" x="339.9" y="1035" font-size="11">2.53×</text>
-<rect x="150" y="1040" width="342.5" height="13" rx="2" fill="#d29922"><title>GopherJS: 468 ms</title></rect>
-<text class="t" x="496.5" y="1051" font-size="11">38.4×</text>
-<rect x="150" y="1056" width="206.2" height="13" rx="2" fill="#a371f7"><title>Go wasm: 43.8 ms</title></rect>
-<text class="t" x="360.2" y="1067" font-size="11">3.60×</text>
-<rect x="150" y="1072" width="163.1" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 20.7 ms</title></rect>
-<text class="t" x="317.1" y="1083" font-size="11">1.70×</text>
+<rect x="150" y="1008" width="208.3" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 21.1 ms</title></rect>
+<text class="t" x="362.3" y="1019" font-size="11">2.45×</text>
+<rect x="150" y="1024" width="227.0" height="13" rx="2" fill="#2f81f7"><title>goesm: 29.9 ms</title></rect>
+<text class="t" x="381.0" y="1035" font-size="11">3.48×</text>
+<rect x="150" y="1040" width="346.0" height="13" rx="2" fill="#d29922"><title>GopherJS: 277 ms</title></rect>
+<text class="t" x="500.0" y="1051" font-size="11">32.1×</text>
+<rect x="150" y="1056" width="215.6" height="13" rx="2" fill="#a371f7"><title>Go wasm: 24.2 ms</title></rect>
+<text class="t" x="369.6" y="1067" font-size="11">2.81×</text>
+<rect x="150" y="1072" width="171.7" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 10.6 ms</title></rect>
+<text class="t" x="325.7" y="1083" font-size="11">1.24×</text>
 <text class="t" x="140" y="1143.5" text-anchor="end">Sort</text>
-<rect x="150" y="1101" width="139.6" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 46.2 ms</title></rect>
-<text class="t" x="293.6" y="1112" font-size="11">1.13×</text>
-<rect x="150" y="1117" width="132.2" height="13" rx="2" fill="#2f81f7"><title>goesm: 40.6 ms</title></rect>
-<text class="t" x="286.2" y="1128" font-size="11">0.99×</text>
-<rect x="150" y="1133" width="255.5" height="13" rx="2" fill="#d29922"><title>GopherJS: 346 ms</title></rect>
-<text class="t" x="409.5" y="1144" font-size="11">8.47×</text>
-<rect x="150" y="1149" width="209.4" height="13" rx="2" fill="#a371f7"><title>Go wasm: 155 ms</title></rect>
-<text class="t" x="363.4" y="1160" font-size="11">3.81×</text>
-<rect x="150" y="1165" width="145.4" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 51.0 ms</title></rect>
-<text class="t" x="299.4" y="1176" font-size="11">1.25×</text>
+<rect x="150" y="1101" width="146.5" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 23.4 ms</title></rect>
+<text class="t" x="300.5" y="1112" font-size="11">0.77×</text>
+<rect x="150" y="1117" width="154.5" height="13" rx="2" fill="#2f81f7"><title>goesm: 27.2 ms</title></rect>
+<text class="t" x="308.5" y="1128" font-size="11">0.90×</text>
+<rect x="150" y="1133" width="255.8" height="13" rx="2" fill="#d29922"><title>GopherJS: 180 ms</title></rect>
+<text class="t" x="409.8" y="1144" font-size="11">5.95×</text>
+<rect x="150" y="1149" width="220.8" height="13" rx="2" fill="#a371f7"><title>Go wasm: 93.8 ms</title></rect>
+<text class="t" x="374.8" y="1160" font-size="11">3.09×</text>
+<rect x="150" y="1165" width="173.5" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 38.8 ms</title></rect>
+<text class="t" x="327.5" y="1176" font-size="11">1.28×</text>
 <text class="t" x="140" y="1236.5" text-anchor="end">JSON</text>
-<rect x="150" y="1194" width="61.7" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 3.87 ms</title></rect>
-<text class="t" x="215.7" y="1205" font-size="11">0.29×</text>
-<rect x="150" y="1210" width="89.0" height="13" rx="2" fill="#2f81f7"><title>goesm: 6.23 ms</title></rect>
-<text class="t" x="243.0" y="1221" font-size="11">0.47×</text>
-<rect x="150" y="1226" width="373.6" height="13" rx="2" fill="#d29922"><title>GopherJS: 876 ms</title></rect>
-<text class="t" x="527.6" y="1237" font-size="11">66.0×</text>
-<rect x="150" y="1242" width="204.9" height="13" rx="2" fill="#a371f7"><title>Go wasm: 46.7 ms</title></rect>
-<text class="t" x="358.9" y="1253" font-size="11">3.52×</text>
-<rect x="150" y="1258" width="207.7" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 49.0 ms</title></rect>
-<text class="t" x="361.7" y="1269" font-size="11">3.70×</text>
+<rect x="150" y="1194" width="93.2" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 1.93 ms</title></rect>
+<text class="t" x="247.2" y="1205" font-size="11">0.29×</text>
+<rect x="150" y="1210" width="128.6" height="13" rx="2" fill="#2f81f7"><title>goesm: 3.75 ms</title></rect>
+<text class="t" x="282.6" y="1221" font-size="11">0.55×</text>
+<rect x="150" y="1226" width="377.8" height="13" rx="2" fill="#d29922"><title>GopherJS: 394 ms</title></rect>
+<text class="t" x="531.8" y="1237" font-size="11">58.2×</text>
+<rect x="150" y="1242" width="239.6" height="13" rx="2" fill="#a371f7"><title>Go wasm: 29.8 ms</title></rect>
+<text class="t" x="393.6" y="1253" font-size="11">4.40×</text>
+<rect x="150" y="1258" width="224.3" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 22.4 ms</title></rect>
+<text class="t" x="378.3" y="1269" font-size="11">3.30×</text>
 <text class="t" x="140" y="1329.5" text-anchor="end">Sprintf</text>
-<rect x="150" y="1287" width="130.1" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 23.4 ms</title></rect>
-<text class="t" x="284.1" y="1298" font-size="11">0.96×</text>
-<rect x="150" y="1303" width="118.8" height="13" rx="2" fill="#2f81f7"><title>goesm: 19.2 ms</title></rect>
-<text class="t" x="272.8" y="1314" font-size="11">0.79×</text>
-<rect x="150" y="1319" width="384.1" height="13" rx="2" fill="#d29922"><title>GopherJS: 1932 ms</title></rect>
-<text class="t" x="538.1" y="1330" font-size="11">79.2×</text>
-<rect x="150" y="1335" width="209.4" height="13" rx="2" fill="#a371f7"><title>Go wasm: 92.8 ms</title></rect>
-<text class="t" x="363.4" y="1346" font-size="11">3.80×</text>
-<rect x="150" y="1351" width="195.9" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 73.5 ms</title></rect>
-<text class="t" x="349.9" y="1362" font-size="11">3.01×</text>
+<rect x="150" y="1287" width="136.1" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 9.20 ms</title></rect>
+<text class="t" x="290.1" y="1298" font-size="11">0.64×</text>
+<rect x="150" y="1303" width="149.7" height="13" rx="2" fill="#2f81f7"><title>goesm: 11.9 ms</title></rect>
+<text class="t" x="303.7" y="1314" font-size="11">0.82×</text>
+<rect x="150" y="1319" width="385.6" height="13" rx="2" fill="#d29922"><title>GopherJS: 975 ms</title></rect>
+<text class="t" x="539.6" y="1330" font-size="11">67.4×</text>
+<rect x="150" y="1335" width="209.3" height="13" rx="2" fill="#a371f7"><title>Go wasm: 36.1 ms</title></rect>
+<text class="t" x="363.3" y="1346" font-size="11">2.50×</text>
+<rect x="150" y="1351" width="214.1" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 39.5 ms</title></rect>
+<text class="t" x="368.1" y="1362" font-size="11">2.73×</text>
 <text class="t" x="140" y="1422.5" text-anchor="end">Channels</text>
 <text class="m" x="154" y="1391" font-size="11">—</text>
-<rect x="150" y="1396" width="101.9" height="13" rx="2" fill="#2f81f7"><title>goesm: 73.6 ms</title></rect>
-<text class="t" x="255.9" y="1407" font-size="11">0.59×</text>
-<rect x="150" y="1412" width="174.1" height="13" rx="2" fill="#d29922"><title>GopherJS: 258 ms</title></rect>
-<text class="t" x="328.1" y="1423" font-size="11">2.06×</text>
-<rect x="150" y="1428" width="188.6" height="13" rx="2" fill="#a371f7"><title>Go wasm: 332 ms</title></rect>
-<text class="t" x="342.6" y="1439" font-size="11">2.65×</text>
-<rect x="150" y="1444" width="77.0" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 47.8 ms</title></rect>
-<text class="t" x="231.0" y="1455" font-size="11">0.38×</text>
+<rect x="150" y="1396" width="130.5" height="13" rx="2" fill="#2f81f7"><title>goesm: 46.4 ms</title></rect>
+<text class="t" x="284.5" y="1407" font-size="11">0.57×</text>
+<rect x="150" y="1412" width="185.0" height="13" rx="2" fill="#d29922"><title>GopherJS: 128 ms</title></rect>
+<text class="t" x="339.0" y="1423" font-size="11">1.58×</text>
+<rect x="150" y="1428" width="206.8" height="13" rx="2" fill="#a371f7"><title>Go wasm: 193 ms</title></rect>
+<text class="t" x="360.8" y="1439" font-size="11">2.39×</text>
+<rect x="150" y="1444" width="84.9" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 19.8 ms</title></rect>
+<text class="t" x="238.9" y="1455" font-size="11">0.24×</text>
 <text class="t" x="140" y="1515.5" text-anchor="end">Parallel</text>
-<rect x="150" y="1473" width="256.1" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 74.7 ms</title></rect>
-<text class="t" x="410.1" y="1484" font-size="11">8.57×</text>
-<rect x="150" y="1489" width="246.1" height="13" rx="2" fill="#2f81f7"><title>goesm: 62.8 ms</title></rect>
-<text class="t" x="400.1" y="1500" font-size="11">7.20×</text>
-<rect x="150" y="1505" width="242.7" height="13" rx="2" fill="#d29922"><title>GopherJS: 59.2 ms</title></rect>
-<text class="t" x="396.7" y="1516" font-size="11">6.79×</text>
-<rect x="150" y="1521" width="224.4" height="13" rx="2" fill="#a371f7"><title>Go wasm: 43.0 ms</title></rect>
-<text class="t" x="378.4" y="1532" font-size="11">4.94×</text>
-<rect x="150" y="1537" width="179.3" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 19.7 ms</title></rect>
-<text class="t" x="333.3" y="1548" font-size="11">2.25×</text>
+<rect x="150" y="1473" width="242.6" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 39.4 ms</title></rect>
+<text class="t" x="396.6" y="1484" font-size="11">4.65×</text>
+<rect x="150" y="1489" width="244.2" height="13" rx="2" fill="#2f81f7"><title>goesm: 40.5 ms</title></rect>
+<text class="t" x="398.2" y="1500" font-size="11">4.79×</text>
+<rect x="150" y="1505" width="248.3" height="13" rx="2" fill="#d29922"><title>GopherJS: 43.8 ms</title></rect>
+<text class="t" x="402.3" y="1516" font-size="11">5.17×</text>
+<rect x="150" y="1521" width="236.8" height="13" rx="2" fill="#a371f7"><title>Go wasm: 35.3 ms</title></rect>
+<text class="t" x="390.8" y="1532" font-size="11">4.17×</text>
+<rect x="150" y="1537" width="211.1" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 21.9 ms</title></rect>
+<text class="t" x="365.1" y="1548" font-size="11">2.58×</text>
 <text class="t" x="140" y="1608.5" text-anchor="end">Rand64</text>
-<rect x="150" y="1566" width="419.5" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 410 ms</title></rect>
-<text class="t" x="573.5" y="1577" font-size="11">147×</text>
-<rect x="150" y="1582" width="417.4" height="13" rx="2" fill="#2f81f7"><title>goesm: 396 ms</title></rect>
-<text class="t" x="571.4" y="1593" font-size="11">141×</text>
-<rect x="150" y="1598" width="440.9" height="13" rx="2" fill="#d29922"><title>GopherJS: 595 ms</title></rect>
-<text class="t" x="594.9" y="1609" font-size="11">213×</text>
-<rect x="150" y="1614" width="137.3" height="13" rx="2" fill="#a371f7"><title>Go wasm: 3.04 ms</title></rect>
-<text class="t" x="291.3" y="1625" font-size="11">1.09×</text>
-<rect x="150" y="1630" width="124.7" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 2.44 ms</title></rect>
-<text class="t" x="278.7" y="1641" font-size="11">0.87×</text>
+<rect x="150" y="1566" width="401.7" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 190 ms</title></rect>
+<text class="t" x="555.7" y="1577" font-size="11">91.0×</text>
+<rect x="150" y="1582" width="405.9" height="13" rx="2" fill="#2f81f7"><title>goesm: 206 ms</title></rect>
+<text class="t" x="559.9" y="1593" font-size="11">98.4×</text>
+<rect x="150" y="1598" width="426.5" height="13" rx="2" fill="#d29922"><title>GopherJS: 302 ms</title></rect>
+<text class="t" x="580.5" y="1609" font-size="11">145×</text>
+<rect x="150" y="1614" width="186.9" height="13" rx="2" fill="#a371f7"><title>Go wasm: 3.43 ms</title></rect>
+<text class="t" x="340.9" y="1625" font-size="11">1.64×</text>
+<rect x="150" y="1630" width="160.7" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 2.11 ms</title></rect>
+<text class="t" x="314.7" y="1641" font-size="11">1.01×</text>
 <text class="t" x="140" y="1701.5" text-anchor="end">MaybeBlocking</text>
-<rect x="150" y="1659" width="132.5" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 1.63 ms</title></rect>
-<text class="t" x="286.5" y="1670" font-size="11">1.0×</text>
-<rect x="150" y="1675" width="205.5" height="13" rx="2" fill="#2f81f7"><title>goesm: 5.80 ms</title></rect>
-<text class="t" x="359.5" y="1686" font-size="11">3.56×</text>
-<rect x="150" y="1691" width="208.9" height="13" rx="2" fill="#d29922"><title>GopherJS: 6.15 ms</title></rect>
-<text class="t" x="362.9" y="1702" font-size="11">3.78×</text>
-<rect x="150" y="1707" width="143.3" height="13" rx="2" fill="#a371f7"><title>Go wasm: 1.97 ms</title></rect>
-<text class="t" x="297.3" y="1718" font-size="11">1.21×</text>
-<rect x="150" y="1723" width="18.3" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 0.22 ms</title></rect>
-<text class="t" x="172.3" y="1734" font-size="11">0.14×</text>
+<rect x="150" y="1659" width="67.3" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 0.40 ms</title></rect>
+<text class="t" x="221.3" y="1670" font-size="11">0.18×</text>
+<rect x="150" y="1675" width="84.1" height="13" rx="2" fill="#2f81f7"><title>goesm: 0.55 ms</title></rect>
+<text class="t" x="238.1" y="1686" font-size="11">0.24×</text>
+<rect x="150" y="1691" width="160.5" height="13" rx="2" fill="#d29922"><title>GopherJS: 2.27 ms</title></rect>
+<text class="t" x="314.5" y="1702" font-size="11">1.00×</text>
+<rect x="150" y="1707" width="161.3" height="13" rx="2" fill="#a371f7"><title>Go wasm: 2.31 ms</title></rect>
+<text class="t" x="315.3" y="1718" font-size="11">1.02×</text>
+<rect x="150" y="1723" width="5.8" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 0.13 ms</title></rect>
+<text class="t" x="159.8" y="1734" font-size="11">0.056×</text>
 <text class="t" x="140" y="1794.5" text-anchor="end">Pull</text>
-<rect x="150" y="1752" width="34.5" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 0.80 ms</title></rect>
-<text class="t" x="188.5" y="1763" font-size="11">0.18×</text>
-<rect x="150" y="1768" width="296.4" height="13" rx="2" fill="#2f81f7"><title>goesm: 76.3 ms</title></rect>
-<text class="t" x="450.4" y="1779" font-size="11">17.3×</text>
+<rect x="150" y="1752" width="32.3" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 0.36 ms</title></rect>
+<text class="t" x="186.3" y="1763" font-size="11">0.091×</text>
+<rect x="150" y="1768" width="125.6" height="13" rx="2" fill="#2f81f7"><title>goesm: 2.08 ms</title></rect>
+<text class="t" x="279.6" y="1779" font-size="11">0.52×</text>
 <text class="m" x="154" y="1795" font-size="11">—</text>
-<rect x="150" y="1800" width="178.8" height="13" rx="2" fill="#a371f7"><title>Go wasm: 9.88 ms</title></rect>
-<text class="t" x="332.8" y="1811" font-size="11">2.24×</text>
-<rect x="150" y="1816" width="225.9" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 22.4 ms</title></rect>
-<text class="t" x="379.9" y="1827" font-size="11">5.07×</text>
+<rect x="150" y="1800" width="187.8" height="13" rx="2" fill="#a371f7"><title>Go wasm: 6.65 ms</title></rect>
+<text class="t" x="341.8" y="1811" font-size="11">1.67×</text>
+<rect x="150" y="1816" width="216.6" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 11.4 ms</title></rect>
+<text class="t" x="370.6" y="1827" font-size="11">2.86×</text>
 <text class="t" x="140" y="1887.5" text-anchor="end">RSASign</text>
-<rect x="150" y="1845" width="111.0" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 4.19 ms</title></rect>
-<text class="t" x="265.0" y="1856" font-size="11">0.69×</text>
-<rect x="150" y="1861" width="374.9" height="13" rx="2" fill="#2f81f7"><title>goesm: 412 ms</title></rect>
-<text class="t" x="528.9" y="1872" font-size="11">67.6×</text>
-<rect x="150" y="1877" width="503.5" height="13" rx="2" fill="#d29922"><title>GopherJS: 3847 ms</title></rect>
-<text class="t" x="657.5" y="1888" font-size="11">631×</text>
-<rect x="150" y="1893" width="236.8" height="13" rx="2" fill="#a371f7"><title>Go wasm: 37.4 ms</title></rect>
-<text class="t" x="390.8" y="1904" font-size="11">6.13×</text>
-<rect x="150" y="1909" width="275.6" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 73.2 ms</title></rect>
-<text class="t" x="429.6" y="1920" font-size="11">12.0×</text>
+<rect x="150" y="1845" width="148.8" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 3.14 ms</title></rect>
+<text class="t" x="302.8" y="1856" font-size="11">0.81×</text>
+<rect x="150" y="1861" width="394.6" height="13" rx="2" fill="#2f81f7"><title>goesm: 310 ms</title></rect>
+<text class="t" x="548.6" y="1872" font-size="11">79.6×</text>
+<rect x="150" y="1877" width="500.3" height="13" rx="2" fill="#d29922"><title>GopherJS: 2235 ms</title></rect>
+<text class="t" x="654.3" y="1888" font-size="11">574×</text>
+<rect x="150" y="1893" width="268.1" height="13" rx="2" fill="#a371f7"><title>Go wasm: 29.1 ms</title></rect>
+<text class="t" x="422.1" y="1904" font-size="11">7.49×</text>
+<rect x="150" y="1909" width="280.5" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 36.8 ms</title></rect>
+<text class="t" x="434.5" y="1920" font-size="11">9.45×</text>
 <text class="t" x="140" y="1980.5" text-anchor="end">Upper</text>
-<rect x="150" y="1938" width="84.3" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 80.6 ns</title></rect>
-<text class="t" x="238.3" y="1949" font-size="11">0.43×</text>
-<rect x="150" y="1954" width="136.0" height="13" rx="2" fill="#2f81f7"><title>goesm: 198 ns</title></rect>
-<text class="t" x="290.0" y="1965" font-size="11">1.06×</text>
-<rect x="150" y="1970" width="400.2" height="13" rx="2" fill="#d29922"><title>GopherJS: 19543 ns</title></rect>
-<text class="t" x="554.2" y="1981" font-size="11">105×</text>
-<rect x="150" y="1986" width="235.9" height="13" rx="2" fill="#a371f7"><title>Go wasm: 1125 ns</title></rect>
-<text class="t" x="389.9" y="1997" font-size="11">6.04×</text>
-<rect x="150" y="2002" width="241.5" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 1240 ns</title></rect>
-<text class="t" x="395.5" y="2013" font-size="11">6.65×</text>
+<rect x="150" y="1938" width="113.7" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 54.3 ns</title></rect>
+<text class="t" x="267.7" y="1949" font-size="11">0.42×</text>
+<rect x="150" y="1954" width="150.6" height="13" rx="2" fill="#2f81f7"><title>goesm: 108 ns</title></rect>
+<text class="t" x="304.6" y="1965" font-size="11">0.83×</text>
+<rect x="150" y="1970" width="377.0" height="13" rx="2" fill="#d29922"><title>GopherJS: 7433 ns</title></rect>
+<text class="t" x="531.0" y="1981" font-size="11">57.3×</text>
+<rect x="150" y="1986" width="254.9" height="13" rx="2" fill="#a371f7"><title>Go wasm: 759 ns</title></rect>
+<text class="t" x="408.9" y="1997" font-size="11">5.85×</text>
+<rect x="150" y="2002" width="286.3" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 1366 ns</title></rect>
+<text class="t" x="440.3" y="2013" font-size="11">10.5×</text>
 <text class="t" x="140" y="2073.5" text-anchor="end">Handle</text>
-<rect x="150" y="2031" width="85.8" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 2157 ns</title></rect>
-<text class="t" x="239.8" y="2042" font-size="11">0.44×</text>
-<rect x="150" y="2047" width="97.6" height="13" rx="2" fill="#2f81f7"><title>goesm: 2648 ns</title></rect>
-<text class="t" x="251.6" y="2058" font-size="11">0.55×</text>
-<rect x="150" y="2063" width="408.9" height="13" rx="2" fill="#d29922"><title>GopherJS: 591774 ns</title></rect>
-<text class="t" x="562.9" y="2074" font-size="11">122×</text>
-<rect x="150" y="2079" width="233.4" height="13" rx="2" fill="#a371f7"><title>Go wasm: 28005 ns</title></rect>
-<text class="t" x="387.4" y="2090" font-size="11">5.77×</text>
-<rect x="150" y="2095" width="248.4" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 36394 ns</title></rect>
-<text class="t" x="402.4" y="2106" font-size="11">7.50×</text>
-<line class="r" x1="282.5" y1="72" x2="282.5" y2="2112" stroke-dasharray="4 3" stroke-width="1.2"/>
-<text class="t" x="282.5" y="2140" text-anchor="middle" font-size="11">native Go</text>
+<rect x="150" y="2031" width="99.1" height="13" rx="2" fill="#8c959f"><title>Hand-written JS: 954 ns</title></rect>
+<text class="t" x="253.1" y="2042" font-size="11">0.32×</text>
+<rect x="150" y="2047" width="124.0" height="13" rx="2" fill="#2f81f7"><title>goesm: 1518 ns</title></rect>
+<text class="t" x="278.0" y="2058" font-size="11">0.51×</text>
+<rect x="150" y="2063" width="402.5" height="13" rx="2" fill="#d29922"><title>GopherJS: 276534 ns</title></rect>
+<text class="t" x="556.5" y="2074" font-size="11">92.4×</text>
+<rect x="150" y="2079" width="242.3" height="13" rx="2" fill="#a371f7"><title>Go wasm: 13846 ns</title></rect>
+<text class="t" x="396.3" y="2090" font-size="11">4.63×</text>
+<rect x="150" y="2095" width="267.9" height="13" rx="2" fill="#3fb950"><title>TinyGo wasm: 22337 ns</title></rect>
+<text class="t" x="421.9" y="2106" font-size="11">7.46×</text>
+<line class="r" x1="310.3" y1="72" x2="310.3" y2="2112" stroke-dasharray="4 3" stroke-width="1.2"/>
+<text class="t" x="310.3" y="2140" text-anchor="middle" font-size="11">native Go</text>
 </svg>
