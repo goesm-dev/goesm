@@ -12,46 +12,58 @@
 // modified) named results, exactly like Go.
 
 import { Iface } from "./iface.ts";
-import { Kind, Type, addMethods, funcOf, named, setUnderlying, types } from "./types.ts";
+import { Kind, Type, addMethods, funcOf, named, setUnderlying, tString } from "./types.ts";
 import { toJSString } from "./string.ts";
 import { ProgramExit } from "./host.ts";
 
 // runtime.Error values. Their dynamic type implements error and runtime.Error
 // so user code can recover() them and call Error().
-export const runtimeErrorType: Type = named("runtime", "Error");
-setUnderlying(runtimeErrorType, types.string);
-addMethods(runtimeErrorType, {
-  Error: [(v: string) => "runtime error: " + v, funcOf([], [types.string], false)],
-  RuntimeError: [() => undefined, funcOf([], [], false)],
-});
+export const runtimeErrorType: Type = /* @__PURE__ */ (() => {
+  const t = named("runtime", "Error");
+  setUnderlying(t, tString);
+  addMethods(t, {
+    Error: [(v: string) => "runtime error: " + v, funcOf([], [tString], false)],
+    RuntimeError: [() => undefined, funcOf([], [], false)],
+  });
+  return t;
+})();
 
 // runtime.plainError: runtime errors whose message has no prefix in Go
 // (nil map assignment, channel misuse).
-export const plainErrorType: Type = named("runtime", "plainError");
-setUnderlying(plainErrorType, types.string);
-addMethods(plainErrorType, {
-  Error: [(v: string) => v, funcOf([], [types.string], false)],
-  RuntimeError: [() => undefined, funcOf([], [], false)],
-});
+export const plainErrorType: Type = /* @__PURE__ */ (() => {
+  const t = named("runtime", "plainError");
+  setUnderlying(t, tString);
+  addMethods(t, {
+    Error: [(v: string) => v, funcOf([], [tString], false)],
+    RuntimeError: [() => undefined, funcOf([], [], false)],
+  });
+  return t;
+})();
 
 export function plainPanic(msg: string): never {
   throw new GoPanic(new Iface(plainErrorType, msg));
 }
 
 // *runtime.TypeAssertionError: its message has no "runtime error: " prefix.
-export const typeAssertionErrorType: Type = named("runtime", "TypeAssertionError");
-setUnderlying(typeAssertionErrorType, types.string);
-addMethods(typeAssertionErrorType, {
-  Error: [(v: string) => v, funcOf([], [types.string], false)],
-  RuntimeError: [() => undefined, funcOf([], [], false)],
-});
+export const typeAssertionErrorType: Type = /* @__PURE__ */ (() => {
+  const t = named("runtime", "TypeAssertionError");
+  setUnderlying(t, tString);
+  addMethods(t, {
+    Error: [(v: string) => v, funcOf([], [tString], false)],
+    RuntimeError: [() => undefined, funcOf([], [], false)],
+  });
+  return t;
+})();
 
-export const panicNilErrorType: Type = named("runtime", "PanicNilError");
-setUnderlying(panicNilErrorType, types.string);
-addMethods(panicNilErrorType, {
-  Error: [() => "panic called with nil argument (use runtime.PanicNilError)", funcOf([], [types.string], false)],
-  RuntimeError: [() => undefined, funcOf([], [], false)],
-});
+export const panicNilErrorType: Type = /* @__PURE__ */ (() => {
+  const t = named("runtime", "PanicNilError");
+  setUnderlying(t, tString);
+  addMethods(t, {
+    Error: [() => "panic called with nil argument (use runtime.PanicNilError)", funcOf([], [tString], false)],
+    RuntimeError: [() => undefined, funcOf([], [], false)],
+  });
+  return t;
+})();
 
 export class GoPanic extends Error {
   declare value: Iface;

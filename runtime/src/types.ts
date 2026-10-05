@@ -97,25 +97,46 @@ const zeroNum = () => 0;
 // (make, append, []byte(s)) are backed by a Uint8Array instead of an Array.
 export const zeroByte = (): number => 0;
 const zeroBig = () => 0n;
+// The basic types, as separate constants so that bundlers drop the unused
+// ones; types holds them all for code that looks one up by name. The kinds
+// are literals: a bundler keeps a call whose arguments read a property.
+export const tBool: Type = /* @__PURE__ */ basic(1 /* Bool */, "bool", () => false);
+export const tInt: Type = /* @__PURE__ */ basic(2 /* Int */, "int", zeroNum);
+export const tInt8: Type = /* @__PURE__ */ basic(3 /* Int8 */, "int8", zeroNum);
+export const tInt16: Type = /* @__PURE__ */ basic(4 /* Int16 */, "int16", zeroNum);
+export const tInt32: Type = /* @__PURE__ */ basic(5 /* Int32 */, "int32", zeroNum);
+export const tInt64: Type = /* @__PURE__ */ basic(6 /* Int64 */, "int64", zeroBig);
+export const tUint: Type = /* @__PURE__ */ basic(7 /* Uint */, "uint", zeroNum);
+export const tUint8: Type = /* @__PURE__ */ basic(8 /* Uint8 */, "uint8", zeroByte);
+export const tUint16: Type = /* @__PURE__ */ basic(9 /* Uint16 */, "uint16", zeroNum);
+export const tUint32: Type = /* @__PURE__ */ basic(10 /* Uint32 */, "uint32", zeroNum);
+export const tUint64: Type = /* @__PURE__ */ basic(11 /* Uint64 */, "uint64", zeroBig);
+export const tUintptr: Type = /* @__PURE__ */ basic(12 /* Uintptr */, "uintptr", zeroNum);
+export const tFloat32: Type = /* @__PURE__ */ basic(13 /* Float32 */, "float32", zeroNum);
+export const tFloat64: Type = /* @__PURE__ */ basic(14 /* Float64 */, "float64", zeroNum);
+export const tComplex64: Type = /* @__PURE__ */ basic(15 /* Complex64 */, "complex64", () => complexZero);
+export const tComplex128: Type = /* @__PURE__ */ basic(16 /* Complex128 */, "complex128", () => complexZero);
+export const tString: Type = /* @__PURE__ */ basic(24 /* String */, "string", () => "");
+export const tUnsafePointer: Type = /* @__PURE__ */ basic(26 /* UnsafePointer */, "unsafe.Pointer", () => null);
 export const types = {
-  bool: basic(Kind.Bool, "bool", () => false),
-  int: basic(Kind.Int, "int", zeroNum),
-  int8: basic(Kind.Int8, "int8", zeroNum),
-  int16: basic(Kind.Int16, "int16", zeroNum),
-  int32: basic(Kind.Int32, "int32", zeroNum),
-  int64: basic(Kind.Int64, "int64", zeroBig),
-  uint: basic(Kind.Uint, "uint", zeroNum),
-  uint8: basic(Kind.Uint8, "uint8", zeroByte),
-  uint16: basic(Kind.Uint16, "uint16", zeroNum),
-  uint32: basic(Kind.Uint32, "uint32", zeroNum),
-  uint64: basic(Kind.Uint64, "uint64", zeroBig),
-  uintptr: basic(Kind.Uintptr, "uintptr", zeroNum),
-  float32: basic(Kind.Float32, "float32", zeroNum),
-  float64: basic(Kind.Float64, "float64", zeroNum),
-  complex64: basic(Kind.Complex64, "complex64", () => complexZero),
-  complex128: basic(Kind.Complex128, "complex128", () => complexZero),
-  string: basic(Kind.String, "string", () => ""),
-  unsafePointer: basic(Kind.UnsafePointer, "unsafe.Pointer", () => null),
+  bool: tBool,
+  int: tInt,
+  int8: tInt8,
+  int16: tInt16,
+  int32: tInt32,
+  int64: tInt64,
+  uint: tUint,
+  uint8: tUint8,
+  uint16: tUint16,
+  uint32: tUint32,
+  uint64: tUint64,
+  uintptr: tUintptr,
+  float32: tFloat32,
+  float64: tFloat64,
+  complex64: tComplex64,
+  complex128: tComplex128,
+  string: tString,
+  unsafePointer: tUnsafePointer,
 };
 
 const memo = new Map<string, Type>();
@@ -227,9 +248,21 @@ export function interfaceOf(methods: IMethod[]): Type {
   });
 }
 
+// A field as generated code spells it: [name, type, embedded, tag, prop],
+// with the last three left out when they are false, "" and name, and the
+// package path that of the struct's unexported fields.
+type FieldSpec = [string, Type, (0 | 1)?, string?, string?];
+
+const exported = /^\p{Lu}/u;
+
 // structOf describes an unnamed struct type. ctor is the class generated for
 // it; identical struct types from different packages share one descriptor.
-export function structOf(fields: Field[], ctor: any): Type {
+export function structOf(specs: (Field | FieldSpec)[], ctor: any, pkgPath = ""): Type {
+  const fields = specs.map((f): Field => {
+    if (!Array.isArray(f)) return f;
+    const [name, type, embedded = 0, tag = "", prop = name] = f;
+    return { name, pkgPath: exported.test(name) ? "" : pkgPath, type, embedded: embedded === 1, tag, prop };
+  });
   const key = `struct{${fields.map((f) => `${f.embedded ? "~" : ""}${f.pkgPath}.${f.name}:${f.type.id}:${JSON.stringify(f.tag)}`).join(";")}}`;
   return memoized(key, () => {
     const t = new Type();
@@ -268,10 +301,14 @@ function sameFields(a: Type, b: Type): boolean {
 // structZero returns t's zero function: a clone of a zero value made once,
 // through the class's own monomorphic $clone, instead of zeroStruct's
 // spread of an array into the constructor each time. The first call makes
-// the value, when the field types are complete.
+// the value, when the field types are complete. The classes of the struct
+// types a program never copies have no $clone (internal/lower/nocopy.go).
 function structZero(t: Type): () => any {
   let z: any = null;
-  return () => (z ??= zeroStruct(t)).$clone(t);
+  return () => {
+    z ??= zeroStruct(t);
+    return z.$clone === undefined ? zeroStruct(t) : z.$clone(t);
+  };
 }
 
 // zeroStruct passes the zero fields to the constructor, which takes them in
@@ -450,8 +487,11 @@ export function isAggregate(t: Type): boolean {
 }
 
 // The predeclared error interface.
-export const errorType: Type = named("", "error");
-setUnderlying(errorType, interfaceOf([{ name: "Error", pkgPath: "", type: funcOf([], [types.string], false) }]));
+export const errorType: Type = /* @__PURE__ */ (() => {
+  const t = named("", "error");
+  setUnderlying(t, interfaceOf([{ name: "Error", pkgPath: "", type: funcOf([], [tString], false) }]));
+  return t;
+})();
 
 // sizeOf and alignOf are unsafe.Sizeof / unsafe.Alignof under GOARCH=wasm
 // (go/types' sizes for the target), for operands whose type is a type

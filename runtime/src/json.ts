@@ -13,7 +13,7 @@
 
 // Like natives.ts, which imports it, this uses the runtime only through its
 // public module, so that split builds share one runtime.
-import { Cell, GoMap, Iface, Kind, Slice, Type, bytesToString, fromJSString, hasMethods, makeMap, mapOf, ptrTo, sliceLit, sliceOf, stringToBytes, types } from "./index.ts";
+import { Cell, GoMap, Iface, Kind, Slice, Type, bytesToString, fromJSString, hasMethods, makeMap, mapOf, ptrTo, sliceLit, sliceOf, stringToBytes, tBool, tFloat64, tString } from "./index.ts";
 import type { S } from "./index.ts";
 
 // Abort is thrown to give up on the fast path.
@@ -198,7 +198,7 @@ function isEmpty(t: Type, v: any): boolean {
 // as indices); enc then encodes it.
 const NoJS = { nojs: true };
 const indexLike = /^(?:\d+|__proto__)$/;
-const utf8Dec = new TextDecoder();
+const utf8Dec = /* @__PURE__ */ new TextDecoder();
 
 // toJS returns the JS value whose JSON.stringify is the encoding of v,
 // before HTML escaping.
@@ -302,7 +302,7 @@ function jsString(s: string): string {
   return utf8Dec.decode(stringToBytes(s).$array as unknown as Uint8Array);
 }
 
-const utf8Enc = new TextEncoder();
+const utf8Enc = /* @__PURE__ */ new TextEncoder();
 const htmlChars = /[<>&\u2028\u2029]/;
 const htmlCharsAll = /[<>&\u2028\u2029]/g;
 const htmlEscape = (c: string) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0");
@@ -755,10 +755,10 @@ class Decoder {
     const c = this.ws();
     switch (c) {
       case 0x22:
-        return new Iface(types.string, this.str());
+        return new Iface(tString, this.str());
       case 0x7b: {
         this.i++;
-        const mt = mapOf(types.string, t), m = makeMap(types.string);
+        const mt = mapOf(tString, t), m = makeMap(tString);
         if (this.ws() === 0x7d) { this.i++; return new Iface(mt, m); }
         for (;;) {
           const k = this.str();
@@ -786,11 +786,11 @@ class Decoder {
       }
     }
     if (this.literal("null")) return null;
-    if (this.literal("true")) return new Iface(types.bool, true);
-    if (this.literal("false")) return new Iface(types.bool, false);
+    if (this.literal("true")) return new Iface(tBool, true);
+    if (this.literal("false")) return new Iface(tBool, false);
     const f = Number(this.num());
     if (!Number.isFinite(f)) abort();
-    return new Iface(types.float64, f);
+    return new Iface(tFloat64, f);
   }
 }
 

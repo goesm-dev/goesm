@@ -196,6 +196,20 @@ func loweredSprintf() {
 	fmt.Println(e5, errors.Is(e5, sentinel), fmt.Sprintf("%T %T %T", e1, e2, e3))
 	fmt.Println(fmt.Errorf("%w: %v", nilErr, red), fmt.Errorf("%s", panicky{}))
 
+	// Operands of type error and %q of strings with constant formats.
+	var pe, npe, fe error = panicky{}, nilErr, fmtErr{}
+	fmt.Println(fmt.Sprintf("%v|%s|%v|%s", pe, me, npe, fe), fmt.Sprintf("%v", fe), fmt.Sprintf("%v %s", me, nilIface))
+	w1, w2, w3 := fmt.Errorf("x: %w", pe), fmt.Errorf("%s: %w (%v)", "op", me, sentinel), fmt.Errorf("no verbs 100%%")
+	fmt.Println(w1, w2, w3, errors.Unwrap(w1) == pe, errors.Unwrap(w2) == me, errors.Unwrap(w3) == nil, fmt.Sprintf("%T %T %T", w1, w2, w3))
+	fmt.Println(fmt.Errorf("%w", nilIface), fmt.Errorf("%v: %w", fe, me), fmt.Errorf("nil %w", npe), fmt.Errorf("plain"))
+	for _, s := range []string{"", "plain", `a"b`, `back\slash`, "tab\t", "日本", "\x7f\xff"} {
+		e := fmt.Errorf("bad %q", s)
+		fmt.Println(fmt.Sprintf("%q|%v", s, s), e, errors.Unwrap(e) == nil)
+	}
+	n1, big := 0, 1<<53
+	var oe error = onceErr{&n1}
+	fmt.Println(fmt.Sprintf("[%v]", oe), fmt.Errorf("[%w]", oe), fmt.Sprintf("%s %d", oe, big), n1)
+
 	// Each method is called once, also when a later verb or the argument
 	// count leaves the format to fmt's own code.
 	for _, f := range []string{"%v", "%v %q", "%v %v", "%v|%-12s|%d", "%w"} {
@@ -226,5 +240,12 @@ type onceErr struct{ n *int }
 func (o onceErr) Error() string { return once(o).String() }
 
 type panicky struct{}
+
+// fmtErr is an error that formats itself.
+type fmtErr struct{}
+
+func (fmtErr) Error() string { return "fmtErr.Error" }
+
+func (fmtErr) Format(f fmt.State, verb rune) { fmt.Fprintf(f, "fmtErr.Format(%c)", verb) }
 
 func (panicky) Error() string { panic("boom") }

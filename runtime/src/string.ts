@@ -93,10 +93,10 @@ export function bytesToString(b: S<number>): string {
   return s;
 }
 
-const latin1 = new TextDecoder("latin1");
-const utf8 = new TextEncoder();
+const latin1 = /* @__PURE__ */ new TextDecoder("latin1");
+const utf8 = /* @__PURE__ */ new TextEncoder();
 // ignoreBOM keeps a leading U+FEFF, which Go keeps.
-const utf8Dec = new TextDecoder("utf-8", { ignoreBOM: true });
+const utf8Dec = /* @__PURE__ */ new TextDecoder("utf-8", { ignoreBOM: true });
 const aboveLatin1 = /[\u0100-\uffff]/g;
 
 // cp1252 maps the characters that the "latin1" decoder gives for bytes
@@ -105,7 +105,7 @@ const aboveLatin1 = /[\u0100-\uffff]/g;
 // there the map is empty. It is made on first use.
 let cp1252: Map<string, string> | null = null;
 const fromCp1252 = (c: string) => cp1252!.get(c)!;
-const utf16 = new TextDecoder("utf-16le");
+const utf16 = /* @__PURE__ */ new TextDecoder("utf-16le");
 
 // latin1Bytes returns the string whose code units are the bytes of v
 // through one of the engine's decoders, which is several times faster than

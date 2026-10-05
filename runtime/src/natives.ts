@@ -18,7 +18,8 @@
 import {
   GoMap, addressOf, go, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, assign, chanLen, copy, exitProcess,
   fromJSString, hostNodeFS, ifaceKeyString, implementsIface, isAggregate, load, toJSString, writeConsole, writeStd, writeSyncAll,
-  makeSlice, mapLen, numGoroutine, runtimePanic, sizeOf, store, panic, types, append,
+  makeSlice, mapLen, numGoroutine, runtimePanic, sizeOf, store, panic, append,
+  tBool, tFloat32, tFloat64, tInt, tInt16, tInt32, tInt8, tString, tUint, tUint16, tUint32, tUint8,
   alignOf, arrayElemRef, arrayOf, bytesToString, c64, chanCap, chanOf, close, encodeRune, equal, fieldRef, canonical,
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
@@ -114,7 +115,7 @@ export function native$iter$coroswitch(c: Coro): Promise<void> {
 
 // ---- math and internal/strconv: float bits ----
 
-const scratch = new DataView(new ArrayBuffer(8));
+const scratch = /* @__PURE__ */ new DataView(new ArrayBuffer(8));
 
 export function native$math$Float64bits(f: number): bigint {
   scratch.setFloat64(0, f);
@@ -197,7 +198,7 @@ export function native$internal$strconv$formatBits(
   dst: S<number>, u: bigint, base: number, neg: boolean, append_: boolean,
 ): [S<number>, string] {
   if (base < 2 || base === 10 || base > 36) {
-    panic(new Iface(types.string, "strconv: illegal AppendInt/FormatInt base"));
+    panic(new Iface(tString, "strconv: illegal AppendInt/FormatInt base"));
   }
   const s = (neg ? "-" + BigInt.asUintN(64, -u).toString(base) : u.toString(base));
   if (!append_) return [null, s];
@@ -315,6 +316,17 @@ export function native$strings$joinAll(elems: S<string>, sep: string): string {
   const a = elems.$array as string[];
   if (elems.$offset === 0 && elems.$length === a.length) return a.join(sep);
   return a.slice(elems.$offset, elems.$offset + elems.$length).join(sep);
+}
+
+// strings.TrimSpace's ASCII part (see the strings patch): the engine's
+// trim, whose white space below 256 is Go's ASCII white space and the byte
+// 0xA0, which a Go string can hold alone and the loop leaves alone.
+export function native$strings$trimASCIISpace(s: string): string {
+  if (s.indexOf("\xa0") < 0) return s.trim();
+  let lo = 0, hi = s.length;
+  for (let c = s.charCodeAt(lo); lo < hi && (c === 0x20 || (c >= 0x09 && c <= 0x0d)); c = s.charCodeAt(++lo));
+  for (let c = s.charCodeAt(hi - 1); hi > lo && (c === 0x20 || (c >= 0x09 && c <= 0x0d)); c = s.charCodeAt(--hi - 1));
+  return s.substring(lo, hi);
 }
 
 // strings.Builder's WriteByte (see the strings patch).
@@ -543,7 +555,7 @@ const sliceLen = (s: S<number>) => (s === null ? 0 : s.$length);
 // math/big.mulAddVWW_g(z, x []Word, y, r Word) (c Word): z = x*y + r.
 export function native$math$big$mulAddVWW_g(z: S<number>, x: S<number>, y: number, r: number): number {
   const n = sliceLen(z);
-  if (sliceLen(x) !== n) panic(new Iface(types.string, "mulAddVWW len"));
+  if (sliceLen(x) !== n) panic(new Iface(tString, "mulAddVWW len"));
   if (n === 0) return r;
   return mulAdd32(z!.$array, z!.$offset, n, x!.$array, x!.$offset, y, null, 0, r);
 }
@@ -551,7 +563,7 @@ export function native$math$big$mulAddVWW_g(z: S<number>, x: S<number>, y: numbe
 // math/big.addMulVVWW_g(z, x, y []Word, m, a Word) (c Word): z = x + y*m + a.
 export function native$math$big$addMulVVWW_g(z: S<number>, x: S<number>, y: S<number>, m: number, a: number): number {
   const n = sliceLen(z);
-  if (sliceLen(x) !== n || sliceLen(y) !== n) panic(new Iface(types.string, "addMulVVWW len"));
+  if (sliceLen(x) !== n || sliceLen(y) !== n) panic(new Iface(tString, "addMulVVWW len"));
   if (n === 0) return a;
   return mulAdd32(z!.$array, z!.$offset, n, y!.$array, y!.$offset, m, x!.$array, x!.$offset, a);
 }
@@ -656,12 +668,12 @@ export const native$sync$atomic$SwapInt32 = swap, native$sync$atomic$SwapInt64 =
 export const native$sync$atomic$CompareAndSwapInt32 = cas, native$sync$atomic$CompareAndSwapInt64 = cas,
   native$sync$atomic$CompareAndSwapUint32 = cas, native$sync$atomic$CompareAndSwapUint64 = cas,
   native$sync$atomic$CompareAndSwapUintptr = cas, native$sync$atomic$CompareAndSwapPointer = cas;
-export const native$sync$atomic$AddInt32 = add(i32), native$sync$atomic$AddUint32 = add(u32),
-  native$sync$atomic$AddInt64 = add(i64), native$sync$atomic$AddUint64 = add(u64), native$sync$atomic$AddUintptr = add(n64);
-export const native$sync$atomic$AndInt32 = and(i32), native$sync$atomic$AndUint32 = and(u32),
-  native$sync$atomic$AndInt64 = and(i64), native$sync$atomic$AndUint64 = and(u64), native$sync$atomic$AndUintptr = and(n64);
-export const native$sync$atomic$OrInt32 = or(i32), native$sync$atomic$OrUint32 = or(u32),
-  native$sync$atomic$OrInt64 = or(i64), native$sync$atomic$OrUint64 = or(u64), native$sync$atomic$OrUintptr = or(n64);
+export const native$sync$atomic$AddInt32 = /* @__PURE__ */ add(i32), native$sync$atomic$AddUint32 = /* @__PURE__ */ add(u32),
+  native$sync$atomic$AddInt64 = /* @__PURE__ */ add(i64), native$sync$atomic$AddUint64 = /* @__PURE__ */ add(u64), native$sync$atomic$AddUintptr = /* @__PURE__ */ add(n64);
+export const native$sync$atomic$AndInt32 = /* @__PURE__ */ and(i32), native$sync$atomic$AndUint32 = /* @__PURE__ */ and(u32),
+  native$sync$atomic$AndInt64 = /* @__PURE__ */ and(i64), native$sync$atomic$AndUint64 = /* @__PURE__ */ and(u64), native$sync$atomic$AndUintptr = /* @__PURE__ */ and(n64);
+export const native$sync$atomic$OrInt32 = /* @__PURE__ */ or(i32), native$sync$atomic$OrUint32 = /* @__PURE__ */ or(u32),
+  native$sync$atomic$OrInt64 = /* @__PURE__ */ or(i64), native$sync$atomic$OrUint64 = /* @__PURE__ */ or(u64), native$sync$atomic$OrUintptr = /* @__PURE__ */ or(n64);
 
 // ---- internal/reflectlite ----
 //
@@ -1138,10 +1150,10 @@ function jsArgs(args: S<Iface | null>, valueOf: (x: Iface | null) => any): any[]
       continue;
     }
     const t = x.t;
-    if (t === types.int || t === types.float64 || t === types.bool || t === types.int32 || t === types.uint8 || t === types.uint || t === types.float32 ||
-      t === types.int8 || t === types.int16 || t === types.uint16 || t === types.uint32) {
+    if (t === tInt || t === tFloat64 || t === tBool || t === tInt32 || t === tUint8 || t === tUint || t === tFloat32 ||
+      t === tInt8 || t === tInt16 || t === tUint16 || t === tUint32) {
       out[i] = x.v;
-    } else if (t === types.string) {
+    } else if (t === tString) {
       out[i] = toJSString(x.v);
     } else if (t.name === "Value" && t.pkgPath === "syscall/js") {
       out[i] = fromRef(x.v.ref);
@@ -1681,7 +1693,7 @@ export function native$os$signal$hostSignal(sig: number, on: boolean, deliver: (
 
 // runtime.rand, which packages reach by linkname: random uint64s from the
 // host's CSPRNG, drawn a block at a time.
-const randBuf = new BigUint64Array(64);
+const randBuf = /* @__PURE__ */ new BigUint64Array(64);
 let randPos = randBuf.length;
 function runtimeRand(): bigint {
   if (randPos === randBuf.length) {
