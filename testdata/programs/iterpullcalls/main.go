@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iter"
 	"maps"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -77,4 +78,9 @@ func main() {
 	// yield function of iter.Pull[int].)
 	fmt.Println(strings.ToUpper("héllo"), strings.IndexFunc("ab1", func(r rune) bool { return r == '1' }))
 	fmt.Println(sort.SearchInts([]int{1, 3, 5}, 3), slices.IndexFunc([]int{1, 2}, func(v int) bool { return v == 2 }))
+	words := []string{"b", "c", "a"}
+	slices.SortFunc(words, strings.Compare)
+	fmt.Println(fmt.Sprintf("%v %d", words, len(words)))
+	f, _ := reflect.TypeFor[struct{ A, B int }]().FieldByNameFunc(func(s string) bool { return s == "B" })
+	fmt.Println(f.Name)
 }
