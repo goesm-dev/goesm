@@ -14,30 +14,30 @@ Web アプリが普段は人気の JavaScript ライブラリに任せる処理�
 | [Astro](https://astro.build/) | 同じ `markdown` | 同じ文書を、Astro が使う remark と rehype（unified 11）で HTML にする。Astro は Markdown を Node.js 上で処理するため、Node.js 向けにビルドする |
 | [Vue](https://vuejs.org/) | [`reactive`](reactive/reactive.go)、ref・computed・effect を Go で実装したもの | 20 段の computed の連鎖 50 本、ダイヤモンド型の依存、それらを読む effect を作り、ref を 2,000 回変更する。JS 側は @vue/reactivity 3.5.43 |
 
-フレームワークについては、ページが最も依存する部分を比べる。React はレンダリング、VitePress と Astro は Markdown のレンダラー、Vue はリアクティビティを対象にする。Go 側は、ネイティブのプログラム向けに書くのと同じ普通の Go のコードである。`%w` 付きの `fmt.Errorf`、`time.Parse`、生成された protobuf の型、`html/template` を使う。Go には比べられるリアクティビティの仕組みがないため、`reactive` はこの比較のために Vue に倣って書いたものである。JavaScript 側はライブラリの通常の API を使う。Markdown のレンダラーはいくつかの文字のエスケープの仕方が異なるため、そのエスケープを戻してから HTML を比べる。入力と処理は [js/libs.mjs](js/libs.mjs) に、JavaScript 版は [js/impl/](js/impl) にある。
+フレームワークについては、ページが最も依存する部分を比べる。React はレンダリング、VitePress と Astro は Markdown のレンダラー、Vue はリアクティビティを対象にする。Go 側は、ネイティブのプログラム向けに書くのと同じ普通の Go のコードである。`%w` 付きの `fmt.Errorf`、`time.Parse`、生成された protobuf の型、`html/template` を使う。Go には比べられるリアクティビティの仕組みがないため、`reactive` はこの比較のために Vue に倣って書いたものである。Vue と同じく、前回と同じ ref や computed を読んだ計算は購読を張り直さない。JavaScript 側はライブラリの通常の API を使う。Markdown のレンダラーはいくつかの文字のエスケープの仕方が異なるため、そのエスケープを戻してから HTML を比べる。入力と処理は [js/libs.mjs](js/libs.mjs) に、JavaScript 版は [js/impl/](js/impl) にある。
 
 ## 結果
 
 <!-- compare:start -->
 | 比較対象 | Go パッケージ | goesm gzip | JS gzip | 比 |
 | --- | --- | --- | --- | --- |
-| luxon | `datetime` | 25.3 KiB | 21.7 KiB | 1.17× |
-| neverthrow | `result` | 102.3 KiB | 2.4 KiB | 42.83× |
-| connect-es | `rpc` | 1312.1 KiB | 32.9 KiB | 39.94× |
-| react | `render` | 335.3 KiB | 64.3 KiB | 5.21× |
-| vitepress | `markdown` | 241.2 KiB | 40.4 KiB | 5.97× |
-| astro | `markdown` | 241.2 KiB | 47.2 KiB | 5.11× |
-| vue | `reactive` | 11.2 KiB | 5.3 KiB | 2.11× |
+| luxon | `datetime` | 25.2 KiB | 21.7 KiB | 1.17× |
+| neverthrow | `result` | 102.8 KiB | 2.4 KiB | 43.03× |
+| connect-es | `rpc` | 1313.7 KiB | 32.9 KiB | 39.98× |
+| react | `render` | 336.1 KiB | 64.3 KiB | 5.22× |
+| vitepress | `markdown` | 241.9 KiB | 40.4 KiB | 5.99× |
+| astro | `markdown` | 241.9 KiB | 47.2 KiB | 5.12× |
+| vue | `reactive` | 11.4 KiB | 5.3 KiB | 2.16× |
 
 | 比較対象 | node 26.10.0 goesm | node 26.10.0 JS | 比 | bun 1.4.2 goesm | bun 1.4.2 JS | 比 |
 | --- | --- | --- | --- | --- | --- | --- |
-| luxon | 2.2 ms | 8.6 ms | 0.25× | 4.6 ms | 8.1 ms | 0.58× |
-| neverthrow | 0.85 ms | 0.51 ms | 1.68× | 1.3 ms | 0.54 ms | 2.42× |
-| connect-es | 24 ms | 2.6 ms | 9.41× | 25 ms | 2.0 ms | 12.43× |
-| react | 2.6 ms | 1.7 ms | 1.56× | 3.6 ms | 2.0 ms | 1.77× |
-| vitepress | 0.40 ms | 0.24 ms | 1.69× | 0.67 ms | 0.15 ms | 4.54× |
-| astro | 0.38 ms | 2.1 ms | 0.19× | 0.56 ms | 2.6 ms | 0.22× |
-| vue | 34 ms | 6.1 ms | 5.60× | 50 ms | 5.7 ms | 8.67× |
+| luxon | 2.4 ms | 9.3 ms | 0.26× | 4.6 ms | 8.2 ms | 0.56× |
+| neverthrow | 0.91 ms | 0.53 ms | 1.73× | 1.3 ms | 0.49 ms | 2.59× |
+| connect-es | 21 ms | 2.7 ms | 7.77× | 23 ms | 2.0 ms | 11.39× |
+| react | 2.9 ms | 1.7 ms | 1.68× | 3.3 ms | 2.0 ms | 1.65× |
+| vitepress | 0.42 ms | 0.25 ms | 1.68× | 0.66 ms | 0.16 ms | 4.12× |
+| astro | 0.39 ms | 2.0 ms | 0.19× | 0.58 ms | 2.6 ms | 0.22× |
+| vue | 16 ms | 6.3 ms | 2.51× | 15 ms | 5.6 ms | 2.73× |
 <!-- compare:end -->
 
 サイズは minify した ES モジュールのバンドルを gzip のレベル 9 で圧縮したものである。時間は、ウォームアップ後に処理を 1 回実行した時間の中央値である。connect-es の処理では、エンコード済みの応答を返す `fetch` を同じプロセス内に置く。このため、計測するのはクライアントの処理だけ、すなわちリクエストのエンコード、プロトコルの処理、応答のデコードである。
