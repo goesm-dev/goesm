@@ -97,6 +97,15 @@ func main() {
 	}
 	kids.AppendPointerSlice(pointer{p: unsafe.Pointer(&message{ID: 3, Name: "three"})})
 	fmt.Println(len(m.Kids), m.Kids[2].Name)
+	// Appends that fit in the capacity, as protobuf decodes repeated
+	// message fields.
+	for i := range 6 {
+		kids.AppendPointerSlice(pointer{p: unsafe.Pointer(&message{ID: int64(4 + i), Name: fmt.Sprint("kid ", 4+i)})})
+	}
+	for _, k := range m.Kids {
+		fmt.Print(k.ID, " ", k.Name, "; ")
+	}
+	fmt.Println(len(m.Kids))
 	fmt.Println(*kids.PointerSlice()[0].Apply(offsetOf(t, "Name")).String())
 
 	// reflect.NewAt over a field's address.

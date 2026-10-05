@@ -481,8 +481,17 @@ function wrappedSlicePtr(fp: { v: any }, w: Type): any {
       v = new Proxy(a, {
         get: (t, k, r) => {
           if (typeof k === "string" && /^\d+$/.test(k)) {
+            // The element is a view of the slot too: append assigns into
+            // the element at the slice's length when it has room.
+            const i = Number(k);
             const o = w.zero();
-            o[prop] = t[Number(k)] ?? null;
+            Object.defineProperty(o, prop, {
+              get: () => t[i] ?? null,
+              set: (x) => {
+                t[i] = x;
+              },
+              enumerable: true,
+            });
             return o;
           }
           return Reflect.get(t, k, r);
