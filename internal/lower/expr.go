@@ -1543,10 +1543,26 @@ func funcIdent(fun ast.Expr) ast.Expr {
 }
 
 func (fe *funcEmitter) awaitIf(call *ast.CallExpr, s string) string {
-	if fe.pe.prog.CallBlocks(fe.info, call) {
-		return "(" + fe.await(s) + ")"
+	if !fe.pe.prog.CallBlocks(fe.info, call) {
+		return s
 	}
-	return s
+	if fe.inBody && !fe.pe.prog.CallAlwaysAsync(fe.info, call) && !returnsPointer(fe.info, call) {
+		// A function value or interface method of which only some are
+		// async: a synchronous one's result is used as it is, without
+		// the turn of the event loop an await takes (a Go value is never
+		// a JS Promise but for an unsafe.Pointer to one).
+		t := fe.declareName("$a")
+		fe.temps = append(fe.temps, t)
+		return "((" + t + " = " + s + ") instanceof Promise ? " + fe.await(t) + " : " + t + ")"
+	}
+	return "(" + fe.await(s) + ")"
+}
+
+// returnsPointer reports whether call's only result is an unsafe.Pointer,
+// which may be a JS Promise.
+func returnsPointer(info *types.Info, call *ast.CallExpr) bool {
+	b, ok := info.TypeOf(call).Underlying().(*types.Basic)
+	return ok && b.Kind() == types.UnsafePointer
 }
 
 // args lowers call arguments: conversions to parameter types, variadic

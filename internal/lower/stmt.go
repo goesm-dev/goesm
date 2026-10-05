@@ -963,6 +963,15 @@ func breaks(n ast.Node, label string, direct bool) bool {
 	return found
 }
 
+func hasDefaultCase(s *ast.SelectStmt) bool {
+	for _, c := range s.Body.List {
+		if c.(*ast.CommClause).Comm == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func isBlank(e ast.Expr) bool {
 	id, ok := e.(*ast.Ident)
 	return ok && id.Name == "_"
@@ -1153,7 +1162,9 @@ func (fe *funcEmitter) rangeFuncBranches(s *ast.RangeStmt, label string, async b
 				visit(n, false, cont)
 				return false
 			case *ast.SelectStmt:
-				if !async {
+				// One with a default case never waits, in a body that
+				// is not async too.
+				if !async && !hasDefaultCase(n) {
 					bad(n, "select in a range-over-func body is not supported here")
 				}
 				visit(n, false, cont)

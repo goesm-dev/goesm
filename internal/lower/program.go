@@ -82,6 +82,16 @@ type Program struct {
 	waitLockVals map[*ast.SelectorExpr]*types.Func
 	// goexits are the functions that may call runtime.Goexit.
 	goexits map[any]bool
+	// instArgs are the type arguments of the instantiations of each generic
+	// function; encls the declared function each call and range statement
+	// is in (see unit.encl).
+	instArgs map[*types.Func][]*types.TypeList
+	encls    map[ast.Node]*types.Func
+	// pullCalls are the calls of the next and stop functions of iter.Pull
+	// and Pull2 calls whose results are only called (see findPullCalls);
+	// pullKept the coroutine functions some of whose results go elsewhere.
+	pullCalls map[*ast.CallExpr]bool
+	pullKept  map[string]bool
 
 	// //go:linkname pulls (bodyless functions) and the functions providing
 	// their symbols (see linkname.go).
@@ -244,13 +254,22 @@ type unit struct {
 	ifaceCalls []ifaceCall
 	lockCalls  []*ast.CallExpr // sync Lock and RLock calls (lockcheck.go)
 	goexit     bool            // calls runtime.Goexit
+	// encl is the declared function whose body the unit is or is in.
+	encl *types.Func
 }
 
 func (p *Program) analyzeBlocking() {
+	p.findPullCalls()
+	p.encls = map[ast.Node]*types.Func{}
 	var units []*unit
+	add := func(u *unit, encl *types.Func) {
+		u.encl = encl
+		units = append(units, u)
+	}
 	for _, pkg := range p.Pkgs {
 		info := pkg.TypesInfo
 		for _, f := range pkg.Syntax {
+			var encl *types.Func
 			ast.Inspect(f, func(n ast.Node) bool {
 				switch n := n.(type) {
 				case *ast.FuncDecl:
@@ -258,6 +277,7 @@ func (p *Program) analyzeBlocking() {
 						return false
 					}
 					fn := info.Defs[n.Name].(*types.Func)
+					encl = fn
 					if natives.Sync(fn.FullName()) && p.std[pkg] {
 						p.syncOnly[fn] = true
 						ast.Inspect(n.Body, func(m ast.Node) bool {
@@ -270,16 +290,19 @@ func (p *Program) analyzeBlocking() {
 							return true
 						})
 					}
-					units = append(units, p.scanUnit(pkg, fn, fn.Signature(), n.Recv != nil, fn.Name(), n.Body))
+					add(p.scanUnit(pkg, fn, fn.Signature(), n.Recv != nil, fn.Name(), n.Body), encl)
 				case *ast.FuncLit:
 					sig, _ := info.TypeOf(n).(*types.Signature)
-					units = append(units, p.scanUnit(pkg, n, sig, false, "", n.Body))
+					add(p.scanUnit(pkg, n, sig, false, "", n.Body), encl)
+				case *ast.CallExpr:
+					p.encls[n] = encl
 				case *ast.RangeStmt:
+					p.encls[n] = encl
 					// A range-over-func body is the yield function passed
 					// to the iterator: its own unit, and a function value.
 					if sig, ok := info.TypeOf(n.X).Underlying().(*types.Signature); ok && sig.Params().Len() == 1 {
 						if yield, ok := sig.Params().At(0).Type().Underlying().(*types.Signature); ok {
-							units = append(units, p.scanUnit(pkg, n, yield, false, "", n.Body))
+							add(p.scanUnit(pkg, n, yield, false, "", n.Body), encl)
 						}
 					}
 				}
@@ -288,6 +311,14 @@ func (p *Program) analyzeBlocking() {
 		}
 	}
 	p.units = units
+	p.instArgs = map[*types.Func][]*types.TypeList{}
+	for _, pkg := range p.Pkgs {
+		for id, inst := range pkg.TypesInfo.Instances {
+			if fn, ok := pkg.TypesInfo.Uses[id].(*types.Func); ok {
+				p.instArgs[fn.Origin()] = append(p.instArgs[fn.Origin()], inst.TypeArgs)
+			}
+		}
+	}
 	p.funcValues, p.methodExprs = p.findFuncValues()
 	for _, u := range units {
 		if _, ok := u.key.(*ast.RangeStmt); ok {
@@ -391,9 +422,114 @@ func (p *Program) findFuncValues() (map[any]bool, map[string][]*types.Signature)
 // function values only in programs that use these functions.
 var coroutineFuncs = map[string]bool{"iter.Pull": true, "iter.Pull2": true}
 
+// findPullCalls finds the calls of iter.Pull and Pull2 whose results are
+// assigned to local variables that are only called: those calls are then
+// the only ones of the next and stop functions, which block, and the
+// function values need not match every call of a func() or func() (V, bool)
+// value. The functions of other calls stay function values (pullKept).
+func (p *Program) findPullCalls() {
+	p.pullCalls = map[*ast.CallExpr]bool{}
+	p.pullKept = map[string]bool{}
+	for _, pkg := range p.Pkgs {
+		info := pkg.TypesInfo
+		uses := map[types.Object][]*ast.Ident{}
+		for id, obj := range info.Uses {
+			uses[obj] = append(uses[obj], id)
+		}
+		callees := map[*ast.Ident]bool{} // of the calls of Pull and Pull2
+		for _, f := range pkg.Syntax {
+			funs := map[*ast.Ident]*ast.CallExpr{} // idents called directly
+			var pulls []*ast.CallExpr
+			lhs := map[*ast.CallExpr][]*ast.Ident{}
+			ast.Inspect(f, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.CallExpr:
+					if id, ok := unparen(n.Fun).(*ast.Ident); ok {
+						funs[id] = n
+					}
+					if fn := calledFunc(info, n); fn != nil && fn.Pkg() != pkg.Types && coroutineFuncs[fn.Origin().FullName()] {
+						pulls = append(pulls, n)
+						callees[identOf(funcIdent(unparen(n.Fun)))] = true
+					}
+				case *ast.AssignStmt:
+					if n.Tok == token.DEFINE && len(n.Lhs) == 2 && len(n.Rhs) == 1 {
+						if c, ok := unparen(n.Rhs[0]).(*ast.CallExpr); ok {
+							lhs[c] = identList(n.Lhs)
+						}
+					}
+				case *ast.ValueSpec:
+					if len(n.Names) == 2 && len(n.Values) == 1 {
+						if c, ok := unparen(n.Values[0]).(*ast.CallExpr); ok {
+							lhs[c] = n.Names
+						}
+					}
+				}
+				return true
+			})
+			for _, c := range pulls {
+				name := calledFunc(info, c).Origin().FullName()
+				ids := lhs[c]
+				var calls []*ast.CallExpr
+				ok := ids != nil
+				for _, id := range ids {
+					if !ok || id == nil {
+						ok = false
+						break
+					}
+					if id.Name == "_" {
+						continue
+					}
+					v, isVar := info.Defs[id].(*types.Var)
+					if !isVar || v.Parent() == nil || v.Parent() == pkg.Types.Scope() {
+						ok = false
+						break
+					}
+					for _, u := range uses[v] {
+						call, called := funs[u]
+						if !called {
+							ok = false
+							break
+						}
+						calls = append(calls, call)
+					}
+				}
+				if !ok {
+					p.pullKept[name] = true
+					continue
+				}
+				for _, call := range calls {
+					p.pullCalls[call] = true
+				}
+			}
+		}
+		// Pull as a function value: its results go anywhere.
+		for id, obj := range info.Uses {
+			if fn, ok := obj.(*types.Func); ok && fn.Pkg() != pkg.Types && coroutineFuncs[fn.Origin().FullName()] && !callees[id] {
+				p.pullKept[fn.Origin().FullName()] = true
+			}
+		}
+	}
+}
+
+// identList returns the identifiers of es, nil for one that is not.
+func identList(es []ast.Expr) []*ast.Ident {
+	ids := make([]*ast.Ident, len(es))
+	for i, e := range es {
+		ids[i], _ = e.(*ast.Ident)
+	}
+	return ids
+}
+
+// calledFunc returns the declared function call calls, if it calls one.
+func calledFunc(info *types.Info, call *ast.CallExpr) *types.Func {
+	fn, _ := info.Uses[identOf(funcIdent(unparen(call.Fun)))].(*types.Func)
+	return fn
+}
+
 func (p *Program) dropUnusedCoroutines(vals map[any]bool) {
 	used := map[string]bool{}
 	decls := map[string]*ast.FuncDecl{}
+	declPkgs := map[string]*packages.Package{}
 	for _, pkg := range p.Pkgs {
 		for _, obj := range pkg.TypesInfo.Uses {
 			if fn, ok := obj.(*types.Func); ok && fn.Pkg() != pkg.Types && coroutineFuncs[fn.Origin().FullName()] {
@@ -405,6 +541,7 @@ func (p *Program) dropUnusedCoroutines(vals map[any]bool) {
 				if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
 					if fn, ok := pkg.TypesInfo.Defs[fd.Name].(*types.Func); ok && coroutineFuncs[fn.FullName()] {
 						decls[fn.FullName()] = fd
+						declPkgs[fn.FullName()] = pkg
 					}
 				}
 			}
@@ -412,6 +549,14 @@ func (p *Program) dropUnusedCoroutines(vals map[any]bool) {
 	}
 	for name, fd := range decls {
 		if used[name] {
+			if !p.pullKept[name] {
+				// Only called where findPullCalls found: drop the
+				// function literals assigned to the results, next and
+				// stop. yield is passed to the sequence.
+				for _, lit := range resultLits(declPkgs[name], fd) {
+					delete(vals, lit)
+				}
+			}
 			continue
 		}
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
@@ -421,6 +566,31 @@ func (p *Program) dropUnusedCoroutines(vals map[any]bool) {
 			return true
 		})
 	}
+}
+
+// resultLits returns the function literals assigned to the named results
+// of fd.
+func resultLits(pkg *packages.Package, fd *ast.FuncDecl) []*ast.FuncLit {
+	info := pkg.TypesInfo
+	sig := info.Defs[fd.Name].(*types.Func).Signature()
+	results := map[types.Object]bool{}
+	for i := 0; i < sig.Results().Len(); i++ {
+		results[sig.Results().At(i)] = true
+	}
+	var lits []*ast.FuncLit
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if as, ok := n.(*ast.AssignStmt); ok && len(as.Lhs) == len(as.Rhs) {
+			for i, l := range as.Lhs {
+				id, ok := l.(*ast.Ident)
+				lit, isLit := unparen(as.Rhs[i]).(*ast.FuncLit)
+				if ok && isLit && results[info.Uses[id]] {
+					lits = append(lits, lit)
+				}
+			}
+		}
+		return true
+	})
+	return lits
 }
 
 // SyncOnly reports whether a function (*types.Func) or literal is lowered as
@@ -444,7 +614,7 @@ func (p *Program) unitBlocks(u *unit, units []*unit) bool {
 			if !p.async[o.key] || o.sig == nil {
 				continue
 			}
-			if p.funcValues[o.key] && sigMatch(s, o.sig) {
+			if p.funcValues[o.key] && p.valueSigMatch(s, u, o) {
 				return true
 			}
 			// A method reached through a method expression value: the
@@ -565,7 +735,7 @@ func (p *Program) classifyCall(info *types.Info, call *ast.CallExpr, u *unit, is
 	if isGo {
 		return
 	}
-	if p.waitLocks[call] != nil {
+	if p.waitLocks[call] != nil || p.pullCalls[call] {
 		u.blocking = true
 		return
 	}
@@ -649,11 +819,133 @@ func sigMatch(a, b *types.Signature) bool {
 	if a.Params().Len() != b.Params().Len() || a.Results().Len() != b.Results().Len() || a.Variadic() != b.Variadic() {
 		return false
 	}
-	if hasTypeParam(a) || hasTypeParam(b) {
-		return true // conservative under type parameters
+	return sigMatchIn(a, b, nil, nil)
+}
+
+// sigMatchIn is sigMatch with a's and b's type parameters bound by ma and
+// mb, where they have them.
+func sigMatchIn(a, b *types.Signature, ma, mb map[*types.TypeParam]types.Type) bool {
+	if a.Params().Len() != b.Params().Len() || a.Results().Len() != b.Results().Len() || a.Variadic() != b.Variadic() {
+		return false
 	}
-	return types.Identical(types.NewSignatureType(nil, nil, nil, a.Params(), a.Results(), a.Variadic()),
-		types.NewSignatureType(nil, nil, nil, b.Params(), b.Results(), b.Variadic()))
+	return mayUnify(a.Params(), b.Params(), ma, mb) && mayUnify(a.Results(), b.Results(), ma, mb)
+}
+
+// valueSigMatch reports whether a call of a function value of signature s,
+// in unit u, may call the function of unit o. The signatures of functions
+// that are or are in generic functions are matched for each of the
+// instantiations of those functions in the program.
+func (p *Program) valueSigMatch(s *types.Signature, u, o *unit) bool {
+	if !sigMatch(s, o.sig) {
+		return false
+	}
+	mas, mbs := p.bindings(u.encl, s), p.bindings(o.encl, o.sig)
+	if mas == nil && mbs == nil {
+		return true
+	}
+	if mas == nil {
+		mas = []map[*types.TypeParam]types.Type{nil}
+	}
+	if mbs == nil {
+		mbs = []map[*types.TypeParam]types.Type{nil}
+	}
+	for _, ma := range mas {
+		for _, mb := range mbs {
+			if sigMatchIn(s, o.sig, ma, mb) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// bindings returns the bindings of the type parameters of the generic
+// function f for each of its instantiations in the program (none when the
+// program never calls it), or nil when sig, a signature in f, has none of
+// them.
+func (p *Program) bindings(f *types.Func, sig *types.Signature) []map[*types.TypeParam]types.Type {
+	if f == nil || f.Signature().TypeParams().Len() == 0 || !hasTypeParam(sig) {
+		return nil
+	}
+	tps := f.Signature().TypeParams()
+	ms := []map[*types.TypeParam]types.Type{}
+	for _, targs := range p.instArgs[f] {
+		m := map[*types.TypeParam]types.Type{}
+		for i := 0; i < tps.Len() && i < targs.Len(); i++ {
+			m[tps.At(i)] = targs.At(i)
+		}
+		ms = append(ms, m)
+	}
+	return ms
+}
+
+// mayUnify reports whether some instantiation of the type parameters in a
+// and b may make them identical: a type parameter matches any type, but
+// one that ma or mb binds matches what its binding may be, and the parts
+// around type parameters must match. It is conservative for the local types
+// of generic functions, structs and interfaces with type parameters, whose
+// instances it does not compare.
+func mayUnify(a, b types.Type, ma, mb map[*types.TypeParam]types.Type) bool {
+	a, b = types.Unalias(a), types.Unalias(b)
+	// A binding's type parameters are another function's.
+	if tp, ok := a.(*types.TypeParam); ok {
+		if t, ok := ma[tp]; ok {
+			return mayUnify(t, b, nil, mb)
+		}
+		return true
+	}
+	if tp, ok := b.(*types.TypeParam); ok {
+		if t, ok := mb[tp]; ok {
+			return mayUnify(a, t, ma, nil)
+		}
+		return true
+	}
+	if at, ok := a.(*types.Tuple); ok {
+		bt := b.(*types.Tuple)
+		for i := 0; i < at.Len(); i++ {
+			if !mayUnify(at.At(i).Type(), bt.At(i).Type(), ma, mb) {
+				return false
+			}
+		}
+		return true
+	}
+	if !hasTypeParam(a) && !hasTypeParam(b) {
+		return types.Identical(a, b)
+	}
+	switch a := a.(type) {
+	case *types.Named:
+		b, ok := b.(*types.Named)
+		if !ok || a.Origin() != b.Origin() || a.TypeArgs().Len() != b.TypeArgs().Len() {
+			return false
+		}
+		for i := 0; i < a.TypeArgs().Len(); i++ {
+			if !mayUnify(a.TypeArgs().At(i), b.TypeArgs().At(i), ma, mb) {
+				return false
+			}
+		}
+		return true
+	case *types.Pointer:
+		b, ok := b.(*types.Pointer)
+		return ok && mayUnify(a.Elem(), b.Elem(), ma, mb)
+	case *types.Slice:
+		b, ok := b.(*types.Slice)
+		return ok && mayUnify(a.Elem(), b.Elem(), ma, mb)
+	case *types.Array:
+		b, ok := b.(*types.Array)
+		return ok && a.Len() == b.Len() && mayUnify(a.Elem(), b.Elem(), ma, mb)
+	case *types.Chan:
+		b, ok := b.(*types.Chan)
+		return ok && a.Dir() == b.Dir() && mayUnify(a.Elem(), b.Elem(), ma, mb)
+	case *types.Map:
+		b, ok := b.(*types.Map)
+		return ok && mayUnify(a.Key(), b.Key(), ma, mb) && mayUnify(a.Elem(), b.Elem(), ma, mb)
+	case *types.Signature:
+		b, ok := b.(*types.Signature)
+		return ok && sigMatchIn(a, b, ma, mb)
+	case *types.Basic:
+		return false // b has type parameters, which a basic type has not
+	}
+	return true
 }
 
 // outerTypeParams returns the type parameters of the generic function or
@@ -743,15 +1035,33 @@ func hasTypeParam(t types.Type) bool {
 
 // CallBlocks reports whether the call may block (and must be awaited).
 func (p *Program) CallBlocks(info *types.Info, call *ast.CallExpr) bool {
-	u := &unit{}
+	u := &unit{encl: p.encls[call]}
 	p.classifyCall(info, call, u, false)
 	return p.unitBlocks(u, p.units)
+}
+
+// CallAlwaysAsync reports whether a call that may block is always of an
+// async function, which returns a Promise: a call of a declared function or
+// method, or a waiting lock. A call of a function value or an interface
+// method may be of a function that is not async.
+func (p *Program) CallAlwaysAsync(info *types.Info, call *ast.CallExpr) bool {
+	u := &unit{}
+	p.classifyCall(info, call, u, false)
+	if u.blocking {
+		return true
+	}
+	for _, c := range u.callees {
+		if p.async[c] && !p.syncOnly[c] {
+			return true
+		}
+	}
+	return false
 }
 
 // RangeBlocks reports whether a range-over-func statement's call of its
 // iterator may block (and must be awaited).
 func (p *Program) RangeBlocks(info *types.Info, s *ast.RangeStmt) bool {
-	u := &unit{}
+	u := &unit{encl: p.encls[s]}
 	p.classifyFunc(info, s.X, u)
 	return p.unitBlocks(u, p.units)
 }

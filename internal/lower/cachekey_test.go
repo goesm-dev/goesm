@@ -15,7 +15,8 @@ import (
 // read, each of which Facts covers: in the digests of the package or of its
 // dependencies (async, syncOnly, boxed, linkPulls, linkProvides, std, Deps,
 // TracksGoroutines and the methods reading them), as answers recorded for
-// the package's nodes (CallBlocks, RangeBlocks, WaitLock, WaitLockVal), or
+// the package's nodes (CallBlocks, CallAlwaysAsync, RangeBlocks, WaitLock,
+// WaitLockVal), or
 // as output the module cache keeps with the module (Diags, Warns).
 var covered = map[string]bool{
 	"Fset": true, "Diags": true, "Warns": true, "errorf": true,
@@ -25,7 +26,7 @@ var covered = map[string]bool{
 	"linkPulls": true, "linkProvides": true,
 	"std": true, "Deps": true,
 	"TracksGoroutines": true, "awaitMain": true,
-	"CallBlocks": true, "RangeBlocks": true, "WaitLock": true, "WaitLockVal": true,
+	"CallBlocks": true, "CallAlwaysAsync": true, "RangeBlocks": true, "WaitLock": true, "WaitLockVal": true,
 }
 
 // TestFactsCoverProgram fails when the lowering reads a Program field or
