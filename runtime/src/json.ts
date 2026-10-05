@@ -415,6 +415,96 @@ function jsonText(x: Iface | null): string | null {
   }
 }
 
+// ---- Generated encoders ----
+//
+// The lowering generates an encoder for json.Marshal of a value whose
+// static type it knows (see the lowering's jsonenc.go): a function from the
+// value to the JS value whose JSON.stringify is its encoding. These are its
+// helpers. Strings go into the JS value as they are, and one scan of the
+// text finds whether any had bytes past ASCII or HTML characters; the
+// encoder then runs again with jsonStr converting such strings.
+
+let encCareful = false; // jsonStr converts the strings
+let encSlow = false; // jsonStr converted a string
+const encSpecial = /[\x80-\xff<>&]/;
+
+export function jsonStr(s: string): string {
+  return encCareful ? carefulStr(s) : s;
+}
+
+function carefulStr(s: string): string {
+  if (!encSpecial.test(s)) return s;
+  encSlow = true;
+  return jsString(s);
+}
+
+export function jsonKey(k: string): string {
+  if (indexLike.test(k)) throw NoJS;
+  return jsonStr(k);
+}
+
+export function jsonInt(n: number): number {
+  if (!Number.isSafeInteger(n)) throw NoJS;
+  return n;
+}
+
+export function jsonInt64(b: bigint): number {
+  const n = Number(b);
+  if (!Number.isSafeInteger(n)) throw NoJS;
+  return n;
+}
+
+export function jsonFloat(f: number): number {
+  if (!Number.isFinite(f)) abort(); // an UnsupportedValueError
+  if (f === 0 && 1 / f < 0) throw NoJS;
+  return f;
+}
+
+export function jsonAbort(): never {
+  abort();
+}
+
+// encodedText is the JSON text of v by the generated encoder f, or null for
+// the runtime's encoder (or Go's code) to do it.
+function encodedText(f: (v: any, d: number) => any, v: any): string | null {
+  try {
+    encCareful = false;
+    let out = JSON.stringify(f(v, 0));
+    if (!encSpecial.test(out)) {
+      textIsGo = true; // ASCII, the same as its UTF-8
+      return out;
+    }
+    encCareful = true;
+    encSlow = false;
+    out = JSON.stringify(f(v, 0));
+    textIsGo = !encSlow;
+    if (encSlow && htmlChars.test(out)) out = out.replace(htmlCharsAll, htmlEscape);
+    return out;
+  } catch (e) {
+    if (e === NoJS || e === Abort) return null;
+    throw e;
+  } finally {
+    encCareful = false;
+  }
+}
+
+// jsonMarshalWith is json.Marshal(v) by the generated encoder f, or null.
+export function jsonMarshalWith(f: (v: any, d: number) => any, v: any): S<number> | null {
+  const out = encodedText(f, v);
+  if (out === null) return null;
+  // An ASCII text is its own UTF-8, which the engine's encoder copies.
+  if (!textIsGo && out.length < 256) return stringToBytes(fromJSString(out));
+  const b = utf8Enc.encode(out);
+  return new Slice(b as any, 0, b.length, b.length);
+}
+
+// jsonMarshalStringWith is jsonMarshalString(v) by the generated encoder f,
+// or null.
+export function jsonMarshalStringWith(f: (v: any, d: number) => any, v: any): string | null {
+  const out = encodedText(f, v);
+  return out === null || textIsGo ? out : fromJSString(out);
+}
+
 // ---- Unmarshal ----
 
 class Decoder {

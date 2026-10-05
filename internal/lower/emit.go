@@ -144,6 +144,10 @@ type pkgEmitter struct {
 	// json.Marshal calls defining them (see json.go).
 	strBytes   map[*types.Var]bool
 	strMarshal map[*ast.CallExpr]bool
+	// jsonEncs maps types to their generated JSON encoders, which
+	// jsonFuncs holds (see jsonenc.go).
+	jsonEncs  typeutil.Map
+	jsonFuncs *writer
 
 	inits    []string
 	initObjs []any
@@ -166,6 +170,7 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		consts:     newWriter(tab),
 		phase2:     newWriter(tab),
 		funcs:      newWriter(tab),
+		jsonFuncs:  newWriter(tab),
 		vars:       newWriter(tab),
 		exportSet:  map[string]bool{},
 		wrappers:   map[string]string{},
@@ -456,7 +461,7 @@ func (pe *pkgEmitter) emit() *Module {
 	if pe.usesIR {
 		out.ln("let $ir: any;")
 	}
-	for _, sec := range []*writer{pe.classes, pe.phase1, pe.consts, pe.phase2, pe.funcs, pe.vars} {
+	for _, sec := range []*writer{pe.classes, pe.phase1, pe.consts, pe.phase2, pe.funcs, pe.jsonFuncs, pe.vars} {
 		if sec == pe.phase2 && pe.definesTypes {
 			out.ln("$rt.flushTypes(); // the defined types' underlying types and methods")
 		}
