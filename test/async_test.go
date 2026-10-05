@@ -8,13 +8,14 @@ import (
 
 // TestAsyncStaysLocal checks that functions that cannot block are lowered
 // as synchronous although the program uses iter.Pull and calls of
-// interfaces and function values some of whose implementations block: an
-// async function makes its callers async and each call cost a turn of the
-// event loop.
+// interfaces and function values some of whose implementations block, or
+// calls functions that block only for some arguments: an async function
+// makes its callers async and each call cost a turn of the event loop.
 func TestAsyncStaysLocal(t *testing.T) {
 	for _, c := range []struct {
 		program   string
 		async     []string            // functions of the main package
+		sync      []string            // functions of the main package
 		syncStd   map[string][]string // package path → functions
 		awaitOnly string              // a conditional await of the program
 	}{
@@ -27,6 +28,12 @@ func TestAsyncStaysLocal(t *testing.T) {
 			program:   "asynccalls",
 			async:     []string{"fill", "apply"},
 			awaitOnly: `instanceof Promise \? await`,
+		},
+		{
+			program: "paramsync",
+			async:   []string{"apply", "twice", "write", "main"},
+			sync:    []string{"label", "count", "digest", "build", "apply$sync", "twice$sync", "write$sync"},
+			syncStd: map[string][]string{"fmt": {"Sprintf", "Fprintf$sync"}},
 		},
 	} {
 		t.Run(c.program, func(t *testing.T) {
@@ -52,6 +59,7 @@ func TestAsyncStaysLocal(t *testing.T) {
 			}
 			main := read("programs/" + c.program)
 			check(main, "main", c.async, true)
+			check(main, "main", c.sync, false)
 			for pkg, names := range c.syncStd {
 				check(read(pkg), pkg, names, false)
 			}

@@ -28,11 +28,12 @@ func (p *Program) LowerPackage(pkg *packages.Package, opts Options) *Module {
 // decided about the functions, literals, range statements and variables the
 // package declares, and the answers to the per-node questions the lowering
 // asks the Program (CallBlocks, CallAlwaysAsync, RangeBlocks, WaitLock,
-// WaitLockVal). The module of a package is fully determined by its own
-// source, the source of the packages it depends on, these digests for
-// itself and its dependencies, and the Program-wide switches;
-// internal/build keys its cache on them. Positions in the digests are offsets within files, so editing one
-// package does not change the digests of the others.
+// WaitLockVal, SyncClone, and CallBlocksIn for the calls in clones). The
+// module of a package is fully determined by its own source, the source of
+// the packages it depends on, these digests for itself and its
+// dependencies, and the Program-wide switches; internal/build keys its
+// cache on them. Positions in the digests are offsets within files, so
+// editing one package does not change the digests of the others.
 //
 // ok is false if a fact could not be attributed to a package, in which case
 // nothing may be cached.
@@ -95,6 +96,9 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 	for k, v := range p.syncOnly {
 		add("syncOnly", k, strconv.FormatBool(v))
 	}
+	for k, v := range p.cloned {
+		add("cloned", k, strconv.FormatBool(v))
+	}
 	for k, v := range p.boxed {
 		add("boxed", k, strconv.FormatBool(v))
 	}
@@ -140,7 +144,10 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 					_, where := at(n.Pos())
 					wait, locker := p.WaitLock(n)
 					blocks := p.CallBlocks(info, n)
-					fmt.Fprintf(h, "call %s %v %v %s %v\n", where, blocks, blocks && p.CallAlwaysAsync(info, n), funcName(wait), locker)
+					fmt.Fprintf(h, "call %s %v %v %s %v %v\n", where, blocks, blocks && p.CallAlwaysAsync(info, n), funcName(wait), locker, p.SyncClone(info, n, nil))
+					if encl := p.encls[n]; p.cloned[encl] {
+						fmt.Fprintf(h, "clone call %s %v %v\n", where, p.CallBlocksIn(info, n, encl), p.SyncClone(info, n, encl))
+					}
 				case *ast.RangeStmt:
 					if _, ok := info.TypeOf(n.X).Underlying().(*types.Signature); ok {
 						_, where := at(n.Pos())

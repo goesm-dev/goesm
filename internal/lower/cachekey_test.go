@@ -16,7 +16,7 @@ import (
 // dependencies (async, syncOnly, boxed, linkPulls, linkProvides, DynMethod, std, Deps,
 // TracksGoroutines and the methods reading them), as answers recorded for
 // the package's nodes (CallBlocks, CallAlwaysAsync, RangeBlocks, WaitLock,
-// WaitLockVal), or
+// WaitLockVal, SyncClone, CallBlocksIn; cloned through HasClone), or
 // as output the module cache keeps with the module (Diags, Warns).
 var covered = map[string]bool{
 	"Fset": true, "Diags": true, "Warns": true, "errorf": true,
@@ -28,6 +28,7 @@ var covered = map[string]bool{
 	"TracksGoroutines": true, "awaitMain": true,
 	"CallBlocks": true, "CallAlwaysAsync": true, "RangeBlocks": true, "WaitLock": true, "WaitLockVal": true,
 	"DynMethod": true,
+	"cloned":    true, "HasClone": true, "SyncClone": true, "CallBlocksIn": true,
 }
 
 // TestFactsCoverProgram fails when the lowering reads a Program field or

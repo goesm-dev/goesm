@@ -35,6 +35,9 @@ type funcEmitter struct {
 	sig      *types.Signature
 	async    bool
 	syncOnly bool // channel operations must complete at once (natives.Sync)
+	// assume is set to the function whose synchronous clone is being
+	// lowered (paramsync.go); not in its function literals.
+	assume   *types.Func
 	hasDefer bool
 	results  []string // JS references to the result variables, when materialised
 	resultTs []types.Type
@@ -80,6 +83,12 @@ func (fe *funcEmitter) child(w *writer, sig *types.Signature) *funcEmitter {
 		names: fe.names, used: fe.used, override: fe.override, tmpN: fe.tmpN,
 		tp: fe.tp, sig: sig, fieldLocals: fe.fieldLocals,
 	}
+}
+
+// callBlocks reports whether call may block, in the clone being lowered
+// if any.
+func (fe *funcEmitter) callBlocks(call *ast.CallExpr) bool {
+	return fe.pe.prog.CallBlocksIn(fe.info, call, fe.assume)
 }
 
 func (fe *funcEmitter) errorf(pos token.Pos, format string, args ...any) {

@@ -45,6 +45,27 @@ type Program struct {
 	// *ast.FuncLit) that may block and are therefore lowered to async
 	// functions.
 	async map[any]bool
+	// tracked, paramCalls and paramUses are the tracked parameters of
+	// declared functions, the calls through them and their uses; asyncA
+	// the functions that block even when their parameter uses do not, and
+	// cloned those that get a synchronous clone (paramsync.go).
+	tracked    map[*types.Func]map[*types.Var]trackedVar
+	paramCalls map[*ast.CallExpr]paramCall
+	paramUses  map[*types.Func][]map[string]paramUse
+	asyncA     map[*types.Func]bool
+	cloned     map[*types.Func]bool
+	// nonEsc are the tracked function parameters that are only called,
+	// compared with nil or passed on as such parameters; argOnly the
+	// function literals, functions and method values only passed as them,
+	// which are not function values; sitesOf the static calls of each
+	// function, and unsited the functions also called elsewhere (in go
+	// statements and package variable initializers); localLits the local
+	// variables holding a literal only passed as them.
+	nonEsc    map[*types.Func]map[int]bool
+	argOnly   map[ast.Expr]bool
+	localLits map[*types.Var]*ast.FuncLit
+	sitesOf   map[*types.Func][]siteRef
+	unsited   map[*types.Func]bool
 	// syncOnly are blocking-looking functions lowered as synchronous
 	// (natives.Sync, and the function literals inside them).
 	syncOnly map[any]bool
@@ -135,7 +156,12 @@ func NewProgram(fset *token.FileSet, pkgs []*packages.Package, std map[*packages
 		byTypes:  map[*types.Package]*packages.Package{},
 		async:    map[any]bool{},
 		syncOnly: map[any]bool{},
-		boxed:    map[*types.Var]bool{},
+
+		tracked:    map[*types.Func]map[*types.Var]trackedVar{},
+		paramCalls: map[*ast.CallExpr]paramCall{},
+		paramUses:  map[*types.Func][]map[string]paramUse{},
+		asyncA:     map[*types.Func]bool{},
+		boxed:      map[*types.Var]bool{},
 
 		ifaceImpls:   map[string][]ifaceImpl{},
 		implCache:    map[[2]any]bool{},
@@ -148,8 +174,8 @@ func NewProgram(fset *token.FileSet, pkgs []*packages.Package, std map[*packages
 	p.analyzeAddrs()
 	p.analyzeLinknames()
 	p.TracksGoroutines = usesGLS(pkgs)
-	p.analyzeBlocking()
 	p.findDynMethods()
+	p.analyzeBlocking()
 	return p
 }
 
@@ -259,6 +285,11 @@ type unit struct {
 	callees    []any
 	dynSigs    []*types.Signature
 	ifaceCalls []ifaceCall
+	// sites are the static calls of declared functions, and paramDyn and
+	// paramIface the calls through tracked parameters (paramsync.go).
+	sites      []callSite
+	paramDyn   []paramDyn
+	paramIface []ifaceCall
 	lockCalls  []*ast.CallExpr // sync Lock and RLock calls (lockcheck.go)
 	goexit     bool            // calls runtime.Goexit
 	// encl is the declared function whose body the unit is or is in.
@@ -303,6 +334,7 @@ func (p *Program) analyzeBlocking() {
 							return true
 						})
 					}
+					p.trackParams(info, fn, n)
 					add(p.scanUnit(pkg, fn, fn.Signature(), n.Recv != nil, fn.Name(), n.Body), encl)
 				case *ast.FuncLit:
 					sig, _ := info.TypeOf(n).(*types.Signature)
@@ -332,6 +364,7 @@ func (p *Program) analyzeBlocking() {
 			}
 		}
 	}
+	p.findNonEscaping()
 	p.funcValues, p.methodExprs = p.findFuncValues()
 	for _, u := range units {
 		if _, ok := u.key.(*ast.RangeStmt); ok {
@@ -339,21 +372,24 @@ func (p *Program) analyzeBlocking() {
 		}
 	}
 	p.findIfaceTypes()
+	p.findParamUses()
 	p.propagateBlocking()
 	for p.findWaitLocks() {
 		p.propagateBlocking()
 	}
+	p.findClones()
 }
 
 func (p *Program) propagateBlocking() {
 	for changed := true; changed; {
 		changed = false
 		for _, u := range p.units {
-			if p.async[u.key] {
-				continue
-			}
-			if p.unitBlocks(u, p.units) {
+			if !p.async[u.key] && p.unitBlocks(u, p.units) {
 				p.async[u.key] = true
+				changed = true
+			}
+			if fn, ok := u.key.(*types.Func); ok && p.async[fn] && !p.asyncA[fn] && p.paramUses[fn] != nil && p.unitBlocksIn(u, p.units, fn) {
+				p.asyncA[fn] = true
 				changed = true
 			}
 		}
@@ -388,11 +424,17 @@ func (p *Program) findFuncValues() (map[any]bool, map[string][]*types.Signature)
 						callees[sel.Sel] = true
 					}
 				case *ast.FuncLit:
-					if !callees[n] {
+					if !callees[n] && !p.argOnly[n] {
 						vals[n] = true
 					}
 				case *ast.SelectorExpr:
-					if !callees[n] {
+					if !callees[n] && p.argOnly[n] {
+						// Only the receiver's locking matters.
+						if sel, ok := info.Selections[n]; ok && sel.Kind() == types.MethodVal {
+							p.addLockVal(pkg, n, n.X)
+						}
+						callees[n.Sel] = true
+					} else if !callees[n] {
 						if sel, ok := info.Selections[n]; ok && sel.Kind() == types.MethodExpr {
 							sig, _ := info.TypeOf(n).Underlying().(*types.Signature)
 							if sig != nil {
@@ -404,17 +446,14 @@ func (p *Program) findFuncValues() (map[any]bool, map[string][]*types.Signature)
 							if sel != nil && sel.Kind() == types.MethodVal {
 								p.addLockVal(pkg, n, n.X)
 								if recv := fn.Signature().Recv().Type(); isIface(recv) {
-									if tp, ok := types.Unalias(sel.Recv()).(*types.TypeParam); ok {
-										recv = tp
-									}
-									p.ifaceVals = append(p.ifaceVals, ifaceCall{recv, fn})
+									p.ifaceVals = append(p.ifaceVals, ifaceCall{ifaceRecv(sel, recv), fn})
 								}
 							}
 						}
 						callees[n.Sel] = true // the Sel ident is visited next
 					}
 				case *ast.Ident:
-					if !callees[n] {
+					if !callees[n] && !p.argOnly[n] {
 						if fn, ok := info.Uses[n].(*types.Func); ok {
 							vals[fn.Origin()] = true
 						}
@@ -611,6 +650,13 @@ func resultLits(pkg *packages.Package, fd *ast.FuncDecl) []*ast.FuncLit {
 func (p *Program) SyncOnly(key any) bool { return p.syncOnly[key] }
 
 func (p *Program) unitBlocks(u *unit, units []*unit) bool {
+	return p.unitBlocksIn(u, units, nil)
+}
+
+// unitBlocksIn is unitBlocks for the synchronous clone of assume
+// (paramsync.go): the calls through assume's tracked parameters, and
+// passing them on, do not block. A nil assume is unitBlocks.
+func (p *Program) unitBlocksIn(u *unit, units []*unit, assume *types.Func) bool {
 	if p.syncOnly[u.key] {
 		return false
 	}
@@ -622,35 +668,29 @@ func (p *Program) unitBlocks(u *unit, units []*unit) bool {
 			return true
 		}
 	}
-	for _, s := range u.dynSigs {
-		for _, o := range units {
-			if !p.async[o.key] || o.sig == nil {
-				continue
-			}
-			if p.funcValues[o.key] && p.valueSigMatch(s, u, o) {
-				return true
-			}
-			// A method reached through a method expression value: the
-			// receiver is the first parameter (an interface for I.M).
-			if o.isMethod {
-				for _, e := range p.methodExprs[o.name] {
-					if sigMatch(s, e) && sigMatch(dropFirstParam(e), o.sig) {
-						return true
-					}
-				}
-			}
+	for _, s := range u.sites {
+		if p.siteBlocks(s, assume) {
+			return true
 		}
 	}
-	for _, s := range u.dynSigs {
-		for _, lv := range p.lockVals {
-			if p.waitLockVals[lv.sel] != nil && sigMatch(s, lv.sig) {
-				return true
+	dynSigs, ifaceCalls := u.dynSigs, u.ifaceCalls
+	if assume == nil {
+		for _, d := range u.paramDyn {
+			if p.nonEsc[d.fn][d.idx] {
+				if p.paramBlocks(d.fn, d.idx, d.sig, map[paramKey]bool{}) {
+					return true
+				}
+			} else {
+				dynSigs = append(dynSigs[:len(dynSigs):len(dynSigs)], d.sig)
 			}
 		}
-		for _, c := range p.ifaceVals {
-			if sigMatch(s, c.fn.Signature()) && p.ifaceCallBlocks(c.recv, c.fn, map[types.Type]bool{}) {
-				return true
-			}
+		if len(u.paramIface) > 0 {
+			ifaceCalls = append(append([]ifaceCall{}, ifaceCalls...), u.paramIface...)
+		}
+	}
+	for _, s := range dynSigs {
+		if p.dynSigBlocks(s, u, units) {
+			return true
 		}
 	}
 	for _, c := range u.lockCalls {
@@ -658,8 +698,41 @@ func (p *Program) unitBlocks(u *unit, units []*unit) bool {
 			return true
 		}
 	}
-	for _, c := range u.ifaceCalls {
+	for _, c := range ifaceCalls {
 		if p.ifaceCallBlocks(c.recv, c.fn, map[types.Type]bool{}) {
+			return true
+		}
+	}
+	return false
+}
+
+// dynSigBlocks reports whether a call of a function value of signature s,
+// in unit u, may block: whether some function value the program has may.
+func (p *Program) dynSigBlocks(s *types.Signature, u *unit, units []*unit) bool {
+	for _, o := range units {
+		if !p.async[o.key] || o.sig == nil {
+			continue
+		}
+		if p.funcValues[o.key] && p.valueSigMatch(s, u, o) {
+			return true
+		}
+		// A method reached through a method expression value: the
+		// receiver is the first parameter (an interface for I.M).
+		if o.isMethod {
+			for _, e := range p.methodExprs[o.name] {
+				if sigMatch(s, e) && sigMatch(dropFirstParam(e), o.sig) {
+					return true
+				}
+			}
+		}
+	}
+	for _, lv := range p.lockVals {
+		if p.waitLockVals[lv.sel] != nil && sigMatch(s, lv.sig) {
+			return true
+		}
+	}
+	for _, c := range p.ifaceVals {
+		if sigMatch(s, c.fn.Signature()) && p.ifaceCallBlocks(c.recv, c.fn, map[types.Type]bool{}) {
 			return true
 		}
 	}
@@ -752,6 +825,19 @@ func (p *Program) classifyCall(info *types.Info, call *ast.CallExpr, u *unit, is
 		u.blocking = true
 		return
 	}
+	if pc := p.paramCalls[call]; pc.fn != nil {
+		c := &unit{}
+		p.classifyFunc(info, call.Fun, c)
+		for _, sig := range c.dynSigs {
+			u.paramDyn = append(u.paramDyn, paramDyn{pc.fn, pc.idx, sig})
+		}
+		u.paramIface = append(u.paramIface, c.ifaceCalls...)
+		return
+	}
+	if fn := staticCallee(info, call); fn != nil {
+		u.sites = append(u.sites, callSite{call, fn, info})
+		return
+	}
 	p.classifyFunc(info, call.Fun, u)
 }
 
@@ -789,10 +875,7 @@ func (p *Program) classifyFunc(info *types.Info, fun ast.Expr, u *unit) {
 			case types.MethodVal, types.MethodExpr:
 				fn := sel.Obj().(*types.Func)
 				if recv := fn.Signature().Recv().Type(); isIface(recv) {
-					if tp, ok := types.Unalias(sel.Recv()).(*types.TypeParam); ok {
-						recv = tp
-					}
-					u.ifaceCalls = append(u.ifaceCalls, ifaceCall{recv, fn})
+					u.ifaceCalls = append(u.ifaceCalls, ifaceCall{ifaceRecv(sel, recv), fn})
 				} else {
 					u.callees = append(u.callees, fn.Origin())
 				}
@@ -806,6 +889,20 @@ func (p *Program) classifyFunc(info *types.Info, fun ast.Expr, u *unit) {
 	if sig, ok := info.TypeOf(callee).Underlying().(*types.Signature); ok {
 		u.dynSigs = append(u.dynSigs, sig)
 	}
+}
+
+// ifaceRecv returns the type a selected interface method, declared by the
+// interface recv, is called through: the type parameter, or the interface
+// that has it (hash.Hash for its Write, not io.Writer, which declares it).
+// For a struct embedding the interface it is recv.
+func ifaceRecv(sel *types.Selection, recv types.Type) types.Type {
+	if tp, ok := types.Unalias(sel.Recv()).(*types.TypeParam); ok {
+		return tp
+	}
+	if isIface(sel.Recv()) {
+		return sel.Recv()
+	}
+	return recv
 }
 
 func identOf(e ast.Expr) *ast.Ident {
@@ -1048,9 +1145,15 @@ func hasTypeParam(t types.Type) bool {
 
 // CallBlocks reports whether the call may block (and must be awaited).
 func (p *Program) CallBlocks(info *types.Info, call *ast.CallExpr) bool {
+	return p.CallBlocksIn(info, call, nil)
+}
+
+// CallBlocksIn is CallBlocks for a call in the synchronous clone of assume
+// (paramsync.go), or, for a nil assume, anywhere else.
+func (p *Program) CallBlocksIn(info *types.Info, call *ast.CallExpr, assume *types.Func) bool {
 	u := &unit{encl: p.encls[call]}
 	p.classifyCall(info, call, u, false)
-	return p.unitBlocks(u, p.units)
+	return p.unitBlocksIn(u, p.units, assume)
 }
 
 // CallAlwaysAsync reports whether a call that may block is always of an
@@ -1065,6 +1168,11 @@ func (p *Program) CallAlwaysAsync(info *types.Info, call *ast.CallExpr) bool {
 	}
 	for _, c := range u.callees {
 		if p.async[c] && !p.syncOnly[c] {
+			return true
+		}
+	}
+	for _, s := range u.sites {
+		if p.siteBlocks(s, nil) {
 			return true
 		}
 	}

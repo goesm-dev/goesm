@@ -129,7 +129,7 @@ func (fe *funcEmitter) jsonCall(e *ast.CallExpr) (string, bool) {
 		// only when that gives up.
 		t := fe.info.TypeOf(e.Args[0])
 		typed := jsonEncComposite(t)
-		if !typed && !fe.pe.strMarshal[e] || fe.pe.prog.CallBlocks(fe.info, e) {
+		if !typed && !fe.pe.strMarshal[e] || fe.callBlocks(e) {
 			return "", false
 		}
 		s := fe.declareName("$j")
@@ -151,7 +151,7 @@ func (fe *funcEmitter) jsonCall(e *ast.CallExpr) (string, bool) {
 		return "(" + set + "(" + s + " = $rt.jsonMarshalString(" + x + ")) !== null ? [" + s + ", null] : (" +
 			s + " = " + call + ", [$rt.bytesToString(" + s + "[0]), " + s + "[1]]))", true
 	}
-	if len(e.Args) != 2 || !isJSONFunc(fe.info, e, "Unmarshal") || fe.pe.prog.CallBlocks(fe.info, e) {
+	if len(e.Args) != 2 || !isJSONFunc(fe.info, e, "Unmarshal") || fe.callBlocks(e) {
 		return "", false
 	}
 	conv, ok := ast.Unparen(e.Args[0]).(*ast.CallExpr)

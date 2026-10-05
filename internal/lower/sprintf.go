@@ -125,7 +125,7 @@ func (fe *funcEmitter) isSprintf(e *ast.CallExpr) bool {
 // sprintf lowers a call of fmt.Sprintf as described above, or returns
 // false.
 func (fe *funcEmitter) sprintf(e *ast.CallExpr) (string, bool) {
-	if !fe.inBody || e.Ellipsis.IsValid() || len(e.Args) == 0 || !fe.isSprintf(e) || fe.pe.prog.CallBlocks(fe.info, e) {
+	if !fe.inBody || e.Ellipsis.IsValid() || len(e.Args) == 0 || !fe.isSprintf(e) || fe.callBlocks(e) {
 		return "", false
 	}
 	ftv := fe.info.Types[e.Args[0]]
