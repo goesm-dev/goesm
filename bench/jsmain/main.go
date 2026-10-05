@@ -4,9 +4,9 @@
 // the compilers that build programs rather than packages: GopherJS, Go's
 // js/wasm port and TinyGo's wasm target. It sets globalThis.goBench to an
 // object with one function per kernel, then blocks so the functions stay
-// callable. Upper and Handle take and return strings. Channels returns a
-// Promise: a syscall/js callback must not block, so the kernel runs on its
-// own goroutine.
+// callable. Upper and Handle take and return strings. The kernels of
+// byNameAsync return a Promise: a syscall/js callback must not block, so
+// they run on their own goroutine.
 package main
 
 import (
@@ -16,20 +16,30 @@ import (
 )
 
 var byName = map[string]func(int) int{
-	"Fib":         kernels.Fib,
-	"Sieve":       kernels.Sieve,
-	"Mandelbrot":  kernels.Mandelbrot,
-	"FNV32":       kernels.FNV32,
-	"FNV64":       kernels.FNV64,
-	"NBody":       kernels.NBody,
-	"BinaryTrees": kernels.BinaryTrees,
-	"Interfaces":  kernels.Interfaces,
-	"MapInt":      kernels.MapInt,
-	"MapString":   kernels.MapString,
-	"Strings":     kernels.Strings,
-	"Sort":        kernels.Sort,
-	"JSON":        kernels.JSON,
-	"Sprintf":     kernels.Sprintf,
+	"Fib":           kernels.Fib,
+	"Sieve":         kernels.Sieve,
+	"Mandelbrot":    kernels.Mandelbrot,
+	"FNV32":         kernels.FNV32,
+	"FNV64":         kernels.FNV64,
+	"NBody":         kernels.NBody,
+	"BinaryTrees":   kernels.BinaryTrees,
+	"Interfaces":    kernels.Interfaces,
+	"MapInt":        kernels.MapInt,
+	"MapString":     kernels.MapString,
+	"Strings":       kernels.Strings,
+	"Sort":          kernels.Sort,
+	"JSON":          kernels.JSON,
+	"Sprintf":       kernels.Sprintf,
+	"Rand64":        kernels.Rand64,
+	"MaybeBlocking": kernels.MaybeBlocking,
+	"RSASign":       kernels.RSASign,
+}
+
+// byNameAsync are the kernels that block: on channels, on a WaitGroup or,
+// for iter.Pull, possibly on a goroutine (see pull.go).
+var byNameAsync = map[string]func(int) int{
+	"Channels": kernels.Channels,
+	"Parallel": kernels.Parallel,
 }
 
 func main() {
@@ -40,14 +50,17 @@ func main() {
 			return f(args[0].Int())
 		}))
 	}
-	exports.Set("Channels", js.FuncOf(func(this js.Value, args []js.Value) any {
-		n := args[0].Int()
-		return js.Global().Get("Promise").New(js.FuncOf(func(this js.Value, args []js.Value) any {
-			resolve := args[0]
-			go func() { resolve.Invoke(kernels.Channels(n)) }()
-			return nil
+	for name, f := range byNameAsync {
+		f := f
+		exports.Set(name, js.FuncOf(func(this js.Value, args []js.Value) any {
+			n := args[0].Int()
+			return js.Global().Get("Promise").New(js.FuncOf(func(this js.Value, args []js.Value) any {
+				resolve := args[0]
+				go func() { resolve.Invoke(f(n)) }()
+				return nil
+			}))
 		}))
-	}))
+	}
 	exports.Set("Upper", js.FuncOf(func(this js.Value, args []js.Value) any {
 		return kernels.Upper(args[0].String())
 	}))
