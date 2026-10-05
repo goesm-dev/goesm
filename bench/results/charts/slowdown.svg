@@ -24,38 +24,38 @@
 <line class="g" x1="680.0" y1="74" x2="680.0" y2="345"/>
 <text class="m" x="680.0" y="359" text-anchor="middle">20.0×</text>
 <text class="t" x="140" y="120.5" text-anchor="end">Node.js v26.10.0</text>
-<rect x="150" y="78" width="104.2" height="13" rx="2" fill="#8c959f"><title>1.03×</title></rect>
-<text class="t" x="258.2" y="89" font-size="11">1.03×</text>
-<rect x="150" y="94" width="132.2" height="13" rx="2" fill="#2f81f7"><title>1.25×</title></rect>
-<text class="t" x="286.2" y="105" font-size="11">1.25×</text>
-<rect x="150" y="110" width="435.9" height="13" rx="2" fill="#d29922"><title>10.39×</title></rect>
-<text class="t" x="589.9" y="121" font-size="11">10.39×</text>
-<rect x="150" y="126" width="229.2" height="13" rx="2" fill="#a371f7"><title>2.46×</title></rect>
-<text class="t" x="383.2" y="137" font-size="11">2.46×</text>
-<rect x="150" y="142" width="191.9" height="13" rx="2" fill="#3fb950"><title>1.90×</title></rect>
-<text class="t" x="345.9" y="153" font-size="11">1.90×</text>
+<rect x="150" y="78" width="95.8" height="13" rx="2" fill="#8c959f"><title>0.97×</title></rect>
+<text class="t" x="249.8" y="89" font-size="11">0.97×</text>
+<rect x="150" y="94" width="109.9" height="13" rx="2" fill="#2f81f7"><title>1.07×</title></rect>
+<text class="t" x="263.9" y="105" font-size="11">1.07×</text>
+<rect x="150" y="110" width="430.9" height="13" rx="2" fill="#d29922"><title>10.04×</title></rect>
+<text class="t" x="584.9" y="121" font-size="11">10.04×</text>
+<rect x="150" y="126" width="228.7" height="13" rx="2" fill="#a371f7"><title>2.46×</title></rect>
+<text class="t" x="382.7" y="137" font-size="11">2.46×</text>
+<rect x="150" y="142" width="168.2" height="13" rx="2" fill="#3fb950"><title>1.61×</title></rect>
+<text class="t" x="322.2" y="153" font-size="11">1.61×</text>
 <text class="t" x="140" y="213.5" text-anchor="end">Bun 1.4.2</text>
-<rect x="150" y="171" width="110.5" height="13" rx="2" fill="#8c959f"><title>1.08×</title></rect>
-<text class="t" x="264.5" y="182" font-size="11">1.08×</text>
-<rect x="150" y="187" width="147.3" height="13" rx="2" fill="#2f81f7"><title>1.39×</title></rect>
-<text class="t" x="301.3" y="198" font-size="11">1.39×</text>
-<rect x="150" y="203" width="404.8" height="13" rx="2" fill="#d29922"><title>8.37×</title></rect>
-<text class="t" x="558.8" y="214" font-size="11">8.37×</text>
-<rect x="150" y="219" width="216.1" height="13" rx="2" fill="#a371f7"><title>2.25×</title></rect>
-<text class="t" x="370.1" y="230" font-size="11">2.25×</text>
-<rect x="150" y="235" width="214.8" height="13" rx="2" fill="#3fb950"><title>2.23×</title></rect>
-<text class="t" x="368.8" y="246" font-size="11">2.23×</text>
+<rect x="150" y="171" width="110.8" height="13" rx="2" fill="#8c959f"><title>1.08×</title></rect>
+<text class="t" x="264.8" y="182" font-size="11">1.08×</text>
+<rect x="150" y="187" width="100.2" height="13" rx="2" fill="#2f81f7"><title>1.00×</title></rect>
+<text class="t" x="254.2" y="198" font-size="11">1.00×</text>
+<rect x="150" y="203" width="402.0" height="13" rx="2" fill="#d29922"><title>8.21×</title></rect>
+<text class="t" x="556.0" y="214" font-size="11">8.21×</text>
+<rect x="150" y="219" width="219.9" height="13" rx="2" fill="#a371f7"><title>2.31×</title></rect>
+<text class="t" x="373.9" y="230" font-size="11">2.31×</text>
+<rect x="150" y="235" width="189.2" height="13" rx="2" fill="#3fb950"><title>1.87×</title></rect>
+<text class="t" x="343.2" y="246" font-size="11">1.87×</text>
 <text class="t" x="140" y="306.5" text-anchor="end">Chromium 141.0.7390.37</text>
-<rect x="150" y="264" width="92.3" height="13" rx="2" fill="#8c959f"><title>0.95×</title></rect>
-<text class="t" x="246.3" y="275" font-size="11">0.95×</text>
-<rect x="150" y="280" width="129.5" height="13" rx="2" fill="#2f81f7"><title>1.23×</title></rect>
-<text class="t" x="283.5" y="291" font-size="11">1.23×</text>
-<rect x="150" y="296" width="411.1" height="13" rx="2" fill="#d29922"><title>8.74×</title></rect>
-<text class="t" x="565.1" y="307" font-size="11">8.74×</text>
-<rect x="150" y="312" width="238.7" height="13" rx="2" fill="#a371f7"><title>2.63×</title></rect>
-<text class="t" x="392.7" y="323" font-size="11">2.63×</text>
-<rect x="150" y="328" width="198.3" height="13" rx="2" fill="#3fb950"><title>1.99×</title></rect>
-<text class="t" x="352.3" y="339" font-size="11">1.99×</text>
+<rect x="150" y="264" width="86.5" height="13" rx="2" fill="#8c959f"><title>0.91×</title></rect>
+<text class="t" x="240.5" y="275" font-size="11">0.91×</text>
+<rect x="150" y="280" width="105.7" height="13" rx="2" fill="#2f81f7"><title>1.04×</title></rect>
+<text class="t" x="259.7" y="291" font-size="11">1.04×</text>
+<rect x="150" y="296" width="420.8" height="13" rx="2" fill="#d29922"><title>9.35×</title></rect>
+<text class="t" x="574.8" y="307" font-size="11">9.35×</text>
+<rect x="150" y="312" width="237.3" height="13" rx="2" fill="#a371f7"><title>2.61×</title></rect>
+<text class="t" x="391.3" y="323" font-size="11">2.61×</text>
+<rect x="150" y="328" width="176.8" height="13" rx="2" fill="#3fb950"><title>1.71×</title></rect>
+<text class="t" x="330.8" y="339" font-size="11">1.71×</text>
 <line class="r" x1="249.6" y1="72" x2="249.6" y2="345" stroke-dasharray="4 3" stroke-width="1.2"/>
 <text class="t" x="249.6" y="373" text-anchor="middle" font-size="11">native Go</text>
 </svg>
