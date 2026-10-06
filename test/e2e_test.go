@@ -196,9 +196,10 @@ const rt = m.$goesm;
 const out = {};
 for (const [name, f] of Object.entries(m.$goesm.funcs)) {
   if (f.type.params.length !== 0 || f.type.results.length === 0) continue;
+  const rs = f.type.results;
   let r = f.fn();
   if (f.async) r = await r;
-  const rs = f.type.results;
+  else if (rs.length > 1) r = rt.tuple(r, rs.length);
   out[name] = rs.length === 1 ? rt.toJS(rs[0], r) : rs.map((t, i) => rt.toJS(t, r[i]));
 }
 // int64 and uint64 are BigInts: print them as exact JSON numbers.

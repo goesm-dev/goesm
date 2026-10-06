@@ -238,14 +238,26 @@ func (pe *pkgEmitter) exportWrapper(fn *types.Func, name, exported string, async
 		nres--
 	}
 	simple := !hasErr && results.Len() <= 1
+	// result is the i-th result of the call: an async function's are in
+	// the array it resolves to, the others' after the first in the result
+	// registers, which the wrapper copies at once ($r1, ...), before any
+	// conversion runs Go code (an error's Error method).
+	result := func(i int) string {
+		switch {
+		case results.Len() <= 1:
+			return "$r"
+		case async:
+			return fmt.Sprintf("$r[%d]", i)
+		case i == 0:
+			return "$r"
+		}
+		return fmt.Sprintf("$r%d", i)
+	}
 	var conv []string
 	for i := 0; i < nres; i++ {
-		x := "$r"
-		switch {
-		case simple:
-			x = call
-		case results.Len() > 1:
-			x = fmt.Sprintf("$r[%d]", i)
+		x := call
+		if !simple {
+			x = result(i)
 		}
 		conv = append(conv, pe.exportOut(results.At(i).Type(), x))
 	}
@@ -267,17 +279,22 @@ func (pe *pkgEmitter) exportWrapper(fn *types.Func, name, exported string, async
 		w.ln("  throw $rt.toPanic(e);")
 		w.ln("}")
 	} else {
-		w.ln("let $r;")
+		regs := ""
+		var reads []string
+		if !async {
+			for i := 1; i < results.Len(); i++ {
+				regs += fmt.Sprintf(", $r%d", i)
+				reads = append(reads, fmt.Sprintf(" $r%d = $rt.$R.r%d;", i, i))
+			}
+		}
+		w.ln("let $r%s;", regs)
 		w.ln("try {")
-		w.ln("  $r = %s;", call)
+		w.ln("  $r = %s;%s", call, strings.Join(reads, ""))
 		w.ln("} catch (e) {")
 		w.ln("  throw $rt.toPanic(e);")
 		w.ln("}")
 		if hasErr {
-			e := "$r"
-			if results.Len() > 1 {
-				e = fmt.Sprintf("$r[%d]", results.Len()-1)
-			}
+			e := result(results.Len() - 1)
 			w.ln("if (%s !== null) throw $jsabi.goError(%s);", e, e)
 			pe.usesJSABI = true
 		}

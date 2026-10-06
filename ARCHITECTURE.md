@@ -106,6 +106,12 @@ The weakness in 2 is covered by spilling to temporaries in the lowering where ev
 | chan | runtime `Chan` | |
 | type parameter | the representation of its type argument (erasure) | type descriptors arrive as dictionary parameters |
 
+### Several results
+
+A function with several results that does not block returns its first result and leaves the others in the runtime's result registers, `$rt.$R.r1`, `$rt.$R.r2` and so on (`runtime/src/results.ts`). The caller reads them right after the call, before anything else can run Go code: `n, err := parse(s)` becomes `const $1 = parse(s); let n = $1; let err = $rt.$R.r1;`, and `return n, nil` becomes `return ($rt.$R.r1 = null, n)`. Comma-ok forms of map lookups and type assertions work the same way (`$rt.mapLookup`, `$rt.assertOk`). A return statement whose values call Go code evaluates them in order into temporaries before it sets the registers, and `return f()` passes the results of a call with the same result types on as they are. An array of the results would be allocated at every call that V8 does not inline: `strconv.Atoi`-style parsing loops, `utf8.DecodeRuneInString` loops and comma-ok map lookups ran 1.2 to 1.5 times as fast with registers on Node and Bun.
+
+A function that blocks (an async function) still resolves to an array of its results, since other goroutines run before its caller resumes and could overwrite the registers. The caller moves them into the registers when the await returns (`$rt.untuple(await f())`), so code after a call looks the same whichever kind of function it called; this is also what makes a call through a function value or an interface method, which may be either, work. Natives return arrays too, which the function wrapping a native moves into the registers. JavaScript sees neither form: export wrappers return several results as an array, and the `$goesm` table's `tuple` collects them for the test harness.
+
 ### 64-bit integers
 
 `int64` and `uint64` are BigInts; `int`, `uint` and `uintptr` stay JS numbers. Explicit 64-bit types are where Go code needs all 64 bits (hashes, random numbers, `time` nanoseconds, IDs in JSON, `math.Float64bits`), while `int` indexes and counts, where a number is several times faster and exact for anything an array or string can hold.

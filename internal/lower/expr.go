@@ -1795,6 +1795,13 @@ func (fe *funcEmitter) awaitIf(call *ast.CallExpr, s string) string {
 	if !fe.callBlocks(call) {
 		return s
 	}
+	// An async function resolves to an array of several results, which
+	// are moved into the result registers once the call resumes (see
+	// multiResult), unless a return statement passes them on as they are.
+	untuple := func(s string) string { return s }
+	if tt, ok := fe.info.TypeOf(call).(*types.Tuple); ok && tt.Len() > 1 && call != fe.rawCall {
+		untuple = func(s string) string { return "$rt.untuple(" + s + ")" }
+	}
 	if fe.inBody && !fe.pe.prog.CallAlwaysAsync(fe.info, call) && !returnsPointer(fe.info, call) {
 		// A function value or interface method of which only some are
 		// async: a synchronous one's result is used as it is, without
@@ -1802,9 +1809,9 @@ func (fe *funcEmitter) awaitIf(call *ast.CallExpr, s string) string {
 		// a JS Promise but for an unsafe.Pointer to one).
 		t := fe.declareName("$a")
 		fe.temps = append(fe.temps, t)
-		return "((" + t + " = " + s + ") instanceof Promise ? " + fe.await(t) + " : " + t + ")"
+		return "((" + t + " = " + s + ") instanceof Promise ? " + untuple(fe.await(t)) + " : " + t + ")"
 	}
-	return "(" + fe.await(s) + ")"
+	return "(" + untuple(fe.await(s)) + ")"
 }
 
 // returnsPointer reports whether call's only result is an unsafe.Pointer,
@@ -1838,7 +1845,7 @@ func (fe *funcEmitter) args(e *ast.CallExpr, sig *types.Signature) string {
 			t := fe.tmp()
 			var parts []string
 			for i := 0; i < tt.Len(); i++ {
-				parts = append(parts, fe.convert(fmt.Sprintf("%s[%d]", t, i), tt.At(i).Type(), paramType(i)))
+				parts = append(parts, fe.convert(tupleElem(t, i, true), tt.At(i).Type(), paramType(i)))
 			}
 			if sig.Variadic() {
 				fixed := parts[:n-1]
@@ -2021,7 +2028,7 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			for i := range call.Args {
 				id := &ast.Ident{NamePos: e.Args[0].Pos(), Name: "_"}
 				fe.info.Types[id] = types.TypeAndValue{Type: tt.At(i).Type()}
-				fe.override[id] = fmt.Sprintf("%s[%d]", t, i)
+				fe.override[id] = tupleElem(t, i, true)
 				call.Args[i] = id
 			}
 			fe.info.Types[&call] = fe.info.Types[e]
@@ -2165,7 +2172,7 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 				t := fe.tmp()
 				var parts []string
 				for i := 0; i < tt.Len(); i++ {
-					parts = append(parts, fe.printArg(tt.At(i).Type(), fmt.Sprintf("%s[%d]", t, i)))
+					parts = append(parts, fe.printArg(tt.At(i).Type(), tupleElem(t, i, true)))
 				}
 				return fmt.Sprintf("%s$rt.%s(...((%s: any) => [%s])(%s))", m, name, t, strings.Join(parts, ", "), arg(0))
 			}

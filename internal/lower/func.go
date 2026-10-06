@@ -69,6 +69,9 @@ type funcEmitter struct {
 	// recoverTok identifies the function being lowered to recover(), which
 	// only recovers when called by the deferred function itself.
 	recoverTok string
+	// rawCall is the call whose several results a return statement
+	// passes on as they are (see passThrough).
+	rawCall *ast.CallExpr
 }
 
 func (pe *pkgEmitter) newFuncEmitter(w *writer, sig *types.Signature) *funcEmitter {
@@ -219,24 +222,63 @@ func (fe *funcEmitter) paramList(fields *ast.FieldList, recv *types.Var) []strin
 	return out
 }
 
-func (fe *funcEmitter) resultTSType(sig *types.Signature) string {
-	return fe.pe.resultTSType(sig, fe.tp)
+func (fe *funcEmitter) resultTSType(sig *types.Signature, async bool) string {
+	return fe.pe.resultTSType(sig, fe.tp, async)
+}
+
+// regResults reports whether the function being lowered returns several
+// results in the result registers (see multiResult).
+func (fe *funcEmitter) regResults() bool {
+	return !fe.async && fe.sig != nil && fe.sig.Results().Len() > 1
 }
 
 // resultTSType is the TypeScript result type of a function: void, the
-// type, or a tuple for several results.
-func (pe *pkgEmitter) resultTSType(sig *types.Signature, tp tpScope) string {
-	switch sig.Results().Len() {
-	case 0:
-		return "void"
-	case 1:
-		return pe.tsType(sig.Results().At(0).Type(), tp)
+// type, or for several results the type of the first (the others are in
+// the result registers, see multiResult), or of a Promise for an async
+// function, which resolves to a tuple of several results.
+func (pe *pkgEmitter) resultTSType(sig *types.Signature, tp tpScope, async bool) string {
+	var ret string
+	switch n := sig.Results().Len(); {
+	case n == 0:
+		ret = "void"
+	case n == 1 || !async:
+		ret = pe.tsType(sig.Results().At(0).Type(), tp)
+	default:
+		var ts []string
+		for i := 0; i < n; i++ {
+			ts = append(ts, pe.tsType(sig.Results().At(i).Type(), tp))
+		}
+		ret = "[" + strings.Join(ts, ", ") + "]"
 	}
-	var ts []string
-	for i := 0; i < sig.Results().Len(); i++ {
-		ts = append(ts, pe.tsType(sig.Results().At(i).Type(), tp))
+	if async {
+		return "Promise<" + ret + ">"
 	}
-	return "[" + strings.Join(ts, ", ") + "]"
+	return ret
+}
+
+// multiResult is the return value of a function with the results vals,
+// expressions that do not call Go code: an async function resolves to an
+// array of them; any other function returns the first and leaves the
+// others in the result registers $rt.$R (runtime/src/results.ts), r1 for
+// the second and so on, which its caller reads right after the call. V8
+// cannot optimize away the array of a call it does not inline.
+func multiResult(vals []string, async bool) string {
+	if len(vals) == 1 {
+		return vals[0]
+	}
+	if async {
+		return "[" + strings.Join(vals, ", ") + "]"
+	}
+	var b strings.Builder
+	b.WriteString("(")
+	for i, v := range vals[1:] {
+		r := fmt.Sprintf("$rt.$R.r%d", i+1)
+		if stripMarks(v) != r { // passed on as it is
+			fmt.Fprintf(&b, "%s = %s, ", r, v)
+		}
+	}
+	b.WriteString(vals[0] + ")")
+	return b.String()
 }
 
 func containsDefer(body *ast.BlockStmt) bool {
@@ -440,6 +482,23 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 // Named aggregate results are copied out: a pointer to the variable may
 // have escaped and must not alias the caller's value.
 func (fe *funcEmitter) resultsExpr() string {
+	rs := fe.resultVals()
+	if len(rs) == 0 {
+		return ""
+	}
+	return multiResult(rs, !fe.regResults())
+}
+
+// resultsTuple is resultsExpr with several results in an array.
+func (fe *funcEmitter) resultsTuple() string {
+	rs := fe.resultVals()
+	if len(rs) == 0 {
+		return ""
+	}
+	return multiResult(rs, true)
+}
+
+func (fe *funcEmitter) resultVals() []string {
 	var rs []string
 	for i, r := range fe.results {
 		if fe.named && isAggregate(fe.resultTs[i]) {
@@ -447,13 +506,7 @@ func (fe *funcEmitter) resultsExpr() string {
 		}
 		rs = append(rs, r)
 	}
-	switch len(rs) {
-	case 0:
-		return ""
-	case 1:
-		return rs[0]
-	}
-	return "[" + strings.Join(rs, ", ") + "]"
+	return rs
 }
 
 // setResults stores return values into the result variables (named
@@ -488,10 +541,9 @@ func (fe *funcEmitter) funcLit(lit *ast.FuncLit) string {
 	params := c.paramList(lit.Type.Params, nil)
 	c.funcBody(nil, lit.Type, lit.Body, sig)
 	prefix := ""
-	ret := c.resultTSType(sig)
+	ret := c.resultTSType(sig, c.async)
 	if c.async {
 		prefix = "async "
-		ret = "Promise<" + ret + ">"
 	}
 	f := fmt.Sprintf("%s%s(%s): %s => {\n%s%s}", fe.mark(lit), prefix, strings.Join(params, ", "), ret, w.String(), strings.Repeat("  ", fe.w.indent))
 	if gen := fe.seqGenerator(lit, sig); gen != "" {
