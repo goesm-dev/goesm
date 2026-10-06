@@ -275,7 +275,8 @@ export function native$strings$lowerASCII(s: string): string {
 
 // slices.Sort of integers and strings (see the slices patch). A Go string's
 // code units are its bytes, so the default sort's order is Go's; integers
-// are sorted as numbers in a typed array.
+// are sorted as numbers in a typed array, an Int32Array when they fit, which
+// the engines sort faster than a Float64Array.
 export function native$slices$sortBuiltin(i: Iface): boolean {
   const t = i.t.elem!, x: S<any> = i.v;
   let tmp: { sort(): unknown; [i: number]: any };
@@ -283,6 +284,10 @@ export function native$slices$sortBuiltin(i: Iface): boolean {
   switch (t.kind) {
     case Kind.String:
       if (n < 2) return true;
+      if (x!.$offset === 0 && n === x!.$array.length) {
+        (x!.$array as string[]).sort(); // the whole backing array, in place
+        return true;
+      }
       tmp = (x!.$array as any[]).slice(x!.$offset, x!.$offset + n);
       break;
     case Kind.Int: case Kind.Int8: case Kind.Int16: case Kind.Int32:
@@ -292,7 +297,7 @@ export function native$slices$sortBuiltin(i: Iface): boolean {
         x!.$array.subarray(x!.$offset, x!.$offset + n).sort();
         return true;
       }
-      tmp = new Float64Array(n);
+      tmp = int32Copy(x!.$array, x!.$offset, n) ?? new Float64Array(n);
       break;
     case Kind.Int64:
       if (n < 2) return true;
@@ -306,10 +311,22 @@ export function native$slices$sortBuiltin(i: Iface): boolean {
       return false;
   }
   const a = x!.$array, off = x!.$offset;
-  if (t.kind !== Kind.String) for (let i = 0; i < n; i++) tmp[i] = a[off + i];
+  if (t.kind !== Kind.String && !(tmp instanceof Int32Array)) for (let i = 0; i < n; i++) tmp[i] = a[off + i];
   tmp.sort();
   for (let i = 0; i < n; i++) a[off + i] = tmp[i];
   return true;
+}
+
+// int32Copy is a[off:off+n] in an Int32Array, or null if a value does not
+// fit.
+function int32Copy(a: number[], off: number, n: number): Int32Array | null {
+  const r = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    const v = a[off + i];
+    if ((v | 0) !== v) return null;
+    r[i] = v;
+  }
+  return r;
 }
 
 // encoding/json's Marshal and Unmarshal of plain values (see the
