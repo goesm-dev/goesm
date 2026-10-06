@@ -132,7 +132,7 @@ func (p *Program) CalledMethod(fn *types.Func) bool {
 		return true
 	}
 	p.reachOnce.Do(p.reach)
-	return matchMethod(p.calledMethods[fn.Name()], fn)
+	return p.printedMethods[fn] || matchMethod(p.calledMethods[fn.Name()], fn)
 }
 
 type ifaceMethod struct {

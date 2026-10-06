@@ -24,7 +24,7 @@ import {
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
   sliceElemRef, sliceLit, sliceToArrayPtr, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt, topString,
-  goThrown, typeArgsName, jsNull, toRef, fromRef, isASCII, noteASCII, setHTTPServer, hostListen, hostBuiltin,
+  goThrown, typeArgsName, jsNull, toRef, fromRef, isASCII, noteASCII, setHTTPServer, hostListen, hostBuiltin, decodeRune,
 } from "./index.ts";
 import type { S } from "./index.ts";
 import { fmtFixed, fmtShortest, mayTie, roundToEven, sprintf, tieScale } from "./fmt.ts";
@@ -348,6 +348,81 @@ export function native$fmt$jsSprintf(format: string, a: S<Iface | null>): [strin
   return s === null ? ["", false] : [s, true];
 }
 
+// regexp's matching with a RegExp (see the regexp patch and
+// internal/lower/regexpjs.go). The RegExp, over UTF-16 code units with
+// the runes above U+FFFF spelled as surrogate pairs, matches an ASCII
+// string as it is and another string decoded as Go decodes it, each
+// invalid byte becoming U+FFFD, and positions are mapped back to bytes. The
+// latest string decoded is kept for the searches that follow on it.
+const regexps = new Map<string, [RegExp, RegExp | null]>();
+let rxLast = "", rxASCII = true, rxText = "", rxOffs: Uint32Array | null = null;
+
+export function native$regexp$execJS(src: string, s: string, pos: number, ncap: number): S<number> | null {
+  let e = regexps.get(src);
+  if (e === undefined) {
+    e = [new RegExp(src, "g"), null];
+    regexps.set(src, e);
+  }
+  if (s !== rxLast) {
+    rxLast = s;
+    rxASCII = isASCII(s);
+    if (!rxASCII) {
+      const units: number[] = [], offs: number[] = [];
+      for (let i = 0; i < s.length;) {
+        const [r, w] = decodeRune(s, i);
+        if (r > 0xffff) {
+          units.push(0xd800 + ((r - 0x10000) >> 10), 0xdc00 + ((r - 0x10000) & 0x3ff));
+          offs.push(i, i);
+        } else {
+          units.push(r);
+          offs.push(i);
+        }
+        i += w;
+      }
+      offs.push(s.length);
+      let t = "";
+      for (let i = 0; i < units.length; i += 8192) t += String.fromCharCode(...units.slice(i, i + 8192));
+      rxText = t;
+      rxOffs = Uint32Array.from(offs);
+    }
+  }
+  const t = rxASCII ? s : rxText, offs = rxASCII ? null : rxOffs!;
+  let start = pos;
+  if (offs !== null) {
+    // The code unit at byte offset pos, the start of a rune.
+    let lo = 0, hi = offs.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (offs[mid] < pos) lo = mid + 1;
+      else hi = mid;
+    }
+    start = lo;
+  }
+  const re = ncap > 2 ? (e[1] ??= new RegExp(src, "dg")) : e[0];
+  re.lastIndex = start;
+  let m = re.exec(t);
+  // An empty match can fall between the halves of a surrogate pair, where
+  // no rune boundary is.
+  while (m !== null && offs !== null && m.index > 0 && offs[m.index] === offs[m.index - 1]) {
+    re.lastIndex = m.index + 1;
+    m = re.exec(t);
+  }
+  if (m === null) return null;
+  const at = (i: number) => (offs === null ? i : offs[i]);
+  const out: number[] = [];
+  if (ncap > 2) {
+    const ind = m.indices!;
+    for (let i = 0; i < ncap >> 1; i++) {
+      const g = ind[i];
+      if (g === undefined) out.push(-1, -1);
+      else out.push(at(g[0]), at(g[1]));
+    }
+  } else if (ncap > 0) {
+    out.push(at(m.index), at(m.index + m[0].length));
+  }
+  return sliceLit(out);
+}
+
 // strings.Split with a separator and strings.Join (see the strings patch).
 export function native$strings$splitAll(s: string, sep: string): S<string> {
   return sliceLit(s.split(sep));
@@ -368,6 +443,50 @@ export function native$strings$trimASCIISpace(s: string): string {
   for (let c = s.charCodeAt(lo); lo < hi && (c === 0x20 || (c >= 0x09 && c <= 0x0d)); c = s.charCodeAt(++lo));
   for (let c = s.charCodeAt(hi - 1); hi > lo && (c === 0x20 || (c >= 0x09 && c <= 0x0d)); c = s.charCodeAt(--hi - 1));
   return s.substring(lo, hi);
+}
+
+// strings.TrimSpace's Unicode part (see the strings patch): the white space
+// of Go's unicode.IsSpace, as UTF-8, at either end. A rune's encoding at
+// the start or the end of a string is what DecodeRuneInString and
+// DecodeLastRuneInString read there.
+const unicodeSpace = [
+  "\t", "\n", "\v", "\f", "\r", " ", "\xc2\x85", "\xc2\xa0", "\xe1\x9a\x80", "\xe2\x80\x80", "\xe2\x80\x81", "\xe2\x80\x82",
+  "\xe2\x80\x83", "\xe2\x80\x84", "\xe2\x80\x85", "\xe2\x80\x86", "\xe2\x80\x87", "\xe2\x80\x88", "\xe2\x80\x89",
+  "\xe2\x80\x8a", "\xe2\x80\xa8", "\xe2\x80\xa9", "\xe2\x80\xaf", "\xe2\x81\x9f", "\xe3\x80\x80",
+];
+export function native$strings$trimUnicodeSpace(s: string): string {
+  let lo = 0, hi = s.length;
+  outer: while (lo < hi) {
+    for (const w of unicodeSpace) {
+      if (hi - lo >= w.length && s.startsWith(w, lo)) {
+        lo += w.length;
+        continue outer;
+      }
+    }
+    break;
+  }
+  outer: while (hi > lo) {
+    for (const w of unicodeSpace) {
+      if (hi - lo >= w.length && s.endsWith(w, hi)) {
+        hi -= w.length;
+        continue outer;
+      }
+    }
+    break;
+  }
+  return s.substring(lo, hi);
+}
+
+// strings.Split with an empty separator (see the strings patch): the
+// string's runes as DecodeRuneInString reads them, an invalid byte alone.
+export function native$strings$explodeAll(s: string): S<string> {
+  const a: string[] = [];
+  for (let i = 0; i < s.length;) {
+    const w = decodeRune(s, i)[1];
+    a.push(s.substring(i, i + w));
+    i += w;
+  }
+  return sliceLit(a);
 }
 
 // strings.Builder's WriteByte (see the strings patch).

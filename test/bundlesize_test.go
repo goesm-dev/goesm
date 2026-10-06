@@ -28,8 +28,17 @@ func TestBundleSize(t *testing.T) {
 		{"./timeonly", 48_000},
 		// 568 KB when the method tables kept example.com/tree's Dump,
 		// which only Dump calls, with fmt, and with unicode's category
-		// and script tables, which regexp/syntax needs only for \p.
-		{"./regex", 260_000},
+		// and script tables, which regexp/syntax needs only for \p; 223
+		// KB with regexp's parser and engines, which a pattern known at
+		// compile time and translated to a RegExp does not need.
+		{"./regex", 60_000},
+		// A pattern regexp's engines match, without the tables.
+		{"./regexgo", 230_000},
+		// 35 KB when the runtime's printing of panic values kept every
+		// Error method, NumError's with strconv.Quote and its tables.
+		{"./atoi", 20_000},
+		// 210 KB with regexp's parser and engines.
+		{"./datere", 40_000},
 	} {
 		t.Run(c.pkg[2:], func(t *testing.T) {
 			out := t.TempDir()
