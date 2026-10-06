@@ -84,6 +84,46 @@ type Node struct {
 	Kids []*Node `json:"kids"`
 }
 
+type Tree struct {
+	Name string `json:"name"`
+	Kids []Tree `json:"kids"`
+}
+
+// direct decodes into pointers of known types, which goesm passes to the
+// runtime without boxing them, and arrays the runtime collects in a scratch
+// array per slice type: nested arrays of one type, an array after an abort,
+// and earlier results after later decodes.
+func direct() {
+	var t Tree
+	err := json.Unmarshal([]byte(`{"name":"r","kids":[{"name":"a","kids":[{"name":"x"},{"name":"y","kids":[]}]},{"name":"b"}]}`), &t)
+	fmt.Printf("direct tree: %v %+v\n", err, t)
+	var first, second []string
+	err = json.Unmarshal([]byte(`["a","b","c"]`), &first)
+	err2 := json.Unmarshal([]byte(`["d"]`), &second)
+	fmt.Println("direct twice:", err, err2, first, len(first), second)
+	var bad []string
+	err = json.Unmarshal([]byte(`["a","b",3]`), &bad)
+	fmt.Printf("direct abort: %v %q\n", err, bad)
+	err = json.Unmarshal([]byte(`["e","f"]`), &first)
+	fmt.Println("direct after abort:", err, first, second)
+	var grid [][]int
+	err = json.Unmarshal([]byte(`[[1,2],[],[3]]`), &grid)
+	fmt.Println("direct grid:", err, grid)
+	var n *int
+	fmt.Println("direct nil:", json.Unmarshal([]byte(`1`), n))
+	p := new(int)
+	err = json.Unmarshal([]byte(` 42 `), p)
+	fmt.Println("direct int:", err, *p)
+	m := map[string]int{"keep": 1}
+	err = json.Unmarshal([]byte(`{"new":2}`), &m)
+	fmt.Println("direct map:", err, m)
+	q := Plain{Name: "old", Count: 5}
+	err = json.Unmarshal([]byte(`{"name":"new","count":"x"}`), &q)
+	fmt.Println("direct partial:", err, q.Name, q.Count)
+	b, _ := json.Marshal(Item{Tags: []string{"x", "y", "z"}[1:]})
+	fmt.Println("direct subslice:", string(b))
+}
+
 func typed() {
 	print := func(label string, b []byte, err error) { fmt.Printf("typed %s: %s %v\n", label, b, err) }
 	b, err := json.Marshal(Item{SKU: "a", Price: 1, Tags: []string{"x"}})
@@ -256,4 +296,5 @@ func main() {
 	var notptr int
 	fmt.Println(json.Unmarshal([]byte(`1`), notptr))
 	typed()
+	direct()
 }

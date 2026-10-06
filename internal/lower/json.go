@@ -15,7 +15,8 @@ import (
 //	...
 //	return string(b)
 //
-// json.Unmarshal of a conversion []byte(s) passes s to the runtime as it is.
+// json.Unmarshal of a conversion []byte(s) passes s to the runtime as it is,
+// and a pointer of a known type without boxing it.
 // A []byte local defined by json.Marshal whose every use is string(b) or
 // len(b) is kept as the Go string the runtime encodes, which those uses read
 // directly. Values the runtime leaves to Go's code (types with methods, for
@@ -165,6 +166,13 @@ func (fe *funcEmitter) jsonCall(e *ast.CallExpr) (string, bool) {
 		return "", false
 	}
 	setS, s := temp(fe.expr(conv.Args[0]))
+	if pt, ok := fe.info.TypeOf(e.Args[1]).(*types.Pointer); ok {
+		// A pointer goes to the runtime as it is, and is boxed only for Go's
+		// code.
+		setP, p := temp(fe.expr(e.Args[1]))
+		call := fe.mark(e) + fe.expr(e.Fun) + "($rt.stringToBytes(" + s + "), " + fe.convert(p, pt, anyT) + ")"
+		return "(" + setS + setP + "$rt.jsonUnmarshalTo(" + s + ", " + fe.desc(pt) + ", " + p + ") ? null : " + call + ")", true
+	}
 	setV, v := temp(fe.valueOf(e.Args[1], anyT))
 	call := fe.mark(e) + fe.expr(e.Fun) + "($rt.stringToBytes(" + s + "), " + v + ")"
 	return "(" + setS + setV + "$rt.jsonUnmarshalString(" + s + ", " + v + ") ? null : " + call + ")", true
