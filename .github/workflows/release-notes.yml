@@ -1,0 +1,34 @@
+name: release-notes
+# Keeps the notes of existing GitHub releases, drafts included, in step with
+# CHANGELOG.md and CHANGELOG.ja.md on main. It only edits the notes: it
+# creates no release and does not publish a draft.
+on:
+  push:
+    branches: [main]
+    paths:
+      - CHANGELOG.md
+      - CHANGELOG.ja.md
+      - .github/scripts/release-notes.sh
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-notes
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 \
+            --json tagName --jq '.[].tagName' > "$RUNNER_TEMP/tags"
+          while read -r tag; do
+            if .github/scripts/release-notes.sh "$tag" > "$RUNNER_TEMP/notes.md"; then
+              gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
+              echo "updated $tag"
+            fi
+          done < "$RUNNER_TEMP/tags"
+        env:
+          GH_TOKEN: ${{ github.token }}
