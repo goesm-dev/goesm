@@ -10,7 +10,9 @@
 // a-z and A-Z on ASCII, instead of a loop through a Builder. Split with a
 // separator and Join are the engine's split and join: a Go string's code
 // units are its bytes, so they cut and concatenate the same bytes.
-// TrimSpace removes ASCII white space with the engine's trim.
+// TrimSpace removes ASCII white space with the engine's trim, and other
+// Unicode white space with trimUnicodeSpace, instead of TrimFunc's loops
+// over runes. Split with an empty separator cuts runes with explodeAll.
 package strings
 
 import (
@@ -38,7 +40,7 @@ func ToLower(s string) string {
 // the substrings between those separators.
 func Split(s, sep string) []string {
 	if sep == "" {
-		return genSplit(s, sep, 0, -1)
+		return explodeAll(s)
 	}
 	return splitAll(s, sep)
 }
@@ -53,7 +55,7 @@ func TrimSpace(s string) string {
 	s = trimASCIISpace(s)
 	if len(s) > 0 && (s[0] >= utf8.RuneSelf || s[len(s)-1] >= utf8.RuneSelf) {
 		// Unicode white space may be left at either end.
-		return TrimFunc(s, unicode.IsSpace)
+		return trimUnicodeSpace(s)
 	}
 	return s
 }
@@ -62,5 +64,7 @@ func splitAll(s, sep string) []string
 func joinAll(elems []string, sep string) string
 func isASCII(s string) bool
 func trimASCIISpace(s string) string
+func trimUnicodeSpace(s string) string
+func explodeAll(s string) []string
 func upperASCII(s string) string
 func lowerASCII(s string) string

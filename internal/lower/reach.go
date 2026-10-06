@@ -26,8 +26,15 @@ import (
 // an interface method or a type parameter's method (also one promoted
 // through an embedded interface) marks that method called, which makes
 // every method implementing it reachable. The runtime calls Error and
-// String itself, and a program that enumerates methods by reflection may
-// call any exported one.
+// String itself, but only on the values it prints or hands to JavaScript:
+// a panic value (any type's methods if it has an interface type, as in
+// panic(err), only its own type's otherwise, as syscall/js's
+// panic(&ValueError{...})), and an error or other interface value crossing
+// the JavaScript boundary (an export's or an import's, see
+// jsBoundaryIfaces). A program that does neither, such as one that calls
+// strconv.Atoi and only compares the error with nil, leaves out
+// NumError's Error and the quoting and Unicode tables it needs. A program
+// that enumerates methods by reflection may call any exported method.
 
 // Reachable code also decides whether regexp/syntax needs the tables of
 // package unicode's categories and scripts, which take a third of a
@@ -41,6 +48,34 @@ var patternFuncs = map[string]bool{
 	"regexp/syntax.Parse": true,
 }
 
+// regexpJSFuncs are the functions that compile their first argument as
+// regexp.Compile does: with a pattern known at compile time that
+// translateRegexp translates, the program can match with a RegExp
+// (regexpjs.go).
+var regexpJSFuncs = map[string]bool{
+	"regexp.Compile": true, "regexp.MustCompile": true, "regexp.Match": true, "regexp.MatchString": true,
+}
+
+// regexpGoFuncs need Go's engine: leftmost-longest matching, a RuneReader
+// read as far as the match needs, or a pattern given at run time.
+var regexpGoFuncs = map[string]bool{
+	"regexp.CompilePOSIX": true, "regexp.MustCompilePOSIX": true, "regexp.MatchReader": true,
+	"(*regexp.Regexp).Longest": true, "(*regexp.Regexp).MatchReader": true,
+	"(*regexp.Regexp).FindReaderIndex": true, "(*regexp.Regexp).FindReaderSubmatchIndex": true,
+	"(*regexp.Regexp).UnmarshalText": true,
+}
+
+// RegexpJS returns the jsPattern entries of the patterns the program
+// compiles, if it matches every regular expression with a RegExp
+// (regexpjs.go), or nil.
+func (p *Program) RegexpJS() map[string]string {
+	p.reachOnce.Do(p.reach)
+	if p.regexpGo || len(p.regexpPatterns) == 0 {
+		return nil
+	}
+	return p.regexpPatterns
+}
+
 // UnicodeClasses reports whether the program may parse a regular expression
 // with a Unicode class (\p or \P): whether reachable code outside regexp
 // passes a pattern that is not a constant to one of patternFuncs, or one
@@ -52,9 +87,26 @@ func (p *Program) UnicodeClasses() bool {
 	return p.unicodeClasses
 }
 
-// reach computes calledMethods and unicodeClasses.
+// regexpLeftOut are the functions of package regexp that a program
+// matching with RegExps never calls: Go's parser and engines, and the
+// quoting of a pattern that failed to compile (leftOut in emit.go).
+var regexpLeftOut = map[string]bool{"regexp.compileGo": true, "(*regexp.Regexp).findGo": true, "regexp.quote": true, "regexp.compileError": true}
+
+// reach computes calledMethods, unicodeClasses, regexpPatterns and
+// regexpGo. If the program can match with RegExps, it does so again
+// without what that leaves out, whose panics, for one, would make the
+// runtime call Error methods.
 func (p *Program) reach() {
+	p.reachFrom(nil)
+	if !p.regexpGo && len(p.regexpPatterns) > 0 {
+		p.reachFrom(regexpLeftOut)
+	}
+}
+
+func (p *Program) reachFrom(leftOut map[string]bool) {
 	p.calledMethods = map[string][]ifaceMethod{}
+	p.printedMethods = map[*types.Func]bool{}
+	p.unicodeClasses, p.regexpGo = false, false
 	type body struct {
 		node ast.Node
 		info *types.Info
@@ -97,7 +149,10 @@ func (p *Program) reach() {
 		if fn.FullName() == "(*regexp.Regexp).UnmarshalText" {
 			p.unicodeClasses = true
 		}
-		if b, ok := decls[fn]; ok && !seen[fn] {
+		if regexpGoFuncs[fn.FullName()] {
+			p.regexpGo = true
+		}
+		if b, ok := decls[fn]; ok && !seen[fn] && !leftOut[fn.FullName()] {
 			seen[fn] = true
 			queue = append(queue, b)
 		}
@@ -118,12 +173,22 @@ func (p *Program) reach() {
 		}
 	}
 
-	errorIface := types.Universe.Lookup("error").Type().Underlying().(*types.Interface)
-	called(errorIface.Method(0))
-	for _, m := range p.ifaceMethods["String"] {
-		if m.fn.Pkg() == nil { // the runtime's String() string (findDynMethods)
-			called(m.fn)
+	runtimeCalls := false
+	runtimeCall := func() {
+		if runtimeCalls {
+			return
 		}
+		runtimeCalls = true
+		errorIface := types.Universe.Lookup("error").Type().Underlying().(*types.Interface)
+		called(errorIface.Method(0))
+		for _, m := range p.ifaceMethods["String"] {
+			if m.fn.Pkg() == nil { // the runtime's String() string (findDynMethods)
+				called(m.fn)
+			}
+		}
+	}
+	if p.jsBoundaryIfaces() {
+		runtimeCall()
 	}
 	for fn := range p.linkProvides {
 		use(fn)
@@ -149,10 +214,39 @@ func (p *Program) reach() {
 
 	strs := &knownStrings{byTypes: p.byTypes}
 	constPattern := map[*ast.Ident]bool{} // a patternFuncs callee with a pattern known at compile time, without \p
+	knownPattern := map[*ast.Ident]string{}
+	p.regexpPatterns = map[string]string{}
 	for len(queue) > 0 {
 		b := queue[len(queue)-1]
 		queue = queue[:len(queue)-1]
 		ast.Inspect(b.node, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok && len(call.Args) == 1 && !runtimeCalls {
+				// The runtime prints a panic value with its Error or
+				// String method (formatPanicValue), as soon as it panics:
+				// those of any type for a value of interface type, else
+				// those of its type.
+				if id, ok := ast.Unparen(call.Fun).(*ast.Ident); ok {
+					if bi, ok := b.info.Uses[id].(*types.Builtin); ok && bi.Name() == "panic" {
+						switch t := b.info.TypeOf(call.Args[0]); t.Underlying().(type) {
+						case *types.Interface:
+							if !recovered(b.info, b.node, call.Args[0]) {
+								runtimeCall()
+							}
+						default:
+							ms := types.NewMethodSet(t)
+							for _, name := range []string{"Error", "String"} {
+								if sel := ms.Lookup(nil, name); sel != nil {
+									fn := sel.Obj().(*types.Func)
+									if sig := fn.Signature(); sig.Params().Len() == 0 && sig.Results().Len() == 1 && types.Identical(sig.Results().At(0).Type(), types.Typ[types.String]) {
+										p.printedMethods[fn.Origin()] = true
+										use(fn)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
 			if call, ok := n.(*ast.CallExpr); ok && len(call.Args) > 0 {
 				var id *ast.Ident
 				switch f := ast.Unparen(call.Fun).(type) {
@@ -163,6 +257,7 @@ func (p *Program) reach() {
 				}
 				if s, ok := strs.known(b.info, call.Args[0]); id != nil && ok {
 					constPattern[id] = !strings.Contains(s, `\p`) && !strings.Contains(s, `\P`)
+					knownPattern[id] = s
 				}
 				return true
 			}
@@ -177,6 +272,18 @@ func (p *Program) reach() {
 			// regexp's own calls pass on its callers' patterns.
 			if patternFuncs[fn.FullName()] && !constPattern[id] && b.pkg != "regexp" && b.pkg != "regexp/syntax" {
 				p.unicodeClasses = true
+			}
+			if regexpJSFuncs[fn.FullName()] && b.pkg != "regexp" {
+				s, ok := knownPattern[id]
+				if ok {
+					if _, done := p.regexpPatterns[s]; !done {
+						p.regexpPatterns[s], _ = translateRegexp(s)
+					}
+					ok = p.regexpPatterns[s] != ""
+				}
+				if !ok {
+					p.regexpGo = true
+				}
 			}
 			if abstractMethod(fn) {
 				called(fn)
@@ -366,4 +473,193 @@ func (k *knownStrings) load(tp *types.Package) {
 			kv.written = true // declared without a value, or in another way
 		}
 	}
+}
+
+// jsBoundaryIfaces reports whether interface values, errors among them, may
+// cross the JavaScript boundary, where the runtime calls their Error method
+// (GoError, goToJS): whether a package has a //goesm:import, or an exported
+// function or method of the entry package has a parameter or result whose
+// type holds an interface.
+func (p *Program) jsBoundaryIfaces() bool {
+	for _, pkg := range p.Pkgs {
+		for _, f := range pkg.Syntax {
+			for _, d := range f.Decls {
+				var docs []*ast.CommentGroup
+				switch d := d.(type) {
+				case *ast.FuncDecl:
+					docs = append(docs, d.Doc)
+				case *ast.GenDecl:
+					docs = append(docs, d.Doc)
+					for _, s := range d.Specs {
+						if vs, ok := s.(*ast.ValueSpec); ok {
+							docs = append(docs, vs.Doc)
+						}
+					}
+				}
+				for _, doc := range docs {
+					if d, _, err := jsImportDirective(doc); d != nil || err != nil {
+						return true
+					}
+				}
+			}
+		}
+	}
+	var entry *packages.Package
+	for _, pkg := range p.Pkgs {
+		if pkg.PkgPath == p.Entry {
+			entry = pkg
+		}
+	}
+	if entry == nil {
+		return true
+	}
+	seen := map[types.Type]bool{}
+	var holds func(t types.Type) bool
+	holds = func(t types.Type) bool {
+		t = types.Unalias(t)
+		if seen[t] {
+			return false
+		}
+		seen[t] = true
+		switch u := t.Underlying().(type) {
+		case *types.Interface:
+			return !isJSValue(t)
+		case *types.Pointer:
+			return holds(u.Elem())
+		case *types.Slice:
+			return holds(u.Elem())
+		case *types.Array:
+			return holds(u.Elem())
+		case *types.Chan:
+			return holds(u.Elem())
+		case *types.Map:
+			return holds(u.Key()) || holds(u.Elem())
+		case *types.Struct:
+			for i := 0; i < u.NumFields(); i++ {
+				if holds(u.Field(i).Type()) {
+					return true
+				}
+			}
+		case *types.Signature:
+			return holdsSig(u, holds)
+		}
+		return false
+	}
+	scope := entry.Types.Scope()
+	for _, name := range scope.Names() {
+		obj := scope.Lookup(name)
+		if !obj.Exported() {
+			continue
+		}
+		switch obj := obj.(type) {
+		case *types.Func:
+			if holdsSig(obj.Signature(), holds) {
+				return true
+			}
+		case *types.TypeName:
+			ms := types.NewMethodSet(types.NewPointer(obj.Type()))
+			for i := 0; i < ms.Len(); i++ {
+				if fn := ms.At(i).Obj(); fn.Exported() && holdsSig(fn.Type().(*types.Signature), holds) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func holdsSig(sig *types.Signature, holds func(types.Type) bool) bool {
+	for _, tup := range []*types.Tuple{sig.Params(), sig.Results()} {
+		for i := 0; i < tup.Len(); i++ {
+			if holds(tup.At(i).Type()) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// recovered reports whether the panic value e, in body, is what recover
+// returned: a call of recover, or a local variable that only such calls
+// assign.
+// Panicking with it again needs no other methods than the first panic.
+func recovered(info *types.Info, body ast.Node, e ast.Expr) bool {
+	isRecover := func(e ast.Expr) bool {
+		call, ok := ast.Unparen(e).(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+		id, ok := ast.Unparen(call.Fun).(*ast.Ident)
+		if !ok {
+			return false
+		}
+		bi, ok := info.Uses[id].(*types.Builtin)
+		return ok && bi.Name() == "recover"
+	}
+	if isRecover(e) {
+		return true
+	}
+	id, ok := ast.Unparen(e).(*ast.Ident)
+	if !ok {
+		return false
+	}
+	v, ok := info.Uses[id].(*types.Var)
+	if !ok || v.Parent() == nil || v.Pkg() != nil && v.Parent() == v.Pkg().Scope() {
+		return false
+	}
+	is := func(e ast.Expr) bool {
+		id, ok := ast.Unparen(e).(*ast.Ident)
+		return ok && (info.Uses[id] == v || info.Defs[id] == v)
+	}
+	// The variable must be declared in body by a var or := statement (not
+	// a parameter, a named result or a variable of an enclosing function,
+	// which a caller assigns), and assigned by recover at least once.
+	only, declared, assigned := true, false, false
+	assign := func(l, r ast.Expr) {
+		if !is(l) {
+			return
+		}
+		if id := ast.Unparen(l).(*ast.Ident); info.Defs[id] == v {
+			declared = true
+		}
+		if r == nil || !isRecover(r) {
+			only = false
+		} else {
+			assigned = true
+		}
+	}
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			for i, l := range n.Lhs {
+				var r ast.Expr
+				if len(n.Rhs) == len(n.Lhs) {
+					r = n.Rhs[i]
+				}
+				assign(l, r)
+			}
+		case *ast.ValueSpec:
+			for i, name := range n.Names {
+				var r ast.Expr
+				if len(n.Values) == len(n.Names) {
+					r = n.Values[i]
+				}
+				if len(n.Values) == 0 && is(name) {
+					declared = true // the zero value, nil
+					continue
+				}
+				assign(name, r)
+			}
+		case *ast.UnaryExpr:
+			if n.Op == token.AND && is(n.X) {
+				only = false
+			}
+		case *ast.RangeStmt:
+			if is(n.Key) || n.Value != nil && is(n.Value) {
+				only = false
+			}
+		}
+		return only
+	})
+	return only && declared && assigned
 }

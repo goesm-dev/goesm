@@ -226,16 +226,54 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 	return pe
 }
 
+// leftOut reports whether the standard library function fd is never called
+// in this program and is lowered as a stub, so that bundlers leave out
+// everything only it uses: regexp/syntax's unicodeTable when no pattern has
+// a Unicode class, which keeps package unicode's category and script
+// tables (reach.go), and regexp's parser and engines when every pattern is
+// matched with a RegExp (regexpjs.go), in which case compile cannot fail
+// and MustCompile does not quote a pattern.
+func (pe *pkgEmitter) leftOut(fd *ast.FuncDecl) bool {
+	switch pe.pkg.PkgPath {
+	case "regexp/syntax":
+		return fd.Recv == nil && fd.Name.Name == "unicodeTable" && !pe.prog.UnicodeClasses()
+	case "regexp":
+		switch fd.Name.Name {
+		case "compileGo", "findGo", "quote", "compileError":
+			return pe.prog.RegexpJS() != nil
+		}
+	}
+	return false
+}
+
 // emitStdFuncDecl lowers a standard library or dependency function. If goesm cannot lower
 // it yet, the diagnostics become one warning and the function a stub that
 // panics when called.
 func (pe *pkgEmitter) emitStdFuncDecl(file *ast.File, fd *ast.FuncDecl) {
-	if pe.pkg.PkgPath == "regexp/syntax" && fd.Recv == nil && fd.Name.Name == "unicodeTable" && !pe.prog.UnicodeClasses() {
-		// Never called: no pattern has a Unicode class (reach.go). The
-		// tables of package unicode it looks names up in are left out.
+	if pe.leftOut(fd) {
 		fn := pe.info.Defs[fd.Name].(*types.Func)
 		pe.funcs.ln("%sfunction %s(...a: any[]): any { $rt.plainPanic(%s); }", pe.tab.mark(fd.Pos()), pe.funcDeclName(fd, fn), jsString("goesm: "+fn.FullName()+" was left out as never called"))
 		return
+	}
+	if pe.pkg.PkgPath == "regexp" && fd.Recv == nil && fd.Name.Name == "jsPattern" {
+		if pats := pe.prog.RegexpJS(); pats != nil {
+			// The translations of the program's patterns (regexpjs.go).
+			fn := pe.info.Defs[fd.Name].(*types.Func)
+			exprs := make([]string, 0, len(pats))
+			for expr := range pats {
+				exprs = append(exprs, expr)
+			}
+			sort.Strings(exprs)
+			pe.funcs.ln("%sfunction %s(expr: string): string {", pe.tab.mark(fd.Pos()), pe.funcDeclName(fd, fn))
+			pe.funcs.ln("  switch (expr) {")
+			for _, expr := range exprs {
+				pe.funcs.ln("  case %s: return %s;", jsString(expr), jsString(pats[expr]))
+			}
+			pe.funcs.ln("  }")
+			pe.funcs.ln("  return \"\";")
+			pe.funcs.ln("}")
+			return
+		}
 	}
 	n := len(pe.prog.Diags)
 	funcs := pe.funcs
