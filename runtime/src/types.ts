@@ -90,6 +90,9 @@ export class Type {
   // emitted one, and its kind (setBox).
   B: any = null;
   boxMode: BoxMode = BoxMode.Holder;
+  // For BoxMode.Self, the class of the interface values holding a pointer
+  // that is not an object of B (holderOf).
+  H: any = null;
   named = false;
   underlying: Type = this;
 
@@ -425,6 +428,7 @@ export function addMethods(t: Type, methods: Record<string, [(recv: any, ...args
     t.methods.set(k, { fn, type });
     Object.getPrototypeOf(t.mt)[k] = fn;
     if (t.B !== null) t.B.prototype["$" + k] = t.boxMode === BoxMode.Holder ? unwrapping(fn) : fn;
+    if (t.H !== null) t.H.prototype["$" + k] = unwrapping(fn);
     addFallback(k);
   }
 }
@@ -503,6 +507,27 @@ export function setBox(t: Type, B: any, mode: BoxMode): void {
   for (const [k, m] of t.methods) B.prototype["$" + k] = mode === BoxMode.Holder ? unwrapping(m.fn) : m.fn;
   t.B = B;
   t.boxMode = mode;
+}
+
+// holderOf returns the class of the interface values of t, a pointer type
+// of BoxMode.Self, that hold a pointer to an object of another class: the
+// runtime's (a *rtype is a Type). Its methods unwrap the pointer, as a
+// Holder's do, rather than go through the method table.
+export function holderOf(t: Type): any {
+  if (t.H === null) {
+    const H = class {
+      declare t: Type;
+      declare v: any;
+      constructor(t: Type, v: any) {
+        this.t = t;
+        this.v = v;
+      }
+    };
+    Object.setPrototypeOf(H.prototype, ifaceProto);
+    for (const [k, m] of t.methods) (H.prototype as any)["$" + k] = unwrapping(m.fn);
+    t.H = H;
+  }
+  return t.H;
 }
 
 // hasMethods reports whether t has methods in Go, including those its

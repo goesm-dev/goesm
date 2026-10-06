@@ -321,12 +321,24 @@ export function appendSlice<T = any>(dst: S<T>, src: S<T>, zero: () => T): S<T> 
 }
 
 // copyInto copies src[so:so+n] to dst[do:] for non-aggregate elements, in
-// bulk between Uint8Arrays, and correctly for overlapping ranges.
+// bulk between Uint8Arrays from 64 bytes (a shorter loop costs less than
+// the subarray), and correctly for overlapping ranges.
 function copyInto(dst: any, d: number, src: any, so: number, n: number): void {
   if (isBytes(dst) && isBytes(src)) {
-    dst.set(so === 0 && n === src.length ? src : src.subarray(so, so + n), d);
+    if (n >= 64) dst.set(so === 0 && n === src.length ? src : src.subarray(so, so + n), d);
+    else copyBytes(dst, d, src, so, n);
     return;
   }
+  if (dst === src && d > so) {
+    for (let i = n - 1; i >= 0; i--) dst[d + i] = src[so + i];
+    return;
+  }
+  for (let i = 0; i < n; i++) dst[d + i] = src[so + i];
+}
+
+// copyBytes is copyInto for Uint8Arrays, apart so that its loops see only
+// them.
+function copyBytes(dst: Uint8Array, d: number, src: Uint8Array, so: number, n: number): void {
   if (dst === src && d > so) {
     for (let i = n - 1; i >= 0; i--) dst[d + i] = src[so + i];
     return;
@@ -375,20 +387,16 @@ export function sliceCopy<T = any>(dst: S<T>, src: S<T> | string, et?: Type): nu
     return n;
   }
   const n = Math.min(dst.$length, src.$length);
-  const agg = et !== undefined && isAggregate(et);
-  if (isBytes(dst.$array) && isBytes(src.$array)) {
-    copyInto(dst.$array, dst.$offset, src.$array, src.$offset, n);
+  const da = dst.$array as any, d = dst.$offset, sa = src.$array as any, so = src.$offset;
+  if (et === undefined || !isAggregate(et)) {
+    copyInto(da, d, sa, so, n);
     return n;
   }
-  const set = (i: number) => {
-    const v = src.$array[src.$offset + i];
-    if (agg) assign(et!, dst.$array[dst.$offset + i], v); // in place: &dst[i] stays valid
-    else dst.$array[dst.$offset + i] = v;
-  };
-  if (dst.$array === src.$array && dst.$offset > src.$offset) {
-    for (let i = n - 1; i >= 0; i--) set(i);
+  // Aggregates are assigned in place: &dst[i] stays valid.
+  if (da === sa && d > so) {
+    for (let i = n - 1; i >= 0; i--) assign(et, da[d + i], sa[so + i]);
   } else {
-    for (let i = 0; i < n; i++) set(i);
+    for (let i = 0; i < n; i++) assign(et, da[d + i], sa[so + i]);
   }
   return n;
 }
