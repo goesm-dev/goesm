@@ -24,31 +24,31 @@ Three comparisons also have a second Go package under [light/](light), shown as 
 <!-- compare:start -->
 | Library | Go package | goesm gzip | JS gzip | ratio |
 | --- | --- | --- | --- | --- |
-| luxon | `datetime` | 20.7 KiB | 21.7 KiB | 0.96× |
-| neverthrow | `result` | 48.9 KiB | 2.4 KiB | 20.48× |
-| neverthrow (light) | `light/result` | 20.0 KiB | 2.4 KiB | 8.39× |
-| connect-es | `rpc` | 1239.0 KiB | 32.9 KiB | 37.71× |
-| connect-es (light) | `light/rpc` | 14.0 KiB | 32.9 KiB | 0.42× |
-| react | `render` | 313.8 KiB | 64.3 KiB | 4.88× |
-| react (light) | `light/render` | 15.1 KiB | 64.3 KiB | 0.23× |
-| vitepress | `markdown` | 162.8 KiB | 40.4 KiB | 4.03× |
-| astro | `markdown` | 162.8 KiB | 47.2 KiB | 3.45× |
-| vue | `reactive` | 6.4 KiB | 5.3 KiB | 1.22× |
-| tailwind | `utility` | 69.4 KiB | 72.2 KiB | 0.96× |
+| luxon | `datetime` | 21.2 KiB | 21.7 KiB | 0.98× |
+| neverthrow | `result` | 48.5 KiB | 2.4 KiB | 20.30× |
+| neverthrow (light) | `light/result` | 19.4 KiB | 2.4 KiB | 8.11× |
+| connect-es | `rpc` | 1226.0 KiB | 32.9 KiB | 37.31× |
+| connect-es (light) | `light/rpc` | 14.8 KiB | 32.9 KiB | 0.45× |
+| react | `render` | 315.7 KiB | 64.3 KiB | 4.91× |
+| react (light) | `light/render` | 15.9 KiB | 64.3 KiB | 0.25× |
+| vitepress | `markdown` | 163.6 KiB | 40.4 KiB | 4.05× |
+| astro | `markdown` | 163.6 KiB | 47.2 KiB | 3.46× |
+| vue | `reactive` | 6.8 KiB | 5.3 KiB | 1.29× |
+| tailwind | `utility` | 64.9 KiB | 72.2 KiB | 0.90× |
 
 | Library | node 26.10.0 goesm | node 26.10.0 JS | ratio | bun 1.4.2 goesm | bun 1.4.2 JS | ratio |
 | --- | --- | --- | --- | --- | --- | --- |
-| luxon | 2.4 ms | 8.9 ms | 0.27× | 4.5 ms | 8.0 ms | 0.57× |
-| neverthrow | 0.58 ms | 0.50 ms | 1.17× | 0.69 ms | 0.58 ms | 1.20× |
-| neverthrow (light) | 0.57 ms | 0.52 ms | 1.09× | 0.76 ms | 0.57 ms | 1.35× |
-| connect-es | 20 ms | 2.7 ms | 7.64× | 23 ms | 2.1 ms | 10.97× |
-| connect-es (light) | 1.8 ms | 2.6 ms | 0.70× | 1.4 ms | 2.0 ms | 0.71× |
-| react | 3.0 ms | 1.7 ms | 1.74× | 3.2 ms | 2.1 ms | 1.56× |
-| react (light) | 0.20 ms | 1.7 ms | 0.12× | 0.23 ms | 2.0 ms | 0.12× |
-| vitepress | 0.41 ms | 0.23 ms | 1.79× | 0.66 ms | 0.15 ms | 4.46× |
-| astro | 0.38 ms | 2.0 ms | 0.19× | 0.56 ms | 2.7 ms | 0.21× |
-| vue | 6.2 ms | 6.5 ms | 0.96× | 6.4 ms | 5.8 ms | 1.11× |
-| tailwind | 2.5 ms | 4.5 ms | 0.56× | 3.5 ms | 3.7 ms | 0.94× |
+| luxon | 1.9 ms | 8.3 ms | 0.23× | 4.0 ms | 7.1 ms | 0.57× |
+| neverthrow | 0.47 ms | 0.50 ms | 0.94× | 0.56 ms | 0.55 ms | 1.02× |
+| neverthrow (light) | 0.41 ms | 0.46 ms | 0.89× | 0.55 ms | 0.47 ms | 1.17× |
+| connect-es | 16 ms | 2.3 ms | 7.09× | 20 ms | 1.9 ms | 10.29× |
+| connect-es (light) | 1.6 ms | 2.3 ms | 0.70× | 1.2 ms | 2.0 ms | 0.59× |
+| react | 2.7 ms | 1.6 ms | 1.67× | 3.6 ms | 1.9 ms | 1.89× |
+| react (light) | 0.17 ms | 1.6 ms | 0.11× | 0.19 ms | 1.8 ms | 0.11× |
+| vitepress | 0.35 ms | 0.21 ms | 1.71× | 0.51 ms | 0.14 ms | 3.63× |
+| astro | 0.31 ms | 2.0 ms | 0.15× | 0.39 ms | 2.5 ms | 0.16× |
+| vue | 5.4 ms | 5.6 ms | 0.97× | 5.7 ms | 5.3 ms | 1.07× |
+| tailwind | 2.3 ms | 4.0 ms | 0.56× | 2.8 ms | 3.2 ms | 0.88× |
 <!-- compare:end -->
 
 Sizes are of the minified ES module bundle, compressed with gzip at level 9. Times are the median of one workload run, after a warmup. The connect-es workload answers `fetch` in-process with encoded responses, so it times the client alone: encoding the request, the protocol and decoding the response.

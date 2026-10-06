@@ -156,8 +156,7 @@ test("strings convert between UTF-8 Go strings and UTF-16 JS strings", async () 
   assert.equal(rt.toJSString("\xf0\x9f\x98"), "���");
   // Strings of 64 units and more go through the engine's encoder and
   // decoders: a BOM stays, invalid UTF-8 still becomes one U+FFFD per byte,
-  // and bytes 0x80-0x9f, which the "latin1" decoder maps above U+00FF in
-  // Bun, come back as they were.
+  // and bytes 0x80-0x9f come back as they were.
   const pad = "a".repeat(100);
   for (const s of [pad + "é", "\ufeff" + pad, "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ".repeat(4), pad + "€Ÿ" + pad, "\ud800" + pad]) {
     const goStr = rt.fromJSString(s);
@@ -169,6 +168,13 @@ test("strings convert between UTF-8 Go strings and UTF-16 JS strings", async () 
   const all = latin1(Array.from({ length: 256 }, (_, i) => i));
   for (const goStr of [all, all.repeat(8), pad + "\x80\x81\x9f\xa0\xff" + pad, pad + "\xe2\x82\xac" + pad]) {
     assert.equal(rt.bytesToString(rt.stringToBytes(goStr)), goStr);
+  }
+  // A string made from valid UTF-8 bytes converts back to the JS string
+  // they were decoded to.
+  for (const s of [pad + "é—€\u{1f600}" + pad, "日本語".repeat(40)]) {
+    const goStr = rt.bytesToString(rt.stringToBytes(rt.fromJSString(s)));
+    assert.equal(goStr, latin1(new TextEncoder().encode(s)), s);
+    assert.equal(rt.toJSString(goStr), s);
   }
 });
 

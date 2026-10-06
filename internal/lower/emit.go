@@ -685,7 +685,7 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 			if v.Name() == "_" {
 				continue
 			}
-			pe.vars.ln("%s = %s;", fe.varRef(v), fe.convertCopy(tupleElem(t, i, regs), tupleAt(tt, i), v.Type()))
+			pe.vars.ln("%s = %s;", fe.varRef(v), fe.tupleValue(in.Rhs, tupleElem(t, i, regs), tupleAt(tt, i), v.Type()))
 		}
 	}
 }
