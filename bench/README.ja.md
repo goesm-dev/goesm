@@ -74,6 +74,19 @@
 - [kernels](kernels) は、GopherJS 1.21 でコンパイルできるように、Go 1.21 の言語と標準ライブラリの範囲で書いています。[gopherjs.mod](gopherjs.mod) は、GopherJS がビルドに使うモジュールファイルです。Pull は Go 1.23 の `iter` を使うので、GopherJS 以外でだけビルドします。
 - jsmain は、Channels と同じく Parallel と Pull も専用の goroutine で実行し、Promise を返します。これらはブロックするからです。
 
+### goesm が手書き JS より遅いところ
+
+goesm は、同じ処理を JS で手書きした場合と同じ速度とメモリ使用量で Go を動かすことを目指しています。Node.js では、手書きの版がある 17 のカーネルのうち 12 で、手書き JS との差が 10% 以内です。Bun と Chromium では、比率が計測ごとに大きく変わります。遅いままのカーネルとその理由は次のとおりです。
+
+- **Upper** は 1.9〜2.5 倍です。Go の文字列はバイト列で、JS の文字列は UTF-16 のコード単位の列です。JS から Go に渡る文字列は、すべて ASCII 以外の文字を含むかどうかを検査します。Node.js では、この検査が Upper の 1 回 110 ns のうち約 40 ns を占めます。`len`、インデックス、スライスにはバイト列の形が必要なので、この検査は省けません。
+- **JSON** は 1.4〜1.6 倍、**Handle** は 1.1〜1.9 倍です。Go の `encoding/json` の規則は `JSON.parse` と異なります。`1.0` や `1e2` のような数は `int` のフィールドではエラーになります。同じキーが繰り返されると、同じ構造体やスライスにもう一度デコードします。`\u` のエスケープは UTF-8 になります。そのため goesm は JS で書いた独自のパーサーでデコードし、その時間は `JSON.parse` の約 1.2 倍です。さらに、スライスのヘッダーや JS の `Map` を使う map などの Go の値を組み立てます。
+- **Interfaces** は、Node.js と Chromium で 1.1〜1.2 倍、Bun で 1.7 倍です。インターフェース値は、型 switch と型アサーションのために動的な型を持ち、メソッド呼び出しもこの型を通ります。JavaScriptCore では、プロトタイプの getter を通したこの型の読み出しが V8 より遅くなります。
+- **BinaryTrees** は 1.0〜1.2 倍です。原因はまだ調べていません。
+- **Pull** の 2〜5 倍と **MaybeBlocking** の 1.4〜1.6 倍は、意図して測っている崖です。`iter.Pull` は、シーケンスが `yield` を直接呼ぶだけであれば JS のジェネレーターになります。それ以外のシーケンスは goroutine 上のコルーチンとして動きます。ブロックしうる呼び出しでは、結果が Promise かどうかを確かめる必要があります。
+- **RSASign** は約 110 倍です。手書き JS はネイティブコードである Web Crypto を呼びます。goesm は Go の `crypto/rsa` を、double で表した 32 ビットのリムで実行します。BigInt を使うと定数時間になりません。
+
+メモリも同じ傾向です。Node.js で `v8.GCProfiler` を使って測った 1 回の呼び出しあたりの割り当てバイト数は、ほとんどのカーネルで手書き JS との差が 5% 以内です。例外は、JSON の 1.8 倍、Handle の 1.7 倍、Strings の 1.4 倍、Sort の 1.4 倍、Pull の 3.6 倍です。JSON と Handle は、スライスのヘッダー、`Map` を使う map、構造体のデコード先となるコピーを割り当てます。Strings では、`strings.Builder` への書き込みのたびに文字列を連結します。Sort では、手書き JS が `Int32Array` を使うのに対し、Go の `[]int` は number の配列になります。
+
 ## 実行方法
 
 ツールのバージョンは固定しています。Go、Node.js、Bun のバージョンはリポジトリの [mise.toml](../mise.toml) で、TinyGo のバージョンは[このディレクトリの mise.toml](mise.toml) で固定しています。GopherJS は、`build.sh` が固定したバージョンを `go install` します。Chromium は、[package.json](package.json) で固定した `playwright-core` で操作します。
