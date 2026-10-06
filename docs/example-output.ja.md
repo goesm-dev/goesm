@@ -158,7 +158,7 @@ function DeferExample(): $rt.S<number> {
 
 // map: Go map semantics は runtime の GoMap
 function Map(): $rt.S<$rt.Iface | null> {
-  let m: $rt.M<string, number> = $rt.mapLit($rt.types.string, [["a", 1]]);
+  let m: $rt.M<string, number> = $rt.mapLit($rt.types.string, ["a", 1]);
   $rt.mapSet(m, "b", 2);
   const $1 = $rt.mapLookup(m, "a", () => 0);
   let value: number = $1[0];

@@ -13,7 +13,7 @@
 
 // Like natives.ts, which imports it, this uses the runtime only through its
 // public module, so that split builds share one runtime.
-import { Cell, GoMap, Iface, Kind, Slice, Type, bytesToString, fromJSString, hasMethods, makeMap, mapOf, ptrTo, sliceLit, sliceOf, stringToBytes, tBool, tFloat64, tString } from "./index.ts";
+import { Cell, GoMap, Iface, Kind, Slice, Type, bytesToString, fromJSString, hasMethods, makeMap, mapOf, noteASCII, ptrTo, sliceLit, sliceOf, stringToBytes, tBool, tFloat64, tString } from "./index.ts";
 import type { S } from "./index.ts";
 
 // Abort is thrown to give up on the fast path.
@@ -438,6 +438,16 @@ function carefulStr(s: string): string {
   return jsString(s);
 }
 
+// jsonStrs is the JS value of the strings arr[off:off+n] of a []string: the
+// array itself when it holds just them and they go into the text as they
+// are, as JSON.stringify writes an array's elements without changing it.
+export function jsonStrs(arr: string[], off: number, n: number): string[] {
+  if (!encCareful && off === 0 && n === arr.length) return arr;
+  const a = new Array<string>(n);
+  for (let i = 0; i < n; i++) a[i] = jsonStr(arr[off + i]);
+  return a;
+}
+
 export function jsonKey(k: string): string {
   if (indexLike.test(k)) throw NoJS;
   return jsonStr(k);
@@ -471,6 +481,7 @@ function encodedText(f: (v: any, d: number) => any, v: any): string | null {
   if (out === null) return null;
   if (!encSpecial.test(out)) {
     textIsGo = true; // ASCII, the same as its UTF-8
+    noteASCII(out); // for toJSString when an exported function returns it
     return out;
   }
   return carefulText(f, v);
@@ -906,19 +917,32 @@ function makeDecoder(t: Type): Dec {
       const e = t.elem!;
       if (e.kind === Kind.Uint8 || e.kind === Kind.Array) return abort;
       const ed = decoderOf(e), ez = e.zero;
+      const refs = e.kind > Kind.Float64; // numbers and booleans keep nothing alive
+      // The elements are collected in a scratch array and copied out at the
+      // array's exact length, as JSON.parse makes its arrays: an array grown
+      // by push keeps room for at least 16 elements, several times what a
+      // small array needs. A nested array of the same type, which finds the
+      // scratch array taken, and one after an abort use a new one.
+      let scratch: any[] | null = [];
       return (d, cur, depth) => {
         if (depth > 100) abort();
         const c = d.ws();
         if (isNull(d, c)) return null;
         if (cur !== null || c !== 0x5b) abort(); // Go reuses a slice's elements
         d.i++;
-        const a: any[] = [];
-        if (d.ws() === 0x5d) { d.i++; return sliceLit(a); }
-        for (;;) {
-          a.push(ed(d, ez(), depth + 1));
+        if (d.ws() === 0x5d) { d.i++; return sliceLit([]); }
+        const a = scratch ?? [];
+        scratch = null;
+        for (let n = 0; ;) {
+          a[n++] = ed(d, ez(), depth + 1);
           const c = d.ws();
           d.i++;
-          if (c === 0x5d) return sliceLit(a);
+          if (c === 0x5d) {
+            const r = a.slice(0, n);
+            if (refs) a.fill(null, 0, n); // not to keep the elements alive
+            if (n <= 4096) scratch = a;
+            return sliceLit(r);
+          }
           if (c !== 0x2c) abort();
         }
       };
@@ -979,23 +1003,36 @@ export function jsonUnmarshal(data: S<number>, x: Iface | null): boolean {
 // jsonUnmarshalString is jsonUnmarshal of []byte(s), which goesm calls for
 // json.Unmarshal([]byte(s), v) without converting s.
 export function jsonUnmarshalString(s: string, x: Iface | null): boolean {
-  if (x === null || x.t.kind !== Kind.Pointer || x.v === null) return false;
-  const e = x.t.elem!, p = x.v;
-  const agg = e.kind === Kind.Struct || e.kind === Kind.Array;
-  if (e.kind === Kind.Array || !deepPlain(e)) return false;
+  return x !== null && x.t.kind === Kind.Pointer && jsonUnmarshalTo(s, x.t, x.v);
+}
+
+// The decoder of jsonUnmarshalTo, which no Go code runs during. It is made
+// on first use, as a top-level value would keep the decoder in every bundle.
+let dec: Decoder | null = null;
+
+// jsonUnmarshalTo is jsonUnmarshalString of the pointer p of type t, which
+// goesm calls without boxing p when it has the pointer's type.
+export function jsonUnmarshalTo(s: string, t: Type, p: any): boolean {
+  const e = t.elem!;
+  if (p === null || e.kind === Kind.Array || !deepPlain(e)) return false;
+  const agg = e.kind === Kind.Struct;
+  const d = (dec ??= new Decoder(""));
+  d.s = s;
+  d.i = 0;
   try {
-    const d = new Decoder(s);
     // A struct is decoded into a copy, which replaces it once all is well.
     const cur = agg ? p.$clone(e) : p.v;
     const v = decoderOf(e)(d, cur, 0);
     d.ws();
-    if (d.i < d.s.length) return false; // trailing data: Go's syntax error
+    if (d.i < s.length) return false; // trailing data: Go's syntax error
     if (agg) p.$set(v, e);
     else p.v = v;
     return true;
   } catch (err) {
     if (err === Abort) return false;
     throw err;
+  } finally {
+    d.s = "";
   }
 }
 

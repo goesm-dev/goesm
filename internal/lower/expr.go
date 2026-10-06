@@ -684,7 +684,7 @@ func (fe *funcEmitter) compositeLitOf(e *ast.CompositeLit) string {
 		var kvs []string
 		for _, el := range e.Elts {
 			kv := el.(*ast.KeyValueExpr)
-			kvs = append(kvs, fmt.Sprintf("[%s, %s]", fe.valueOf(kv.Key, u.Key()), fe.valueOf(kv.Value, u.Elem())))
+			kvs = append(kvs, fe.valueOf(kv.Key, u.Key()), fe.valueOf(kv.Value, u.Elem()))
 		}
 		return fmt.Sprintf("%s$rt.mapLit(%s, [%s])", m, fe.desc(u.Key()), strings.Join(kvs, ", "))
 	}

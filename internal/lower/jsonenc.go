@@ -232,6 +232,10 @@ func (pe *pkgEmitter) jsonEncoder(t types.Type) string {
 	case *types.Slice:
 		w.ln("if (v === null) return null;")
 		w.ln("if (d > 100) $rt.jsonAbort(); // possibly a cycle")
+		if b, ok := u.Elem().Underlying().(*types.Basic); ok && b.Kind() == types.String {
+			w.ln("return $rt.jsonStrs(v.$array, v.$offset, v.$length);")
+			break
+		}
 		w.ln("const n = v.$length, arr = v.$array, off = v.$offset, a = new Array(n);")
 		w.ln("for (let i = 0; i < n; i++) a[i] = %s;", pe.jsonValue(u.Elem(), "arr[off + i]", "d + 1"))
 		w.ln("return a;")
