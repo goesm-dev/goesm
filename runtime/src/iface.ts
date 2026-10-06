@@ -7,7 +7,7 @@
 // method dispatch goes through the type's method table instead of relying on
 // JS structural typing.
 
-import { Kind, Type, implementsIface, isAggregate, tFloat32, tFloat64, zeroSized } from "./types.ts";
+import { Kind, Type, implementsIface, isAggregate, setIfaceProto, tFloat32, tFloat64, zeroSized } from "./types.ts";
 import { ceq } from "./complex.ts";
 import { GoPanic, runtimePanic, typeAssertionErrorType } from "./panic.ts";
 
@@ -19,6 +19,21 @@ export class Iface {
     this.v = v;
   }
 }
+setIfaceProto(Iface.prototype);
+
+// boxOf is the interface value holding v (already copied) of type t, an
+// instance of t's box class if the lowering emitted one (setBox).
+export function boxOf(t: Type, v: any): Iface {
+  const B = t.B;
+  if (B === null) return new Iface(t, v);
+  return t.flatBox ? B.$of(v) : new B(t, v);
+}
+
+// isIfaceValue reports whether x is an interface value: an Iface, or a flat
+// box (setBox), which is a struct object.
+export function isIfaceValue(x: any): boolean {
+  return x instanceof Iface || (typeof x === "object" && x !== null && x.v === x && x.t instanceof Type);
+}
 
 // ptrIface converts a pointer p to a struct, of type t, to an interface
 // value. Interface values never change, so the one made last for p is kept
@@ -27,17 +42,17 @@ export class Iface {
 // the conversion costs nothing there, allocates once.
 const ifaceOf = Symbol("iface");
 export function ptrIface(t: Type, p: any): Iface {
-  if (p === null) return new Iface(t, null);
+  if (p === null) return boxOf(t, null);
   const c: Iface | undefined = p[ifaceOf];
   if (c !== undefined && c.t === t) return c;
-  return (p[ifaceOf] = new Iface(t, p));
+  return (p[ifaceOf] = boxOf(t, p));
 }
 
 // box converts a value of static type t to an interface value. Aggregates must
 // already be copied by the caller (the lowering emits the copy).
 export function box(t: Type, v: any): Iface | null {
   if (t.kind === Kind.Interface) return v;
-  return new Iface(t, v);
+  return boxOf(t, v);
 }
 
 // copy returns a Go copy of v of type t. Used where the static type is a type
