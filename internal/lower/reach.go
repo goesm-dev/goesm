@@ -580,7 +580,8 @@ func holdsSig(sig *types.Signature, holds func(types.Type) bool) bool {
 }
 
 // recovered reports whether the panic value e, in body, is what recover
-// returned: a call of recover, or a variable that only such calls assign.
+// returned: a call of recover, or a local variable that only such calls
+// assign.
 // Panicking with it again needs no other methods than the first panic.
 func recovered(info *types.Info, body ast.Node, e ast.Expr) bool {
 	isRecover := func(e ast.Expr) bool {
@@ -610,20 +611,44 @@ func recovered(info *types.Info, body ast.Node, e ast.Expr) bool {
 		id, ok := ast.Unparen(e).(*ast.Ident)
 		return ok && (info.Uses[id] == v || info.Defs[id] == v)
 	}
-	only := true
+	// The variable must be declared in body by a var or := statement (not
+	// a parameter, a named result or a variable of an enclosing function,
+	// which a caller assigns), and assigned by recover at least once.
+	only, declared, assigned := true, false, false
+	assign := func(l, r ast.Expr) {
+		if !is(l) {
+			return
+		}
+		if id := ast.Unparen(l).(*ast.Ident); info.Defs[id] == v {
+			declared = true
+		}
+		if r == nil || !isRecover(r) {
+			only = false
+		} else {
+			assigned = true
+		}
+	}
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.AssignStmt:
 			for i, l := range n.Lhs {
-				if is(l) && (len(n.Rhs) != len(n.Lhs) || !isRecover(n.Rhs[i])) {
-					only = false
+				var r ast.Expr
+				if len(n.Rhs) == len(n.Lhs) {
+					r = n.Rhs[i]
 				}
+				assign(l, r)
 			}
 		case *ast.ValueSpec:
 			for i, name := range n.Names {
-				if is(name) && i < len(n.Values) && (len(n.Values) != len(n.Names) || !isRecover(n.Values[i])) {
-					only = false
+				var r ast.Expr
+				if len(n.Values) == len(n.Names) {
+					r = n.Values[i]
 				}
+				if len(n.Values) == 0 && is(name) {
+					declared = true // the zero value, nil
+					continue
+				}
+				assign(name, r)
 			}
 		case *ast.UnaryExpr:
 			if n.Op == token.AND && is(n.X) {
@@ -636,5 +661,5 @@ func recovered(info *types.Info, body ast.Node, e ast.Expr) bool {
 		}
 		return only
 	})
-	return only
+	return only && declared && assigned
 }
