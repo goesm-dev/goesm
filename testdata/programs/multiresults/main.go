@@ -141,6 +141,17 @@ func variadic(xs ...any) string { return fmt.Sprint(len(xs), xs) }
 var pkgA, pkgB = divmod(17, 5)
 var pkgV, pkgOk = map[string]int{"x": 9}["x"]
 
+// Struct results and comma-ok values are the caller's own copies: of the
+// struct a function returns, and of a map's value.
+type seg struct{ start, stop int }
+
+type reader struct{ pos seg }
+
+func (r *reader) position() (int, seg) { return 1, r.pos }
+
+var segs = map[string]seg{"x": {1, 2}}
+var pkgSeg, pkgSegOk = segs["x"]
+
 func main() {
 	q, r := divmod(17, 5)
 	fmt.Println("divmod", q, r)
@@ -248,6 +259,21 @@ func main() {
 	fmt.Println("reflect mapindex", mm.MapIndex(reflect.ValueOf("a")), mm.MapIndex(reflect.ValueOf("b")).IsValid())
 
 	fmt.Println("pkg vars", pkgA, pkgB, pkgV, pkgOk)
+	rd := &reader{seg{3, 4}}
+	_, p1 := rd.position()
+	rd.pos.start = 30
+	var _, p2 = rd.position()
+	p2.stop = 40
+	fmt.Println("struct results", p1, p2, rd.pos)
+	var sa, saOk = segs["x"]
+	sa.start = 10
+	sb, _ := segs["x"]
+	sb.stop = 20
+	var sx seg
+	sx, saOk = segs["x"]
+	sx.start = 30
+	pkgSeg.stop = 50
+	fmt.Println("map values", sa, sb, sx, saOk, pkgSeg, pkgSegOk, segs["x"])
 	lit := func() (string, int) { return "lit", clobber() }
 	ls, li := lit()
 	fmt.Println("func lit", ls, li)

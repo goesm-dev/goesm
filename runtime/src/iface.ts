@@ -7,7 +7,7 @@
 // method dispatch goes through the type's method table instead of relying on
 // JS structural typing.
 
-import { BoxMode, Kind, Type, implementsIface, isAggregate, setIfaceProto, tFloat32, tFloat64, zeroSized } from "./types.ts";
+import { BoxMode, Kind, Type, holderOf, implementsIface, isAggregate, setIfaceProto, tFloat32, tFloat64, zeroSized } from "./types.ts";
 import { ceq } from "./complex.ts";
 import { GoPanic, runtimePanic, typeAssertionErrorType } from "./panic.ts";
 import { $R } from "./results.ts";
@@ -30,7 +30,7 @@ export function boxOf(t: Type, v: any): Iface {
   switch (t.boxMode) {
     case BoxMode.Flat: return B.$of(v);
     // A pointer may also be an object of the runtime's (a *rtype is a Type).
-    case BoxMode.Self: return v !== null && v.t === t ? v : new Iface(t, v);
+    case BoxMode.Self: return v !== null && v.t === t ? v : new (holderOf(t))(t, v);
   }
   return new B(t, v);
 }

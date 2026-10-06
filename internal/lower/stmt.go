@@ -303,7 +303,7 @@ func (fe *funcEmitter) declStmt(s *ast.DeclStmt) {
 			e, tt, regs := fe.multiSrc(vs.Values[0])
 			t := fe.forceTmp(e)
 			for i, v := range vars {
-				fe.defineVar(m, v, fe.convert(tupleElem(t, i, regs), tupleAt(tt, i), v.Type()))
+				fe.defineVar(m, v, fe.tupleValue(vs.Values[0], tupleElem(t, i, regs), tupleAt(tt, i), v.Type()))
 			}
 		}
 	}
@@ -363,6 +363,19 @@ func tupleElem(t string, i int, regs bool) string {
 	return fmt.Sprintf("$rt.$R.r%d", i)
 }
 
+// tupleValue lowers v, a value of the several of e (see multiSrc), for use
+// as a value of type to. Only a map's values need copying: the callee
+// copies the results of a call, as assertOk does an asserted value and the
+// sender a value sent on a channel.
+func (fe *funcEmitter) tupleValue(e ast.Expr, v string, from, to types.Type) string {
+	if x, ok := unparen(e).(*ast.IndexExpr); ok {
+		if _, ok := under(fe.info.TypeOf(x.X)).(*types.Map); ok {
+			return fe.convertCopy(v, from, to)
+		}
+	}
+	return fe.convert(v, from, to)
+}
+
 // commaOk returns a JS expression for v, ok forms (see multiSrc), or "".
 func (fe *funcEmitter) commaOk(e ast.Expr) (string, types.Type, bool, bool) {
 	switch x := unparen(e).(type) {
@@ -419,7 +432,7 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 			if isBlank(l) {
 				continue
 			}
-			val := fe.convertCopy(tupleElem(tmp, i, regs), tupleAt(tt, i), fe.lhsType(l, tupleAt(tt, i)))
+			val := fe.tupleValue(s.Rhs[0], tupleElem(tmp, i, regs), tupleAt(tt, i), fe.lhsType(l, tupleAt(tt, i)))
 			if lvs[i] != nil {
 				w.ln("%s;", lvs[i].set(val))
 				continue
