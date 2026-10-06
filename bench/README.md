@@ -74,6 +74,19 @@ The **total** is the sum of the medians of every kernel (the calling kernels' wh
 - [kernels](kernels) stays within the Go 1.21 language and standard library so that GopherJS 1.21 compiles it ([gopherjs.mod](gopherjs.mod) is the module file it builds with). Pull needs Go 1.23's `iter` and is built for the others only.
 - jsmain runs Parallel and Pull on their own goroutine and returns a Promise, as it does Channels: they block.
 
+### Where goesm is slower than hand-written JS
+
+goesm aims to run Go as fast as the JS one would write by hand for the same work, with the same memory use. On Node.js, 12 of the 17 kernels with a hand-written version are within 10% of it; under Bun and Chromium the ratios vary more from run to run. These are the kernels that stay slower, and why:
+
+- **Upper** (1.9–2.5×). A Go string is bytes, and a JS string is UTF-16 code units. Every string that crosses from JS into Go is checked for non-ASCII characters, which is about 40 ns of Upper's 110 ns per call on Node.js. `len`, indexing and slicing need the byte form, so the check stays.
+- **JSON** (1.4–1.6×) and **Handle** (1.1–1.9×). Go's `encoding/json` rules differ from `JSON.parse`. A JSON number such as `1.0` or `1e2` is an error for an `int` field. A repeated key decodes into the same struct or slice again. A `\u` escape becomes UTF-8. goesm therefore decodes with its own parser written in JS, which takes about 1.2× as long as `JSON.parse`, and builds Go values: slice headers, and maps backed by a JS `Map`.
+- **Interfaces** (1.1–1.2× on Node.js and Chromium, 1.7× on Bun). An interface value carries its dynamic type for type switches and assertions, and a method call goes through it. JavaScriptCore reads that type through a prototype getter more slowly than V8 does.
+- **BinaryTrees** (1.0–1.2×) has not been analyzed yet.
+- **Pull** (2–5×) and **MaybeBlocking** (1.4–1.6×) are cliffs, measured on purpose. `iter.Pull` becomes a JS generator when the sequence only calls `yield` directly; other sequences run as coroutines on goroutines. A call that may block must check whether the result is a Promise.
+- **RSASign** (about 110×). Hand-written JS calls Web Crypto, which is native code. goesm runs Go's `crypto/rsa` on 32-bit limbs in doubles. BigInt would not be constant-time.
+
+Memory follows the same pattern. Bytes allocated per call, measured with `v8.GCProfiler` on Node.js, are within 5% of hand-written JS for most kernels. The exceptions are JSON (1.8×), Handle (1.7×), Strings (1.4×), Sort (1.4×) and Pull (3.6×). JSON and Handle allocate slice headers, `Map`-backed maps and the copy a struct is decoded into. In Strings, each `strings.Builder` write is a string concatenation. In Sort, Go's `[]int` is a number array where the hand-written JS uses an `Int32Array`.
+
 ## Running
 
 The tools are pinned: Go, Node.js and Bun in the repository's [mise.toml](../mise.toml), TinyGo in [this directory's](mise.toml); `build.sh` installs GopherJS with `go install` at a fixed version, and Chromium is driven by `playwright-core` pinned in [package.json](package.json).
