@@ -402,7 +402,7 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 	if named != nil && !generic {
 		if b := pe.boxOf(named); b != nil && b.flat {
 			// The flat box (box.go): $rt.setBox makes it a subclass of the
-			// struct class, with t on its prototype.
+			// struct class, with t and v on its prototype.
 			w.ln("class %s {", b.name)
 			w.indent++
 			w.ln("declare t: $rt.Type;")
@@ -410,7 +410,7 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 			for _, p := range params {
 				w.ln("declare %s;", strings.TrimPrefix(p, "$"))
 			}
-			w.ln("constructor(%s) { this.v = this; %s }", strings.Join(params, ", "), strings.Join(assigns, " "))
+			w.ln("constructor(%s) { %s }", strings.Join(params, ", "), strings.Join(assigns, " "))
 			var moves []string
 			for i := 0; i < s.NumFields(); i++ {
 				moves = append(moves, "o."+fieldProp(s, i))

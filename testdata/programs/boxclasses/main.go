@@ -92,6 +92,12 @@ type myErr struct{ code int }
 
 func (e myErr) Error() string { return fmt.Sprintf("code %d", e.code) }
 
+// wide has a method of more than four parameters on a box holding the
+// value.
+type wide int
+
+func (w wide) secret(a, b, c, d, e int) int { return int(w) * (a + b + c + d + e) }
+
 func sum(ss []Shape) float64 {
 	t := 0.0
 	for _, s := range ss {
@@ -130,6 +136,21 @@ func main() {
 
 	var h hidden = keeper{1}
 	fmt.Println(h.secret(1, 2, 3, 4, 5))
+	h = wide(2)
+	fmt.Println(h.secret(1, 2, 3, 4, 5))
+
+	// A pointer to a struct is its own interface value.
+	n1 := &node{}
+	var l1, l2 lener = n1, n1
+	n1.next = &node{}
+	fmt.Println(l1 == l2, l1.Len(), l1.(*node) == n1, l1 == lener(&node{}))
+	var anyn any = n1
+	_, isLener := anyn.(lener)
+	pm := map[any]int{anyn: 1}
+	fmt.Println(isLener, pm[n1], pm[&node{}], reflect.TypeOf(anyn), reflect.ValueOf(anyn).Elem().Field(0).IsNil())
+	var nilNode *node
+	var l3 lener = nilNode
+	fmt.Println(l3 != nil, l3.Len(), l3.(*node) == nil)
 
 	var g fmt.Stringer = box[int]{4}
 	fmt.Println(g.String(), g)
