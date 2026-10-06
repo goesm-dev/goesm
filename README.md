@@ -329,6 +329,7 @@ It is not a Go-inspired language, a WebAssembly runtime, a package manager, a re
 - [bench/README.md](bench/README.md): the benchmark
 - [examples/](examples): runnable examples
 - [CONTRIBUTING.md](CONTRIBUTING.md): development setup, principles and what a pull request needs
+- [CHANGELOG.md](CHANGELOG.md): what changed in each version
 - [docs/releasing.md](docs/releasing.md): how releases are made
 
 ## Development

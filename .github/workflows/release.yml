@@ -8,17 +8,25 @@ permissions:
 jobs:
   test:
     uses: ./.github/workflows/ci.yml
-  # Creates a draft GitHub release with generated notes; edit and publish it
-  # by hand. goesm is installed with go install, so no binaries are attached.
+  # Creates a draft GitHub release whose notes are the tag's sections of
+  # CHANGELOG.md and CHANGELOG.ja.md (generated from the merged PRs when
+  # there is none); publish it by hand. goesm is installed with go install,
+  # so no binaries are attached.
   release:
     needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - run: >-
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
-          --verify-tag --draft --generate-notes
-          $(case "$GITHUB_REF_NAME" in *-*) echo --prerelease;; esac)
+      - uses: actions/checkout@v7
+      - run: |
+          if .github/scripts/release-notes.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"; then
+            notes="--notes-file $RUNNER_TEMP/notes.md"
+          else
+            notes=--generate-notes
+          fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --draft $notes \
+            $(case "$GITHUB_REF_NAME" in *-*) echo --prerelease;; esac)
         env:
           GH_TOKEN: ${{ github.token }}
