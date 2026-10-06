@@ -609,6 +609,13 @@ func toType(t *rtype) Type {
 // TypeOf returns the reflection Type that represents the dynamic type of i.
 func TypeOf(i any) Type { return toType(ifaceType(i)) }
 
+// goesmTypeOf hands the runtime reflect.TypeOf(ptr).Elem(), for the Type
+// fields of the errors of encoding/json it makes in a program without the
+// package (runtime/src/json.ts).
+var goesmTypeOf = registerTypeOf(func(ptr any) Type { return TypeOf(ptr).Elem() }, (*Type)(nil))
+
+func registerTypeOf(f func(any) Type, typePtr any) bool
+
 // TypeFor returns the Type that represents the type argument T.
 func TypeFor[T any]() Type { return TypeOf((*T)(nil)).Elem() }
 

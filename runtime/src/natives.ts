@@ -30,7 +30,7 @@ import {
 } from "./index.ts";
 import type { S } from "./index.ts";
 import { fmtFixed, fmtShortest, mayTie, roundToEven, sprintf, tieScale } from "./fmt.ts";
-import { jsonMarshal, jsonUnmarshal } from "./json.ts";
+import { jsonMarshal, jsonUnmarshal, registerJSONErrors, registerTypeOf } from "./json.ts";
 
 // ---- runtime ----
 
@@ -338,6 +338,18 @@ export function native$encoding$json$fastMarshal(v: Iface | null): S<number> {
 }
 export function native$encoding$json$fastUnmarshal(data: S<number>, v: Iface | null): boolean {
   return jsonUnmarshal(data, v);
+}
+export function native$encoding$json$registerErrors(
+  syntax: (msg: string, off: bigint) => Iface,
+  type: (value: string, ptr: Iface, off: bigint, struct: string, field: string) => Iface,
+  invalid: (ptr: Iface) => Iface,
+): boolean {
+  registerJSONErrors({ syntax, type, invalid });
+  return true;
+}
+export function native$reflect$registerTypeOf(f: (ptr: Iface) => Iface, typePtr: Iface): boolean {
+  registerTypeOf(f, typePtr);
+  return true;
 }
 
 // fmt.Sprintf's fast path (see the fmt patch).

@@ -22,6 +22,7 @@ These changes make the generated code faster and its bundles smaller, so that it
 
 ### Bundle size
 
+- A package whose `json.Unmarshal` calls all decode into types the runtime always decodes itself (no methods, plain tags, no arrays, and no interface that could already hold a pointer) no longer imports encoding/json. The runtime checks the input, decodes with Go's merge rules and returns encoding/json's own errors. A program that only decodes JSON into a slice of structs goes from 553 to 36 KB minified (152 to 12.6 KB gzip), and its startup on Node.js from 57 to 7 ms. [#98](https://github.com/goesm-dev/goesm/pull/98)
 - A program whose regexp patterns are all known at compile time matches them with the engine's RegExp when the translation finds the same matches in linear time, and regexp's parser and engines are left out. `strconv.Atoi`, `strings.TrimSpace` and `strings.Split` no longer pull in unicode's tables or NumError's methods. A calendar package that parses dates grows by 1.9 KB gzip with strings and strconv, down from 10.2 KB, and by 4.5 KB with a regexp, down from 55.6 KB. [#85](https://github.com/goesm-dev/goesm/pull/85)
 - Method tables keep a method only when reachable code calls it through an interface, as Go's linker does. unicode's category and script tables are dropped when no regexp pattern can use them. A Markdown bundle goes from 215 to 163 KiB gzip. [#82](https://github.com/goesm-dev/goesm/pull/82)
 - More package variable initializers count as side-effect free, empty init functions are not emitted, and strconv computes its 128-bit powers of ten on demand. The neverthrow comparison's standard library bundle goes from 101 to 52 KiB gzip. [#81](https://github.com/goesm-dev/goesm/pull/81)
@@ -29,6 +30,7 @@ These changes make the generated code faster and its bundles smaller, so that it
 
 ### Fixes
 
+- `json.Unmarshal` of `-0` into an unsigned integer returns Go's error instead of storing 0. [#98](https://github.com/goesm-dev/goesm/pull/98)
 - Exported struct fields whose names start with a non-ASCII upper-case letter are exported, and unexported ones with non-ASCII names are not. [#81](https://github.com/goesm-dev/goesm/pull/81)
 
 ### Comparison suite and CI
