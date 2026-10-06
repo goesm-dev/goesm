@@ -1737,7 +1737,7 @@ func icallExpr(recv, key, args string, n int) string {
 // sees the few dynamic types flowing here, where the shared $rt.icall sees
 // every interface method call of the program. A recv that is not a plain reference
 // is held in a variable of the function (declared by funcBody, outside one
-// in the module's $ir): JS evaluates the callee and recv.v before the
+// in the module's $ir): JS evaluates the callee and recv before the
 // arguments, so an interface call among them (or in recv itself) may reuse
 // it. A nil interface is a TypeError reading the method, reported as Go's
 // nil dereference (see nilChecked).
@@ -1760,7 +1760,7 @@ func (fe *funcEmitter) icall(recv, key, args string) string {
 	if args != "" {
 		args = ", " + args
 	}
-	return fmt.Sprintf("(%s%s%s(%s.v%s))", set, r, boxMethodProp(key), r, args)
+	return fmt.Sprintf("(%s%s%s(%s%s))", set, r, boxMethodProp(key), r, args)
 }
 
 // isStaticFunc reports whether fun names a declared function (never nil).
