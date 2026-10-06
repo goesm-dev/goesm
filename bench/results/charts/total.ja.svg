@@ -27,38 +27,38 @@
 <line class="g" x1="680.0" y1="74" x2="680.0" y2="345"/>
 <text class="m" x="680.0" y="359" text-anchor="middle">20000</text>
 <text class="t" x="140" y="120.5" text-anchor="end">Node.js v26.10.0</text>
-<rect x="150" y="78" width="34.2" height="13" rx="2" fill="#8c959f"><title>269*</title></rect>
-<text class="t" x="188.2" y="89" font-size="11">269*</text>
-<rect x="150" y="94" width="64.8" height="13" rx="2" fill="#2f81f7"><title>351</title></rect>
-<text class="t" x="218.8" y="105" font-size="11">351</text>
-<rect x="150" y="110" width="433.2" height="13" rx="2" fill="#d29922"><title>8622</title></rect>
-<text class="t" x="587.2" y="121" font-size="11">8622</text>
-<rect x="150" y="126" width="189.6" height="13" rx="2" fill="#a371f7"><title>1039</title></rect>
-<text class="t" x="343.6" y="137" font-size="11">1039</text>
-<rect x="150" y="142" width="166.2" height="13" rx="2" fill="#3fb950"><title>847</title></rect>
-<text class="t" x="320.2" y="153" font-size="11">847</text>
+<rect x="150" y="78" width="45.2" height="13" rx="2" fill="#8c959f"><title>296*</title></rect>
+<text class="t" x="199.2" y="89" font-size="11">296*</text>
+<rect x="150" y="94" width="65.1" height="13" rx="2" fill="#2f81f7"><title>352</title></rect>
+<text class="t" x="219.1" y="105" font-size="11">352</text>
+<rect x="150" y="110" width="435.9" height="13" rx="2" fill="#d29922"><title>8831</title></rect>
+<text class="t" x="589.9" y="121" font-size="11">8831</text>
+<rect x="150" y="126" width="194.1" height="13" rx="2" fill="#a371f7"><title>1080</title></rect>
+<text class="t" x="348.1" y="137" font-size="11">1080</text>
+<rect x="150" y="142" width="141.7" height="13" rx="2" fill="#3fb950"><title>685</title></rect>
+<text class="t" x="295.7" y="153" font-size="11">685</text>
 <text class="t" x="140" y="213.5" text-anchor="end">Bun 1.4.2</text>
-<rect x="150" y="171" width="169.3" height="13" rx="2" fill="#8c959f"><title>870*</title></rect>
-<text class="t" x="323.3" y="182" font-size="11">870*</text>
-<rect x="150" y="187" width="60.8" height="13" rx="2" fill="#2f81f7"><title>339</title></rect>
-<text class="t" x="214.8" y="198" font-size="11">339</text>
-<rect x="150" y="203" width="413.5" height="13" rx="2" fill="#d29922"><title>7267</title></rect>
-<text class="t" x="567.5" y="214" font-size="11">7267</text>
-<rect x="150" y="219" width="185.7" height="13" rx="2" fill="#a371f7"><title>1004</title></rect>
-<text class="t" x="339.7" y="230" font-size="11">1004</text>
-<rect x="150" y="235" width="168.3" height="13" rx="2" fill="#3fb950"><title>863</title></rect>
-<text class="t" x="322.3" y="246" font-size="11">863</text>
+<rect x="150" y="171" width="150.8" height="13" rx="2" fill="#8c959f"><title>742*</title></rect>
+<text class="t" x="304.8" y="182" font-size="11">742*</text>
+<rect x="150" y="187" width="49.5" height="13" rx="2" fill="#2f81f7"><title>307</title></rect>
+<text class="t" x="203.5" y="198" font-size="11">307</text>
+<rect x="150" y="203" width="420.7" height="13" rx="2" fill="#d29922"><title>7736</title></rect>
+<text class="t" x="574.7" y="214" font-size="11">7736</text>
+<rect x="150" y="219" width="181.0" height="13" rx="2" fill="#a371f7"><title>964</title></rect>
+<text class="t" x="335.0" y="230" font-size="11">964</text>
+<rect x="150" y="235" width="151.4" height="13" rx="2" fill="#3fb950"><title>745</title></rect>
+<text class="t" x="305.4" y="246" font-size="11">745</text>
 <text class="t" x="140" y="306.5" text-anchor="end">Chromium 141.0.7390.37</text>
-<rect x="150" y="264" width="20.3" height="13" rx="2" fill="#8c959f"><title>239*</title></rect>
-<text class="t" x="174.3" y="275" font-size="11">239*</text>
-<rect x="150" y="280" width="49.7" height="13" rx="2" fill="#2f81f7"><title>308</title></rect>
-<text class="t" x="203.7" y="291" font-size="11">308</text>
-<rect x="150" y="296" width="410.9" height="13" rx="2" fill="#d29922"><title>7108</title></rect>
-<text class="t" x="564.9" y="307" font-size="11">7108</text>
-<rect x="150" y="312" width="204.5" height="13" rx="2" fill="#a371f7"><title>1182</title></rect>
-<text class="t" x="358.5" y="323" font-size="11">1182</text>
-<rect x="150" y="328" width="155.9" height="13" rx="2" fill="#3fb950"><title>775</title></rect>
-<text class="t" x="309.9" y="339" font-size="11">775</text>
-<line class="r" x1="211.3" y1="72" x2="211.3" y2="345" stroke-dasharray="4 3" stroke-width="1.2"/>
-<text class="t" x="211.3" y="373" text-anchor="middle" font-size="11">ネイティブ Go 341*</text>
+<rect x="150" y="264" width="20.0" height="13" rx="2" fill="#8c959f"><title>238*</title></rect>
+<text class="t" x="174.0" y="275" font-size="11">238*</text>
+<rect x="150" y="280" width="47.6" height="13" rx="2" fill="#2f81f7"><title>302</title></rect>
+<text class="t" x="201.6" y="291" font-size="11">302</text>
+<rect x="150" y="296" width="412.6" height="13" rx="2" fill="#d29922"><title>7212</title></rect>
+<text class="t" x="566.6" y="307" font-size="11">7212</text>
+<rect x="150" y="312" width="202.8" height="13" rx="2" fill="#a371f7"><title>1165</title></rect>
+<text class="t" x="356.8" y="323" font-size="11">1165</text>
+<rect x="150" y="328" width="150.3" height="13" rx="2" fill="#3fb950"><title>738</title></rect>
+<text class="t" x="304.3" y="339" font-size="11">738</text>
+<line class="r" x1="212.8" y1="72" x2="212.8" y2="345" stroke-dasharray="4 3" stroke-width="1.2"/>
+<text class="t" x="212.8" y="373" text-anchor="middle" font-size="11">ネイティブ Go 345*</text>
 </svg>
