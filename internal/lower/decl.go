@@ -609,9 +609,10 @@ func (pe *pkgEmitter) emitFuncBody(w *writer, file *ast.File, fd *ast.FuncDecl, 
 	pe.scalar = scalarRangeVars(pe.info, fd.Body)
 	pe.split = split64Vars(pe.info, fd.Body, pe.prog.boxed)
 	pe.strBytes, pe.strMarshal = stringBytesVars(pe.info, fd.Body, pe.prog.boxed)
+	pe.freshIfaces = freshIfaceVars(pe.info, fd.Body)
 	fe.funcBody(fd.Recv, fd.Type, fd.Body, sig)
 	pe.byteBools, pe.byteBoolMakes, pe.inBounds, pe.hdrLoops, pe.split, pe.scalar = nil, nil, nil, nil, nil, nil
-	pe.strBytes, pe.strMarshal = nil, nil
+	pe.strBytes, pe.strMarshal, pe.freshIfaces = nil, nil, nil
 	w.indent--
 	w.ln("}")
 }

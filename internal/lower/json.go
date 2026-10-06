@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"regexp"
+	"strings"
 )
 
 // encoding/json calls between JS strings. The runtime's encoder and decoder
@@ -16,7 +18,10 @@ import (
 //	return string(b)
 //
 // json.Unmarshal of a conversion []byte(s) passes s to the runtime as it is,
-// and a pointer of a known type without boxing it.
+// and a pointer of a known type without boxing it. When the runtime decodes
+// every value of that type itself, errors included (jsonDecodes), the call
+// does not refer to encoding/json at all, and a module whose calls all do
+// so leaves out its import (elided in emit.go).
 // A []byte local defined by json.Marshal whose every use is string(b) or
 // len(b) is kept as the Go string the runtime encodes, which those uses read
 // directly. Values the runtime leaves to Go's code (types with methods, for
@@ -155,25 +160,298 @@ func (fe *funcEmitter) jsonCall(e *ast.CallExpr) (string, bool) {
 	if len(e.Args) != 2 || !isJSONFunc(fe.info, e, "Unmarshal") || fe.callBlocks(e) {
 		return "", false
 	}
-	conv, ok := ast.Unparen(e.Args[0]).(*ast.CallExpr)
-	if !ok || len(conv.Args) != 1 {
-		return "", false
+	// The runtime decodes JSON text in a JS string: s of []byte(s) as it
+	// is, other []byte values converted.
+	var setS, s, data string
+	conv, isConv := ast.Unparen(e.Args[0]).(*ast.CallExpr)
+	if isConv = isConv && len(conv.Args) == 1 && fe.isStringToBytes(conv); isConv {
+		setS, s = temp(fe.expr(conv.Args[0]))
+		data = "$rt.stringToBytes(" + s + ")"
+	} else {
+		var b string
+		setS, b = temp(fe.expr(e.Args[0]))
+		s, data = "$rt.bytesToString("+b+")", b
 	}
-	if tv, ok := fe.info.Types[ast.Unparen(conv.Fun)]; !ok || !tv.IsType() || !isByteSlice(tv.Type.Underlying()) {
-		return "", false
-	}
-	if b, ok := fe.info.TypeOf(conv.Args[0]).Underlying().(*types.Basic); !ok || b.Info()&types.IsString == 0 {
-		return "", false
-	}
-	setS, s := temp(fe.expr(conv.Args[0]))
 	if pt, ok := fe.info.TypeOf(e.Args[1]).(*types.Pointer); ok {
 		// A pointer goes to the runtime as it is, and is boxed only for Go's
-		// code.
+		// code, which a value the runtime always decodes itself does not
+		// need.
 		setP, p := temp(fe.expr(e.Args[1]))
-		call := fe.mark(e) + fe.expr(e.Fun) + "($rt.stringToBytes(" + s + "), " + fe.convert(p, pt, anyT) + ")"
-		return "(" + setS + setP + "$rt.jsonUnmarshalTo(" + s + ", " + fe.desc(pt) + ", " + p + ") ? null : " + call + ")", true
+		if fe.jsonDecodes(pt.Elem(), e.Args[1]) {
+			return "(" + setS + setP + "$rt.jsonDecode(" + s + ", " + fe.desc(pt) + ", " + p + ", true))", true
+		}
+		r := fe.declareName("$j")
+		fe.temps = append(fe.temps, r)
+		call := fe.mark(e) + fe.expr(e.Fun) + "(" + data + ", " + fe.convert(p, pt, anyT) + ")"
+		return "(" + setS + setP + "(" + r + " = $rt.jsonDecode(" + s + ", " + fe.desc(pt) + ", " + p + ", false)) !== undefined ? " + r + " : " + call + ")", true
+	}
+	if !isConv {
+		return "", false
 	}
 	setV, v := temp(fe.valueOf(e.Args[1], anyT))
-	call := fe.mark(e) + fe.expr(e.Fun) + "($rt.stringToBytes(" + s + "), " + v + ")"
+	call := fe.mark(e) + fe.expr(e.Fun) + "(" + data + ", " + v + ")"
 	return "(" + setS + setV + "$rt.jsonUnmarshalString(" + s + ", " + v + ") ? null : " + call + ")", true
+}
+
+// isStringToBytes reports whether conv converts a string to a []byte.
+func (fe *funcEmitter) isStringToBytes(conv *ast.CallExpr) bool {
+	tv, ok := fe.info.Types[ast.Unparen(conv.Fun)]
+	if !ok || !tv.IsType() || !isByteSlice(tv.Type.Underlying()) {
+		return false
+	}
+	b, ok := fe.info.TypeOf(conv.Args[0]).Underlying().(*types.Basic)
+	return ok && b.Info()&types.IsString != 0
+}
+
+// jsonDecodes reports whether the runtime decodes every JSON value into
+// *arg, of type *t, itself (jsonDecode in runtime/src/json.ts, which must
+// agree): t is of the types the runtime decodes (fullPlain), and no
+// interface in *arg can hold a pointer, which Go decodes into. That is so
+// if t has no interfaces where v1 merges (mergesIfaces), or if arg is &v
+// for a local v whose interfaces only json.Unmarshal stores into (it stores
+// no pointers): v is declared without a value, has its interfaces in its
+// own memory (behind no pointer or slice) and every other use of v reads
+// it.
+func (fe *funcEmitter) jsonDecodes(t types.Type, arg ast.Expr) bool {
+	if !jsonFullPlain(t, map[types.Type]bool{}) {
+		return false
+	}
+	switch jsonMergesIfaces(t, false, map[types.Type]bool{}) {
+	case ifaceNone:
+		return true
+	case ifaceShared:
+		return false
+	}
+	u, ok := ast.Unparen(arg).(*ast.UnaryExpr)
+	if !ok || u.Op != token.AND {
+		return false
+	}
+	id, ok := ast.Unparen(u.X).(*ast.Ident)
+	if !ok {
+		return false
+	}
+	v, ok := fe.info.Uses[id].(*types.Var)
+	return ok && fe.pe.freshIfaces[v]
+}
+
+// jsonFullPlain mirrors the runtime's fullPlain (with deepPlain and
+// structFields).
+func jsonFullPlain(t types.Type, seen map[types.Type]bool) bool {
+	if seen[t] {
+		return true
+	}
+	seen[t] = true
+	switch types.Unalias(t).(type) {
+	case *types.TypeParam:
+		return false
+	case *types.Named:
+		if types.NewMethodSet(t).Len() > 0 {
+			return false
+		}
+		if !types.IsInterface(t) {
+			if _, ok := t.Underlying().(*types.Pointer); !ok && types.NewMethodSet(types.NewPointer(t)).Len() > 0 {
+				return false
+			}
+		}
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Basic:
+		switch u.Kind() {
+		case types.Bool, types.String, types.Float64,
+			types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
+			types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64, types.Uintptr:
+			return true
+		}
+	case *types.Interface:
+		return u.Empty()
+	case *types.Struct:
+		fs, ok := jsonDecFields(u)
+		if !ok {
+			return false
+		}
+		for _, f := range fs {
+			if !jsonFullPlain(f.Type(), seen) {
+				return false
+			}
+		}
+		return true
+	case *types.Map:
+		k, ok := u.Key().Underlying().(*types.Basic)
+		return ok && k.Kind() == types.String && jsonFullPlain(u.Key(), seen) && jsonFullPlain(u.Elem(), seen)
+	case *types.Slice:
+		if b, ok := u.Elem().Underlying().(*types.Basic); ok && b.Kind() == types.Uint8 {
+			return false
+		}
+		return jsonFullPlain(u.Elem(), seen)
+	case *types.Pointer:
+		return jsonFullPlain(u.Elem(), seen)
+	}
+	return false
+}
+
+var jsonTagRE = regexp.MustCompile(`(?:^|\s)json:"([^"\\]*)"`)
+
+// jsonDecFields mirrors the runtime's structFields, for the fields the
+// runtime decodes itself (with ASCII names): the struct's JSON fields, or
+// false.
+func jsonDecFields(st *types.Struct) ([]*types.Var, bool) {
+	var fs []*types.Var
+	seen := map[string]bool{}
+	for i := 0; i < st.NumFields(); i++ {
+		f, tag := st.Field(i), st.Tag(i)
+		if f.Embedded() || strings.Contains(tag, `\`) {
+			return nil, false
+		}
+		if !f.Exported() {
+			continue
+		}
+		name := f.Name()
+		if m := jsonTagRE.FindStringSubmatch(tag); m != nil {
+			parts := strings.Split(m[1], ",")
+			if parts[0] == "-" && len(parts) == 1 {
+				continue
+			}
+			if parts[0] != "" {
+				if !jsonNameRE.MatchString(parts[0]) {
+					return nil, false
+				}
+				name = parts[0]
+			}
+			for _, o := range parts[1:] {
+				if o != "omitempty" {
+					return nil, false
+				}
+			}
+		}
+		for _, c := range []byte(name) {
+			if c >= 0x80 {
+				return nil, false
+			}
+		}
+		if seen[strings.ToLower(name)] {
+			return nil, false
+		}
+		seen[strings.ToLower(name)] = true
+		fs = append(fs, f)
+	}
+	return fs, true
+}
+
+// Where a type has interfaces that v1 merges into (see jsonDecodes).
+const (
+	ifaceNone   = iota
+	ifaceOwn    // in the value's own memory: it, or its fields
+	ifaceShared // behind a pointer or in a slice's array
+)
+
+// jsonMergesIfaces mirrors the runtime's mergesIfaces, telling apart
+// interfaces behind pointers and slices (shared, set).
+func jsonMergesIfaces(t types.Type, shared bool, seen map[types.Type]bool) int {
+	if seen[t] {
+		return ifaceNone
+	}
+	seen[t] = true
+	defer delete(seen, t)
+	in := ifaceOwn
+	if shared {
+		in = ifaceShared
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Interface:
+		return in
+	case *types.Struct:
+		fs, _ := jsonDecFields(u)
+		r := ifaceNone
+		for _, f := range fs {
+			r = max(r, jsonMergesIfaces(f.Type(), shared, seen))
+		}
+		return r
+	case *types.Slice:
+		return jsonMergesIfaces(u.Elem(), true, seen)
+	case *types.Pointer:
+		return jsonMergesIfaces(u.Elem(), true, seen)
+	}
+	return ifaceNone
+}
+
+// freshIfaceVars returns the locals of body that jsonDecodes can tell
+// json.Unmarshal stores the only values of their interfaces into: declared
+// without values, and used only as &v for json.Unmarshal's second argument
+// or read.
+func freshIfaceVars(info *types.Info, body *ast.BlockStmt) map[*types.Var]bool {
+	if body == nil {
+		return nil
+	}
+	vars := map[*types.Var]bool{}
+	ast.Inspect(body, func(n ast.Node) bool {
+		if vs, ok := n.(*ast.ValueSpec); ok && len(vs.Values) == 0 {
+			for _, id := range vs.Names {
+				if v, ok := info.Defs[id].(*types.Var); ok && jsonMergesIfaces(v.Type(), false, map[types.Type]bool{}) == ifaceOwn {
+					vars[v] = true
+				}
+			}
+		}
+		return true
+	})
+	if len(vars) == 0 {
+		return nil
+	}
+	// root returns the variable e is a part of, if e is one's field.
+	root := func(e ast.Expr) *types.Var {
+		for {
+			switch x := ast.Unparen(e).(type) {
+			case *ast.SelectorExpr:
+				if sel := info.Selections[x]; sel == nil || sel.Kind() != types.FieldVal || sel.Indirect() {
+					return nil
+				}
+				e = x.X
+				continue
+			case *ast.Ident:
+				v, _ := info.Uses[x].(*types.Var)
+				return v
+			}
+			return nil
+		}
+	}
+	allowed := map[*ast.UnaryExpr]bool{}
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.CallExpr:
+			if len(n.Args) == 2 && isJSONFunc(info, n, "Unmarshal") {
+				if u, ok := ast.Unparen(n.Args[1]).(*ast.UnaryExpr); ok && u.Op == token.AND {
+					if _, ok := ast.Unparen(u.X).(*ast.Ident); ok {
+						allowed[u] = true
+					}
+				}
+			}
+		case *ast.AssignStmt:
+			for _, l := range n.Lhs {
+				delete(vars, root(l))
+			}
+		case *ast.IncDecStmt:
+			delete(vars, root(n.X))
+		case *ast.RangeStmt:
+			if n.Tok == token.ASSIGN {
+				for _, x := range []ast.Expr{n.Key, n.Value} {
+					if x != nil {
+						delete(vars, root(x))
+					}
+				}
+			}
+		case *ast.UnaryExpr:
+			if n.Op == token.AND && !allowed[n] {
+				delete(vars, root(n.X))
+			}
+		case *ast.SelectorExpr:
+			// A method with a pointer receiver called on v (or a field)
+			// takes its address.
+			if sel := info.Selections[n]; sel != nil && sel.Kind() != types.FieldVal {
+				if _, ptr := sel.Obj().(*types.Func).Signature().Recv().Type().(*types.Pointer); ptr {
+					delete(vars, root(n.X))
+				}
+			}
+		}
+		return true
+	})
+	return vars
 }
