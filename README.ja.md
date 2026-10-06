@@ -330,6 +330,7 @@ goesm は、Go 風の言語、WebAssembly ランタイム、パッケージマ�
 - [bench/README.ja.md](bench/README.ja.md): ベンチマーク
 - [examples/](examples): 実行できる例
 - [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md): 開発環境、方針、プルリクエストに必要なもの
+- [CHANGELOG.ja.md](CHANGELOG.ja.md): 各バージョンの変更点
 - [docs/releasing.ja.md](docs/releasing.ja.md): リリースの手順
 
 ## 開発
