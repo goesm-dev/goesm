@@ -1667,8 +1667,10 @@ func (fe *funcEmitter) icall(recv, key, args string) string {
 		}
 		r, set = ir, ir+" = "+recv+", "
 	}
-	access, _ := boxMethodProp(key)
-	return fmt.Sprintf("(%s%s%s(%s))", set, r, access, args)
+	if args != "" {
+		args = ", " + args
+	}
+	return fmt.Sprintf("(%s%s%s(%s.v%s))", set, r, boxMethodProp(key), r, args)
 }
 
 // isStaticFunc reports whether fun names a declared function (never nil).

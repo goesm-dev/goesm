@@ -416,17 +416,19 @@ export function addMethods(t: Type, methods: Record<string, [(recv: any, ...args
     const [fn, type] = methods[k];
     t.methods.set(k, { fn, type });
     Object.getPrototypeOf(t.mt)[k] = fn;
+    if (t.B !== null) t.B.prototype["$" + k] = fn;
     addFallback(k);
   }
 }
 
-// An interface method call is a call of a method of the interface value,
-// named "$" + key (icall in the lowering): the box classes the lowering
-// emits for the types that have methods (setBox) call the type's function
-// directly, and Iface's own method, for the interface values of the other
-// types (generic, unnamed or the runtime's), calls through the method table.
-// Iface is in iface.ts, which imports this module: it hands its prototype
-// over (setIfaceProto) once defined.
+// An interface method call is a call of the interface value's method
+// "$" + key, with the value (v) as the first argument (icall in the
+// lowering). The box classes the lowering emits for the types that have
+// methods (setBox) have the type's functions as these methods, and Iface's
+// own, for the interface values of the other types (generic, unnamed or the
+// runtime's), call through the method table. Iface is in iface.ts, which
+// imports this module: it hands its prototype over (setIfaceProto) once
+// defined.
 let ifaceProto: any = null;
 const pendingKeys: string[] = [];
 
@@ -436,16 +438,16 @@ function addFallback(k: string): void {
 }
 
 function fallback(k: string) {
-  return function (this: { t: Type; v: any }, a: any, b: any, c: any, d: any) {
+  return function (this: { t: Type }, v: any, a: any, b: any, c: any, d: any) {
     const f = this.t.mt[k];
     switch (arguments.length) {
-      case 0: return f(this.v);
-      case 1: return f(this.v, a);
-      case 2: return f(this.v, a, b);
-      case 3: return f(this.v, a, b, c);
-      case 4: return f(this.v, a, b, c, d);
+      case 1: return f(v);
+      case 2: return f(v, a);
+      case 3: return f(v, a, b);
+      case 4: return f(v, a, b, c);
+      case 5: return f(v, a, b, c, d);
     }
-    return f(this.v, ...arguments);
+    return f.apply(undefined, arguments as any);
   };
 }
 
@@ -456,11 +458,18 @@ export function setIfaceProto(p: any): void {
 }
 
 // setBox registers B as the class of the interface values of type t. A flat
-// box (for a struct type) is a struct object of t's class that is its own
-// interface value (its v is itself): one allocation per boxed struct.
+// box (for a struct type) is a struct object of a subclass of t's class
+// that is its own interface value (its v is itself): one allocation per
+// boxed struct.
 export function setBox(t: Type, B: any, flat: boolean): void {
   Object.setPrototypeOf(B.prototype, flat ? t.ctor.prototype : ifaceProto);
-  if (flat) registerCtor(B, t);
+  if (flat) {
+    // t is on the prototype. v, which a call reads (icall), is a field: a
+    // getter on the prototype costs every call.
+    Object.defineProperty(B.prototype, "t", { value: t });
+    registerCtor(B, t);
+  }
+  for (const [k, m] of t.methods) B.prototype["$" + k] = m.fn;
   t.B = B;
   t.flatBox = flat;
 }

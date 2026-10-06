@@ -8,24 +8,28 @@ import (
 
 // Box classes. An interface value is an object with the dynamic type t and
 // the value v ($rt.Iface), and an interface method call is a call of its
-// method "$" + key (icall). For a type that has methods called through
-// interfaces, the lowering emits the class of its interface values, whose
-// methods call the type's functions directly: each call site sees one class
-// per dynamic type, which engines resolve and inline as they do a method of
-// a JS class. The interface values of other types (generic or unnamed
-// types, the runtime's) are plain Ifaces, whose "$" + key methods (set by
-// $rt.addMethods) call through the type's method table.
+// method "$" + key with v as the first argument (icall). For a type that has
+// methods called through interfaces, the lowering emits the class of its
+// interface values, and $rt.setBox puts the type's method table functions
+// on its prototype: each call site sees one class per dynamic type, whose
+// method engines resolve and inline as they do a method of a JS class. The
+// interface values of other types (generic or unnamed types, the runtime's)
+// are plain Ifaces, whose "$" + key methods (set by $rt.addMethods) call
+// through the type's method table.
 //
 // The box of a struct type is flat where it can be: a struct object of a
-// subclass of the type's class, with t, and v referring to itself. Boxing a
-// struct value then allocates one object, not two. A struct with a field
-// named t or v keeps a box holding the value.
+// subclass of the type's class, whose prototype has t, with a field v
+// referring to the object itself. Boxing a struct value then allocates one
+// object, not two. A struct with a field named t or v keeps a box holding
+// the value.
+//
+// Box classes are named N$$box and N$$pbox (for *N): method functions are
+// N$M, and Go names do not begin with $.
 
 // boxInfo describes the box class of a non-interface type.
 type boxInfo struct {
-	name    string // the class name, in the defining package
-	flat    bool   // the box is the struct object itself
-	methods []*types.Selection
+	name string // the class name, in the defining package
+	flat bool   // the box is the struct object itself
 }
 
 type boxKey struct {
@@ -76,16 +80,13 @@ func (p *Program) newBoxInfo(named *types.Named, ptr bool) *boxInfo {
 		T = types.NewPointer(named)
 		b.name = jsName(obj.Name()) + "$$pbox"
 	}
-	ms := types.NewMethodSet(T)
-	for i := 0; i < ms.Len(); i++ {
-		sel := ms.At(i)
-		fn := sel.Obj().(*types.Func)
-		if fn.Signature().TypeParams().Len() > 0 || !p.DynMethod(fn) || !p.CalledMethod(fn) {
-			continue
-		}
-		b.methods = append(b.methods, sel)
+	// Only types with methods called through interfaces need one.
+	ms, called := types.NewMethodSet(T), false
+	for i := 0; i < ms.Len() && !called; i++ {
+		fn := ms.At(i).Obj().(*types.Func)
+		called = fn.Signature().TypeParams().Len() == 0 && p.DynMethod(fn) && p.CalledMethod(fn)
 	}
-	if len(b.methods) == 0 {
+	if !called {
 		return nil
 	}
 	if st, ok := named.Underlying().(*types.Struct); ok && !ptr {
@@ -99,14 +100,13 @@ func (p *Program) newBoxInfo(named *types.Named, ptr bool) *boxInfo {
 	return b
 }
 
-// boxMethodProp is the property of an interface value's method key, as
-// accessed (".$M" or "[...]") and as declared in a class.
-func boxMethodProp(key string) (access, decl string) {
+// boxMethodProp is the property access (".$M" or "[...]") of an interface
+// value's method key.
+func boxMethodProp(key string) string {
 	if jsIdent.MatchString(key) {
-		return ".$" + key, "$" + key
+		return ".$" + key
 	}
-	q := jsString("$" + key)
-	return "[" + q + "]", "[" + q + "]"
+	return "[" + jsString("$"+key) + "]"
 }
 
 // emitBoxes emits the box classes of named and *named, defined in this
@@ -130,35 +130,11 @@ func (pe *pkgEmitter) emitBoxes(w *writer, name string, named *types.Named) {
 			cw.ln("declare t: $rt.Type;")
 			cw.ln("declare v: any;")
 			cw.ln("constructor(t: $rt.Type, v: any) { this.t = t; this.v = v; }")
-			pe.boxMethods(cw, T, b, "this.v")
 			cw.indent--
 			cw.ln("}")
 			pe.classes.append(cw)
 		}
 		w.ln("$rt.setBox(%s, %s, %t);", desc, b.name, b.flat)
-	}
-}
-
-// boxMethods emits the methods of box b of type T, whose receiver is recv.
-func (pe *pkgEmitter) boxMethods(w *writer, T types.Type, b *boxInfo, recv string) {
-	for _, sel := range b.methods {
-		fn := sel.Obj().(*types.Func)
-		key := methodKey(fn)
-		_, decl := boxMethodProp(key)
-		n := fn.Signature().Params().Len()
-		var ps, as []string
-		for i := 0; i < n; i++ {
-			ps = append(ps, fmt.Sprintf("a%d: any", i))
-			as = append(as, fmt.Sprintf(", a%d", i))
-		}
-		args := strings.Join(as, "")
-		callee := pe.methodEntry(T, sel, tpScope{})
-		if callee != pe.methodFuncName(fn) {
-			// A wrapper (a promoted method, or a value method of a
-			// pointer): the table holds it.
-			callee = fmt.Sprintf("this.t.mt[%s]", jsString(key))
-		}
-		w.ln("%s(%s): any { return %s(%s%s); }", decl, strings.Join(ps, ", "), callee, recv, args)
 	}
 }
 
