@@ -159,6 +159,9 @@ type pkgEmitter struct {
 	// json.Marshal calls defining them (see json.go).
 	strBytes   map[*types.Var]bool
 	strMarshal map[*ast.CallExpr]bool
+	// freshIfaces holds the locals of the function being emitted whose
+	// interfaces only json.Unmarshal stores into (see jsonDecodes).
+	freshIfaces map[*types.Var]bool
 	// jsonEncs maps types to their generated JSON encoders, which
 	// jsonFuncs holds (see jsonenc.go).
 	jsonEncs  typeutil.Map
@@ -315,6 +318,30 @@ func (pe *pkgEmitter) export(local, name string) {
 	}
 	pe.exportSet[name] = true
 	pe.exports = append(pe.exports, [2]string{local, name})
+}
+
+// elided reports whether the module leaves out the import of p: package
+// encoding/json, when the runtime does all the module asks of it (all its
+// json.Unmarshal calls decode values the runtime always decodes itself,
+// see jsonCall) and the Go source does not import it for its effects only.
+// The package's initialization changes nothing outside it, so no other
+// code can tell; and without it a program that only decodes JSON leaves
+// out the package, json v2, jsontext and most of reflect and strconv.
+func (pe *pkgEmitter) elided(p *types.Package) bool {
+	if p.Path() != "encoding/json" {
+		return false
+	}
+	if _, used := pe.imports[p]; used {
+		return false
+	}
+	for _, f := range pe.pkg.Syntax {
+		for _, is := range f.Imports {
+			if is.Path.Value == `"encoding/json"` && is.Name != nil && is.Name.Name == "_" {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // importAlias returns the JS namespace name for an imported Go package.
@@ -548,7 +575,7 @@ func (pe *pkgEmitter) emit() *Module {
 	// bare import is needed because bundlers drop unused TS namespace imports.
 	var deps []string
 	for _, ip := range pkg.Types.Imports() { // after goesm replacements
-		if ip.Path() != "unsafe" {
+		if ip.Path() != "unsafe" && !pe.elided(ip) {
 			deps = append(deps, ip.Path())
 		}
 	}

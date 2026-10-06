@@ -102,7 +102,9 @@ func MaybeBlocking(n int) int {
 	return s.sum
 }
 
-var rsaKey = func() *rsa.PrivateKey {
+// rsaKey is made on first use, as the hand-written JS imports its key, so
+// that startup does not include the key's precomputation.
+var rsaKey = sync.OnceValue(func() *rsa.PrivateKey {
 	p, _ := new(big.Int).SetString("e274fb05232d7d9093cf0fcd4e8802c8cfcecf87ae77219588c0e67744e927faf4bb03cf8ad2a04cb37a2f32148351b974494443c4bc1e3134d6706e38c84468809c6966d86a695fc010b0da370403c3e68115f013a5767ffe20744d0809c2f6d0c2c0c4b361a27e0af6906bfc02fb8399e444015f357124610a9bc556dcca7f", 16)
 	q, _ := new(big.Int).SetString("f6d4b33255580015e1854bed878d2d93e05c85ae68feeaccbd84b0c5a91753ee4b43f0e13be47efb578df91ff2c86273169b66c01fdbc967fdf9ef15c70ec00b50df5bc1f8569a0ec248cc4c42ce4c9c56292329e0748489b02a919e0f48c5c16724c984b9425dae039fbe757e75b222c1bac332797ae63d33e32523d513274f", 16)
 	k := &rsa.PrivateKey{PublicKey: rsa.PublicKey{N: new(big.Int).Mul(p, q), E: 65537}, Primes: []*big.Int{p, q}}
@@ -110,7 +112,7 @@ var rsaKey = func() *rsa.PrivateKey {
 	k.D = new(big.Int).ModInverse(big.NewInt(65537), phi)
 	k.Precompute()
 	return k
-}()
+})
 
 // RSASign signs n SHA-256 digests with a 2048-bit RSA key (PKCS #1 v1.5):
 // modular exponentiation of 1024-bit numbers.
@@ -118,7 +120,7 @@ func RSASign(n int) int {
 	acc := 0
 	for i := 0; i < n; i++ {
 		h := sha256.Sum256([]byte{byte(i), byte(i >> 8)})
-		sig, err := rsa.SignPKCS1v15(nil, rsaKey, crypto.SHA256, h[:])
+		sig, err := rsa.SignPKCS1v15(nil, rsaKey(), crypto.SHA256, h[:])
 		if err != nil {
 			panic(err)
 		}

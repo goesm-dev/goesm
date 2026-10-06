@@ -39,6 +39,9 @@ func TestBundleSize(t *testing.T) {
 		{"./atoi", 20_000},
 		// 210 KB with regexp's parser and engines.
 		{"./datere", 40_000},
+		// 553 KB with encoding/json, json v2 and jsontext, which the
+		// runtime's decoder does without.
+		{"./jsondecode", 45_000},
 	} {
 		t.Run(c.pkg[2:], func(t *testing.T) {
 			out := t.TempDir()

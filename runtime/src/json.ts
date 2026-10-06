@@ -10,10 +10,18 @@
 // pointers or interfaces, which Go merges into) makes these return without
 // result and without having changed anything, and Go's own code (json v2
 // with v1 options) does the work and produces its exact output or error.
+//
+// The json.Unmarshal calls goesm lowers go to jsonDecode instead, which
+// also decodes what the one pass gives up on, errors included, for most of
+// those types: a program whose every call decodes such values leaves out
+// encoding/json (see "Unmarshal with Go's errors" below).
 
 // Like natives.ts, which imports it, this uses the runtime only through its
 // public module, so that split builds share one runtime.
-import { Cell, GoMap, Iface, Kind, Slice, Type, bytesToString, fromJSString, hasMethods, makeMap, mapOf, noteASCII, ptrTo, sliceLit, sliceOf, stringToBytes, tBool, tFloat64, tString } from "./index.ts";
+import {
+  BoxMode, Cell, GoMap, Iface, Kind, Slice, Type, addMethods, append, bytesToString, errorType, fromJSString, funcOf, hasMethods, interfaceOf, makeMap, mapOf,
+  named, noteASCII, ptrIface, ptrTo, reach, setBox, setUnderlying, sliceLit, sliceOf, stringToBytes, structOf, tBool, tFloat64, tInt64, tString, topString, typeArgsName,
+} from "./index.ts";
 import type { S } from "./index.ts";
 
 // Abort is thrown to give up on the fast path.
@@ -718,6 +726,7 @@ class Decoder {
 
   int(t: Type): any {
     const s = this.s, c0 = this.ws();
+    if (c0 === 0x2d && t.kind >= Kind.Uint) abort(); // -0 too is Go's error for unsigned integers
     if (t.kind !== Kind.Int64 && t.kind !== Kind.Uint64) {
       // Up to 15 digits, which a float64 holds exactly.
       let i = this.i, neg = false;
@@ -1036,3 +1045,817 @@ export function jsonUnmarshalTo(s: string, t: Type, p: any): boolean {
   }
 }
 
+
+// ---- Unmarshal with Go's errors ----
+//
+// jsonDecode is json.Unmarshal of the JSON text s into the pointer p of
+// type t, errors included: when the one-pass decoder above gives up, the
+// input is checked as Go's json v2 with v1 options checks it (jsonSyntax),
+// and then decoded into the value in place with v1's legacy semantics, in
+// which a type error is recorded (the first one is reported) and decoding
+// goes on. Values of the types fullPlain accepts never need Go's code; for
+// the others (an interface holding a pointer, for one, which Go decodes
+// into) jsonDecode returns undefined, having changed nothing, unless
+// strict is set, when goesm has checked at compile time that they cannot
+// occur.
+
+// fullPlain reports whether jsonDecode decodes every value of type t
+// itself: t is deepPlain but has no arrays, the names of its structs' fields
+// are ASCII and its interfaces are empty.
+const fullCache = new Map<Type, boolean>();
+
+function fullPlain(t: Type): boolean {
+  let p = fullCache.get(t);
+  if (p !== undefined) return p;
+  fullCache.set(t, true); // while recursive types are checked
+  p = deepPlain(t);
+  if (p) {
+    switch (t.kind) {
+      case Kind.Array:
+        p = false;
+        break;
+      case Kind.Interface:
+        p = t.imethods.length === 0;
+        break;
+      case Kind.Struct:
+        p = structFields(t)!.every((f) => !nonASCII.test(f.name) && fullPlain(f.type));
+        break;
+      case Kind.Map:
+        p = fullPlain(t.elem!);
+        break;
+      case Kind.Slice: case Kind.Pointer:
+        p = t.elem!.kind !== Kind.Array && (t.kind !== Kind.Slice || t.elem!.kind !== Kind.Uint8) && fullPlain(t.elem!);
+        break;
+    }
+  }
+  fullCache.set(t, p);
+  return p;
+}
+
+// mergesIfaces reports whether decoding into a value of type t may decode
+// into what an interface in it holds: whether t has interfaces on the paths
+// that v1 merges into (fields, pointees and the elements of slices, whose
+// arrays are reused; not map elements, which are always decoded afresh).
+const mergeCache = new Map<Type, boolean>();
+
+function mergesIfaces(t: Type): boolean {
+  let p = mergeCache.get(t);
+  if (p !== undefined) return p;
+  mergeCache.set(t, false); // while recursive types are checked
+  switch (t.kind) {
+    case Kind.Interface: p = true; break;
+    case Kind.Struct: p = structFields(t)!.some((f) => mergesIfaces(f.type)); break;
+    case Kind.Slice: case Kind.Pointer: p = mergesIfaces(t.elem!); break;
+    default: p = false;
+  }
+  mergeCache.set(t, p);
+  return p;
+}
+
+// holdsPointer reports whether an interface in v, of type t, on the paths of
+// mergesIfaces, holds a non-nil pointer, which Go decodes into. seen holds
+// the pointees already looked at.
+function holdsPointer(t: Type, v: any, seen: Set<any> | null): boolean {
+  if (v === null || !mergesIfaces(t)) return false;
+  switch (t.kind) {
+    case Kind.Interface:
+      return v.t.kind === Kind.Pointer && v.v !== null;
+    case Kind.Struct:
+      return structFields(t)!.some((f) => holdsPointer(f.type, v[f.prop], seen));
+    case Kind.Pointer:
+      if ((seen ??= new Set()).has(v)) return false;
+      seen.add(v);
+      return holdsPointer(t.elem!, t.elem!.kind === Kind.Struct ? v : v.v, seen);
+    case Kind.Slice:
+      for (let i = 0; i < v.$capacity; i++) if (holdsPointer(t.elem!, v.$array[v.$offset + i], seen)) return true;
+  }
+  return false;
+}
+
+// The errors of json.Unmarshal: encoding/json's own *SyntaxError,
+// *UnmarshalTypeError and *InvalidUnmarshalError, made by functions the
+// package registers (see the encoding/json patch) if the program has it.
+// A program that only decodes in the runtime leaves the package out; its
+// errors are then of the types below, which nothing can tell from the
+// package's own: the same names, fields and messages. Their Type field is
+// a reflect.Type if the program has reflect, which is the only way to see
+// the field without naming the type.
+interface JSONErrors {
+  syntax(msg: string, off: bigint): Iface;
+  type(value: string, ptr: Iface, off: bigint, struct: string, field: string): Iface;
+  invalid(ptr: Iface): Iface;
+}
+let jsonErrors: JSONErrors | null = null;
+let reflectTypeOf: ((ptr: Iface) => Iface) | null = null;
+let reflectTypeType: Type | null = null; // reflect.Type
+
+export function registerJSONErrors(e: JSONErrors): void {
+  jsonErrors = e;
+}
+
+// registerTypeOf is called by package reflect with a function returning
+// reflect.TypeOf(ptr).Elem() and a *reflect.Type.
+export function registerTypeOf(f: (ptr: Iface) => Iface, typePtr: Iface): void {
+  reflectTypeOf = f;
+  reflectTypeType = typePtr.t.elem!;
+}
+
+const tErrMsg = /* @__PURE__ */ funcOf([], [tString], false);
+
+// shadowErrors makes encoding/json's error types for a program without the
+// package.
+function shadowErrors(): JSONErrors {
+  const pkg = "encoding/json";
+  class SyntaxError {
+    declare msg: string;
+    declare Offset: bigint;
+    constructor(msg: string, off: bigint) { this.msg = msg; this.Offset = off; }
+    $clone() { return new SyntaxError(this.msg, this.Offset); }
+    $set(o: SyntaxError) { this.msg = o.msg; this.Offset = o.Offset; }
+  }
+  class UnmarshalTypeError {
+    declare Value: string; declare Type: Iface | null; declare Offset: bigint; declare Struct: string; declare Field: string; declare Err: Iface | null;
+    constructor(value: string, type: Iface | null, off: bigint, struct: string, field: string, err: Iface | null) {
+      this.Value = value; this.Type = type; this.Offset = off; this.Struct = struct; this.Field = field; this.Err = err;
+    }
+    $clone() { return new UnmarshalTypeError(this.Value, this.Type, this.Offset, this.Struct, this.Field, this.Err); }
+    $set(o: UnmarshalTypeError) { this.Value = o.Value; this.Type = o.Type; this.Offset = o.Offset; this.Struct = o.Struct; this.Field = o.Field; this.Err = o.Err; }
+  }
+  class InvalidUnmarshalError {
+    declare Type: Iface | null;
+    constructor(type: Iface | null) { this.Type = type; }
+    $clone() { return new InvalidUnmarshalError(this.Type); }
+    $set(o: InvalidUnmarshalError) { this.Type = o.Type; }
+  }
+  // The type a reflect.Type describes, kept beside the field for Error.
+  const described = new WeakMap<object, Type>();
+  const reflectType = (ptr: Iface, elem: boolean): Iface | null => (reflectTypeOf === null ? null : elem ? reflectTypeOf(ptr) : reflectTypeOf(new Iface(ptrTo(ptr.t), null)));
+  const typeIface = reflectTypeType ?? interfaceOf([]);
+  const def = (name: string, ctor: any, fields: [string, Type][], error: (e: any) => string, unwrap: boolean): Type => {
+    const t = named(pkg, name);
+    setUnderlying(t, structOf(fields, ctor, pkg), ctor);
+    const methods: Record<string, [(recv: any) => any, Type]> = { Error: [error, tErrMsg] };
+    if (unwrap) methods.Unwrap = [(e: any) => e.Err, funcOf([], [errorType], false)];
+    const pt = ptrTo(t);
+    addMethods(pt, methods);
+    setBox(pt, ctor, BoxMode.Self);
+    return pt;
+  };
+  const tSyntax = def("SyntaxError", SyntaxError, [["msg", tString], ["Offset", tInt64]], (e) => e.msg, false);
+  const tType = def("UnmarshalTypeError", UnmarshalTypeError, [["Value", tString], ["Type", typeIface], ["Offset", tInt64], ["Struct", tString], ["Field", tString], ["Err", errorType]], (e) => {
+    const ts = topString(described.get(e)!);
+    if (e.Struct === "" && e.Field === "") return "json: cannot unmarshal " + e.Value + " into Go value of type " + ts;
+    const last = e.Field.slice(e.Field.lastIndexOf(".") + 1);
+    return "json: cannot unmarshal " + e.Value + " into " + (/^[0-9]+$/.test(last) ? "" : "Go struct field ") + e.Struct + "." + e.Field + " of type " + ts;
+  }, true);
+  const tInvalid = def("InvalidUnmarshalError", InvalidUnmarshalError, [["Type", typeIface]], (e) => "json: Unmarshal(nil " + topString(described.get(e)!) + ")", false);
+  return {
+    syntax: (msg, off) => ptrIface(tSyntax, new SyntaxError(msg, off)),
+    type: (value, ptr, off, struct, field) => {
+      const e = new UnmarshalTypeError(value, reflectType(ptr, true), off, struct, field, null);
+      described.set(e, ptr.t.elem!);
+      return ptrIface(tType, e);
+    },
+    invalid: (ptr) => {
+      const e = new InvalidUnmarshalError(reflectType(ptr, false));
+      described.set(e, ptr.t);
+      return ptrIface(tInvalid, e);
+    },
+  };
+}
+
+function errorsOf(): JSONErrors {
+  return (jsonErrors ??= shadowErrors());
+}
+
+// ---- Go's quoting, for the messages of syntax errors ----
+
+const printRE = /[\p{L}\p{M}\p{N}\p{P}\p{S}]/u;
+
+// isPrint is unicode.IsPrint.
+function isPrint(r: number): boolean {
+  return r < 0x80 ? r >= 0x20 && r < 0x7f : printRE.test(String.fromCodePoint(r));
+}
+
+// isSpace is unicode.IsSpace.
+function isSpace(r: number): boolean {
+  return (r >= 0x09 && r <= 0x0d) || r === 0x20 || r === 0x85 || r === 0xa0 || r === 0x1680 || (r >= 0x2000 && r <= 0x200a) ||
+    r === 0x2028 || r === 0x2029 || r === 0x202f || r === 0x205f || r === 0x3000;
+}
+
+// runeAt decodes the rune at s[i] as utf8.DecodeRuneInString does: its
+// value (0xFFFD if invalid) and width.
+function runeAt(s: string, i: number): [number, number] {
+  const c = s.charCodeAt(i);
+  if (c < 0x80) return [c, 1];
+  const n = utf8Len(s, i);
+  if (n === 0) return [0xfffd, 1];
+  let r = c & (0xff >> (n + 1));
+  for (let k = 1; k < n; k++) r = (r << 6) | (s.charCodeAt(i + k) & 0x3f);
+  return [r, n];
+}
+
+const escapes: Record<number, string> = { 7: "\\a", 8: "\\b", 12: "\\f", 10: "\\n", 13: "\\r", 9: "\\t", 11: "\\v" };
+
+// escapedRune appends r, of width n at s[i], as strconv does between quotes q.
+function escapedRune(s: string, i: number, r: number, n: number, q: number): string {
+  if (r === q || r === 0x5c) return "\\" + String.fromCharCode(r);
+  if (isPrint(r)) return s.slice(i, i + n);
+  const e = escapes[r];
+  if (e !== undefined) return e;
+  if (r < 0x20 || r === 0x7f) return "\\x" + r.toString(16).padStart(2, "0");
+  if (r < 0x10000) return "\\u" + r.toString(16).padStart(4, "0");
+  return "\\U" + r.toString(16).padStart(8, "0");
+}
+
+// quoteRuneAt is jsonwire.QuoteRune of s[i:].
+function quoteRuneAt(s: string, i: number): string {
+  const [r, n] = runeAt(s, i);
+  if (r === 0xfffd && n === 1) return "'\\x" + s.charCodeAt(i).toString(16) + "'";
+  return "'" + escapedRune(s, i, r, n, 0x27) + "'";
+}
+
+// goQuote is strconv.Quote.
+function goQuote(s: string): string {
+  let q = '"';
+  for (let i = 0; i < s.length;) {
+    const [r, n] = runeAt(s, i);
+    q += r === 0xfffd && n === 1 ? "\\x" + s.charCodeAt(i).toString(16).padStart(2, "0") : escapedRune(s, i, r, n, 0x22);
+    i += n;
+  }
+  return q + '"';
+}
+
+// invalidText is the message of a jsonwire.InvalidTextError for the text
+// what, as encoding/json reports it.
+function invalidText(label: string, what: string, where: string): string {
+  let runes = 0, escape = false;
+  for (let i = 0; i < what.length;) {
+    const [r, n] = runeAt(what, i);
+    runes++;
+    if (r === 0x60 || r === 0xfffd || isSpace(r) || !isPrint(r)) escape = true;
+    i += n;
+  }
+  const w = runes === 1 ? quoteRuneAt(what, 0) : escape ? goQuote(what) : "`" + what + "`";
+  return "invalid " + label + " " + w + " " + where;
+}
+
+// ---- Syntax ----
+
+const unexpectedEnd = "unexpected end of JSON input";
+
+// A SyntaxErr is the message and offset of a *json.SyntaxError.
+type SyntaxErr = [string, number];
+
+function invalidChar(s: string, i: number, where: string): SyntaxErr {
+  return [invalidText("character", s.slice(i, i + runeAt(s, i)[1]), where), i + runeAt(s, i)[1]];
+}
+
+function invalidEscape(s: string, i: number, j: number): SyntaxErr {
+  return [invalidText("escape sequence", s.slice(i, j), "in string"), j];
+}
+
+function isWS(c: number): boolean {
+  return c === 0x20 || c === 0x0a || c === 0x0d || c === 0x09;
+}
+
+function isHex(c: number): boolean {
+  return (c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66) || (c >= 0x41 && c <= 0x46);
+}
+
+// fullRune is utf8.FullRuneInString(s[i:]) for s[i] >= 0x80 not starting
+// a valid sequence: whether s ends before the sequence could complete.
+function truncatedRune(s: string, i: number): boolean {
+  const c = s.charCodeAt(i), rest = s.length - i;
+  const need = c >= 0xc2 && c <= 0xdf ? 2 : c >= 0xe0 && c <= 0xef ? 3 : c >= 0xf0 && c <= 0xf4 ? 4 : 1;
+  if (rest >= need) return false;
+  if (rest > 1) {
+    const b1 = s.charCodeAt(i + 1);
+    const lo = c === 0xe0 ? 0xa0 : c === 0xf0 ? 0x90 : 0x80, hi = c === 0xed ? 0x9f : c === 0xf4 ? 0x8f : 0xbf;
+    if (b1 < lo || b1 > hi) return false;
+    if (rest > 2 && (s.charCodeAt(i + 2) & 0xc0) !== 0x80) return false;
+  }
+  return true;
+}
+
+// escapedUTF16Prefix is jsonwire's hasEscapedUTF16Prefix(s[i:], false).
+function escapedUTF16Prefix(s: string, i: number): boolean {
+  for (let k = 0; i + k < s.length; k++) {
+    const c = s.charCodeAt(i + k);
+    if ((k === 0 && c !== 0x5c) || (k === 1 && c !== 0x75) || (k >= 2 && k < 6 && !isHex(c))) return false;
+  }
+  return true;
+}
+
+// stringEnd returns the end of the JSON string at s[i] (a quote), or its
+// syntax error, as jsontext checks a string with invalid UTF-8 allowed.
+function stringEnd(s: string, i: number): number | SyntaxErr {
+  const n = s.length;
+  let j = i + 1;
+  for (;;) {
+    if (j >= n) return [unexpectedEnd, n];
+    const c = s.charCodeAt(j);
+    if (c === 0x22) return j + 1;
+    if (c < 0x20) return invalidChar(s, j, "in string");
+    if (c === 0x5c) {
+      if (j + 2 > n) return [unexpectedEnd, j];
+      const e = s.charCodeAt(j + 1);
+      if (e === 0x75) {
+        if (j + 6 > n) return escapedUTF16Prefix(s, j) ? [unexpectedEnd, j] : invalidEscape(s, j, n);
+        for (let k = 2; k < 6; k++) if (!isHex(s.charCodeAt(j + k))) return invalidEscape(s, j, j + 6);
+        j += 6;
+      } else if (e === 0x22 || e === 0x5c || e === 0x2f || e === 0x62 || e === 0x66 || e === 0x6e || e === 0x72 || e === 0x74) {
+        j += 2;
+      } else {
+        return invalidEscape(s, j, j + 2);
+      }
+      continue;
+    }
+    if (c >= 0x80) {
+      const k = utf8Len(s, j);
+      if (k > 0) j += k;
+      else if (truncatedRune(s, j)) return [unexpectedEnd, j];
+      else j++;
+      continue;
+    }
+    j++;
+  }
+}
+
+// numberEnd returns the end of the JSON number at s[i] ('-' or a digit), or
+// its syntax error.
+function numberEnd(s: string, i: number): number | SyntaxErr {
+  const n = s.length;
+  const digit = (j: number) => { const c = s.charCodeAt(j); return c >= 0x30 && c <= 0x39; };
+  let j = i;
+  if (s.charCodeAt(j) === 0x2d) j++;
+  if (j >= n) return [unexpectedEnd, i];
+  if (s.charCodeAt(j) === 0x30) j++;
+  else if (digit(j)) { do j++; while (digit(j)); }
+  else return invalidChar(s, j, "in numeric literal");
+  if (s.charCodeAt(j) === 0x2e) {
+    j++;
+    if (j >= n) return [unexpectedEnd, i];
+    if (!digit(j)) return invalidChar(s, j, "in numeric literal");
+    do j++; while (digit(j));
+  }
+  const c = s.charCodeAt(j);
+  if (c === 0x65 || c === 0x45) {
+    j++;
+    const d = s.charCodeAt(j);
+    if (d === 0x2b || d === 0x2d) j++;
+    if (j >= n) return [unexpectedEnd, i];
+    if (!digit(j)) return invalidChar(s, j, "in numeric literal");
+    do j++; while (digit(j));
+  }
+  return j;
+}
+
+const maxDepth = 10000;
+
+// jsonSyntax returns the *json.SyntaxError's message and offset for s, if
+// it is not one valid JSON value: json.Unmarshal checks the whole input
+// before it decodes anything.
+export function jsonSyntax(s: string): SyntaxErr | null {
+  const n = s.length;
+  const ws = (j: number) => { while (j < n && isWS(s.charCodeAt(j))) j++; return j; };
+  const stack: number[] = [];
+  let i = ws(0);
+  if (i >= n) return [unexpectedEnd, n];
+  // The states: 0, a value is next; 1, an object member's name is next;
+  // 2, a value has ended.
+  let state = 0;
+  for (;;) {
+    if (state === 0) {
+      const c = s.charCodeAt(i);
+      let end: number | SyntaxErr;
+      if (c === 0x7b || c === 0x5b) {
+        if (stack.length === maxDepth) return ["exceeded max depth", i + 1];
+        stack.push(c);
+        i = ws(i + 1);
+        if (i >= n) return [unexpectedEnd, n];
+        if (s.charCodeAt(i) === c + 2) { // } or ]
+          stack.pop();
+          i++;
+          state = 2;
+        } else {
+          state = c === 0x7b ? 1 : 0;
+        }
+        continue;
+      } else if (c === 0x22) {
+        end = stringEnd(s, i);
+      } else if (c === 0x6e || c === 0x74 || c === 0x66) {
+        const lit = c === 0x6e ? "null" : c === 0x74 ? "true" : "false";
+        end = i + lit.length;
+        for (let k = 0; k < lit.length; k++) {
+          if (i + k >= n) { end = [unexpectedEnd, n]; break; }
+          if (s.charCodeAt(i + k) !== lit.charCodeAt(k)) {
+            end = invalidChar(s, i + k, "in literal " + lit + " (expecting '" + lit[k] + "')");
+            break;
+          }
+        }
+      } else if (c === 0x2d || (c >= 0x30 && c <= 0x39)) {
+        end = numberEnd(s, i);
+      } else {
+        return invalidChar(s, i, "looking for beginning of value");
+      }
+      if (typeof end !== "number") return end;
+      i = end;
+      state = 2;
+    } else if (state === 1) {
+      if (s.charCodeAt(i) !== 0x22) return invalidChar(s, i, "looking for beginning of object key string");
+      const end = stringEnd(s, i);
+      if (typeof end !== "number") return end;
+      i = ws(end);
+      if (i >= n) return [unexpectedEnd, n];
+      if (s.charCodeAt(i) !== 0x3a) return invalidChar(s, i, "after object key");
+      i = ws(i + 1);
+      if (i >= n) return [unexpectedEnd, n];
+      state = 0;
+    } else {
+      i = ws(i);
+      if (stack.length === 0) return i < n ? invalidChar(s, i, "after top-level value") : null;
+      if (i >= n) return [unexpectedEnd, n];
+      const top = stack[stack.length - 1], c = s.charCodeAt(i);
+      if (c === 0x2c) {
+        i = ws(i + 1);
+        if (i >= n) return [unexpectedEnd, n];
+        state = top === 0x7b ? 1 : 0;
+      } else if (c === top + 2) {
+        stack.pop();
+        i++;
+      } else {
+        return invalidChar(s, i, top === 0x7b ? "after object key:value pair" : "after array element");
+      }
+    }
+  }
+}
+
+// ---- Decoding with v1's semantics ----
+
+// kindName is the Value of an UnmarshalTypeError for a JSON value that
+// starts with c.
+function kindName(c: number): string {
+  switch (c) {
+    case 0x22: return "string";
+    case 0x74: case 0x66: return "bool";
+    case 0x5b: return "array";
+    case 0x7b: return "object";
+    case 0x6e: return "null";
+  }
+  return "number";
+}
+
+// foldKey is the ASCII lower case of an object member name if it can equal
+// an ASCII name under strings.EqualFold (with the Kelvin sign and the long
+// s, the two non-ASCII runes that fold to ASCII letters), or null.
+function foldKey(k: string): string | null {
+  if (nonASCII.test(k)) {
+    k = k.replace(/\xe2\x84\xaa/g, "k").replace(/\xc5\xbf/g, "s");
+    if (nonASCII.test(k)) return null;
+  }
+  return k.toLowerCase();
+}
+
+const anyType = /* @__PURE__ */ interfaceOf([]);
+const fffd = "\xef\xbf\xbd";
+
+// Full decodes JSON text that jsonSyntax accepts into Go values as json v2
+// with v1's options does, in place, recording the first type error.
+class Full {
+  i = 0;
+  err: Iface | null = null;
+  path: (string | number)[] = []; // the object names and array indices down to the value
+  declare s: string;
+  declare root: string; // the name of the type pointed to
+  constructor(s: string, root: string) {
+    this.s = s;
+    this.root = root;
+  }
+
+  ws(): number {
+    const s = this.s;
+    let i = this.i, c = s.charCodeAt(i);
+    while (c === 0x20 || c === 0x0a || c === 0x0d || c === 0x09) c = s.charCodeAt(++i);
+    this.i = i;
+    return c;
+  }
+
+  // fail records the type error of the value that started at start with c
+  // and that was just read, unless there was one before.
+  fail(t: Type, c: number, start: number, lit: string | null): void {
+    if (this.err !== null) return;
+    const off = c === 0x5b || c === 0x7b ? start + 1 : this.i;
+    const field = this.path.map((p) => (typeof p === "number" ? String(p) : p.replace(/~/g, "~0").replace(/\//g, "~1"))).join(".");
+    this.err = errorsOf().type(kindName(c) + (lit === null ? "" : " " + lit), new Iface(ptrTo(t), null), BigInt(off), this.path.length > 0 ? this.root : "", field);
+  }
+
+  // mismatch skips the value of the wrong kind for t and records the error.
+  mismatch(t: Type, c: number): void {
+    const start = this.i;
+    this.skip();
+    this.fail(t, c, start, null);
+  }
+
+  skip(): void {
+    const s = this.s, c = this.ws();
+    let j = this.i;
+    if (c === 0x22) {
+      j = this.strEnd(j);
+    } else if (c === 0x7b || c === 0x5b) {
+      for (let depth = 0; ;) {
+        const d = s.charCodeAt(j);
+        if (d === 0x22) { j = this.strEnd(j); continue; }
+        j++;
+        if (d === 0x7b || d === 0x5b) depth++;
+        else if ((d === 0x7d || d === 0x5d) && --depth === 0) break;
+      }
+    } else if (c === 0x66) {
+      j += 5;
+    } else if (c === 0x6e || c === 0x74) {
+      j += 4;
+    } else {
+      this.num();
+      return;
+    }
+    this.i = j;
+  }
+
+  strEnd(j: number): number {
+    const s = this.s;
+    for (j++; ;) {
+      const c = s.charCodeAt(j);
+      if (c === 0x22) return j + 1;
+      j += c === 0x5c ? 2 : 1;
+    }
+  }
+
+  num(): string {
+    const s = this.s, start = this.i;
+    let i = start, c = s.charCodeAt(i);
+    while ((c >= 0x30 && c <= 0x39) || c === 0x2d || c === 0x2b || c === 0x2e || c === 0x65 || c === 0x45) c = s.charCodeAt(++i);
+    this.i = i;
+    return s.slice(start, i);
+  }
+
+  // str reads a string as jsonwire.AppendUnquote does: invalid UTF-8 and
+  // escaped surrogates that are not a pair become U+FFFD.
+  str(): string {
+    const s = this.s;
+    let i = this.i + 1, start = i, r = "";
+    for (;;) {
+      const c = s.charCodeAt(i);
+      if (c === 0x22) break;
+      if (c === 0x5c) {
+        r += s.slice(start, i);
+        const e = s.charCodeAt(i + 1);
+        i += 2;
+        switch (e) {
+          case 0x62: r += "\b"; break;
+          case 0x66: r += "\f"; break;
+          case 0x6e: r += "\n"; break;
+          case 0x72: r += "\r"; break;
+          case 0x74: r += "\t"; break;
+          case 0x75: {
+            let u = parseInt(s.slice(i, i + 4), 16);
+            i += 4;
+            if (u >= 0xd800 && u <= 0xdfff) {
+              const lo = s.charCodeAt(i) === 0x5c && s.charCodeAt(i + 1) === 0x75 ? hexValue(s, i + 2) : -1;
+              if (u <= 0xdbff && lo >= 0xdc00 && lo <= 0xdfff) {
+                u = 0x10000 + ((u - 0xd800) << 10) + (lo - 0xdc00);
+                i += 6;
+              } else {
+                u = 0xfffd;
+              }
+            }
+            r += utf8(u);
+            break;
+          }
+          default: r += String.fromCharCode(e); // " \ /
+        }
+        start = i;
+        continue;
+      }
+      if (c >= 0x80) {
+        const n = utf8Len(s, i);
+        if (n === 0) {
+          r += s.slice(start, i) + fffd;
+          start = ++i;
+        } else {
+          i += n;
+        }
+        continue;
+      }
+      i++;
+    }
+    this.i = i + 1;
+    return r + s.slice(start, i);
+  }
+
+  int(t: Type, cur: any, c: number, start: number): any {
+    const lit = this.num();
+    const neg = c === 0x2d, digits = neg ? lit.slice(1) : lit;
+    let ok = /^(?:0|[1-9][0-9]*)$/.test(digits);
+    let b = 0n;
+    if (ok) {
+      b = BigInt(lit);
+      let bits = 64;
+      switch (t.kind) {
+        case Kind.Int8: case Kind.Uint8: bits = 8; break;
+        case Kind.Int16: case Kind.Uint16: bits = 16; break;
+        case Kind.Int32: case Kind.Uint32: bits = 32; break;
+      }
+      const signed = t.kind <= Kind.Int64;
+      ok = signed ? BigInt.asIntN(bits, b) === b : !neg && BigInt.asUintN(bits, b) === b;
+    }
+    if (!ok) {
+      this.fail(t, c, start, lit);
+      return cur;
+    }
+    return t.kind === Kind.Int64 || t.kind === Kind.Uint64 ? b : Number(b);
+  }
+
+  // val decodes the next value, of type t, merged into cur, and returns the
+  // result: cur itself, changed in place, for a struct.
+  val(t: Type, cur: any): any {
+    const c = this.ws(), start = this.i;
+    if (c === 0x6e) {
+      this.i += 4;
+      // null clears maps, slices, pointers and interfaces, and leaves the
+      // other values as they are.
+      const k = t.kind;
+      return k === Kind.Map || k === Kind.Slice || k === Kind.Pointer || k === Kind.Interface ? null : cur;
+    }
+    const num = c === 0x2d || (c >= 0x30 && c <= 0x39);
+    switch (t.kind) {
+      case Kind.Bool:
+        if (c === 0x74 || c === 0x66) {
+          this.i += c === 0x74 ? 4 : 5;
+          return c === 0x74;
+        }
+        break;
+      case Kind.String:
+        if (c === 0x22) return this.str();
+        break;
+      case Kind.Float64:
+        if (num) {
+          const lit = this.num(), f = Number(lit);
+          if (!Number.isFinite(f)) this.fail(t, c, start, lit); // ±Inf, as strconv.ParseFloat returns
+          return f;
+        }
+        break;
+      case Kind.Int: case Kind.Int8: case Kind.Int16: case Kind.Int32: case Kind.Int64:
+      case Kind.Uint: case Kind.Uint8: case Kind.Uint16: case Kind.Uint32: case Kind.Uint64: case Kind.Uintptr:
+        if (num) return this.int(t, cur, c, start);
+        break;
+      case Kind.Struct:
+        if (c === 0x7b) return this.struct(t, cur);
+        break;
+      case Kind.Map:
+        if (c === 0x7b) return this.map(t, cur);
+        break;
+      case Kind.Slice:
+        if (c === 0x5b) return this.slice(t, cur);
+        break;
+      case Kind.Pointer: {
+        // A nil pointer gets a new value even if decoding into it fails.
+        const e = t.elem!;
+        if (e.kind === Kind.Struct) {
+          const p = cur ?? e.zero();
+          this.val(e, p);
+          return p;
+        }
+        const p = cur ?? new Cell(e.zero());
+        p.v = this.val(e, p.v);
+        return p;
+      }
+      case Kind.Interface:
+        // An interface holding no pointer (see holdsPointer) gets the value
+        // decoded as an any.
+        switch (c) {
+          case 0x74: case 0x66: return new Iface(tBool, this.val(tBool, false));
+          case 0x22: return new Iface(tString, this.str());
+          case 0x7b: return new Iface(mapOf(tString, anyType), this.map(mapOf(tString, anyType), null));
+          case 0x5b: return new Iface(sliceOf(anyType), this.slice(sliceOf(anyType), null));
+        }
+        return new Iface(tFloat64, this.val(tFloat64, 0));
+    }
+    this.mismatch(t, c);
+    return cur;
+  }
+
+  struct(t: Type, cur: any): any {
+    const fs = structFields(t)!;
+    this.i++;
+    if (this.ws() === 0x7d) { this.i++; return cur; }
+    for (;;) {
+      const k = this.str();
+      this.ws();
+      this.i++; // :
+      let f = fs.find((g) => g.name === k);
+      if (f === undefined) {
+        const fk = foldKey(k);
+        if (fk !== null) f = fs.find((g) => g.name.toLowerCase() === fk);
+      }
+      if (f === undefined) this.skip();
+      else {
+        this.path.push(k);
+        const x = this.val(f.type, cur[f.prop]);
+        if (f.type.kind !== Kind.Struct) cur[f.prop] = x;
+        this.path.pop();
+      }
+      const d = this.ws();
+      this.i++;
+      if (d === 0x7d) return cur;
+      this.ws();
+    }
+  }
+
+  map(t: Type, cur: any): any {
+    const m = cur ?? makeMap(t.key!), e = t.elem!;
+    this.i++;
+    if (this.ws() === 0x7d) { this.i++; return m; }
+    for (;;) {
+      const k = this.str();
+      this.ws();
+      this.i++; // :
+      this.path.push(k);
+      // An existing element is replaced, not merged into.
+      m.entries.set(k, this.val(e, e.zero()));
+      this.path.pop();
+      const d = this.ws();
+      this.i++;
+      if (d === 0x7d) return m;
+      this.ws();
+    }
+  }
+
+  slice(t: Type, cur: any): any {
+    const e = t.elem!, agg = e.kind === Kind.Struct;
+    // The elements are decoded into the slice's array, to its capacity
+    // (into what it held there before), which grows as reflect's Grow
+    // grows it.
+    let sl: Slice<any> | null = cur === null || cur.$capacity === 0 ? null : new Slice(cur.$array, cur.$offset, cur.$capacity, cur.$capacity);
+    let cap = sl === null ? 0 : sl.$capacity;
+    this.i++;
+    let n = 0;
+    if (this.ws() !== 0x5d) {
+      for (;;) {
+        if (n === cap) {
+          sl = append(sl, [e.zero()], e.zero, e) as Slice<any>;
+          cap = sl.$capacity;
+          sl = new Slice(sl.$array, sl.$offset, cap, cap);
+        }
+        this.path.push(n);
+        const j = sl!.$offset + n;
+        if (agg) reach(sl!.$array, j, j + 1); // spare elements made on first use
+        const x = this.val(e, sl!.$array[j]);
+        if (!agg) sl!.$array[j] = x;
+        this.path.pop();
+        n++;
+        const d = this.ws();
+        this.i++;
+        if (d === 0x5d) break;
+        this.ws();
+      }
+    } else {
+      this.i++;
+    }
+    if (n === 0) return new Slice([], 0, 0, 0);
+    return new Slice(sl!.$array, sl!.$offset, n, cap);
+  }
+}
+
+function hexValue(s: string, i: number): number {
+  for (let k = 0; k < 4; k++) if (!isHex(s.charCodeAt(i + k))) return -1;
+  return parseInt(s.slice(i, i + 4), 16);
+}
+
+// rootName is reflect.Type's Name of t.
+function rootName(t: Type): string {
+  if (t.named) return typeArgsName(t);
+  return t.kind <= Kind.Complex128 || t.kind === Kind.String ? t.str : "";
+}
+
+// jsonDecode is json.Unmarshal([]byte(s), p) for the pointer p of type t:
+// it returns the error (null if none), or undefined, having changed
+// nothing, for Go's code to decode the value (never if strict). (It is typed
+// any for the lowering's temporaries, which hold the result.)
+export function jsonDecode(s: string, t: Type, p: any, strict: boolean): any {
+  if (p === null) return errorsOf().invalid(new Iface(t, null));
+  const e = t.elem!, agg = e.kind === Kind.Struct;
+  if (!fullPlain(e)) return giveUp(strict);
+  if (jsonUnmarshalTo(s, t, p)) return null;
+  const se = jsonSyntax(s);
+  if (se !== null) return errorsOf().syntax(se[0], BigInt(se[1]));
+  if (holdsPointer(e, agg ? p : p.v, null)) return giveUp(strict);
+  const d = new Full(s, rootName(e));
+  if (agg) d.val(e, p);
+  else p.v = d.val(e, p.v);
+  return d.err;
+}
+
+function giveUp(strict: boolean): undefined {
+  if (strict) throw new Error("goesm: json.Unmarshal: a value goesm decodes itself needs encoding/json");
+  return undefined;
+}
