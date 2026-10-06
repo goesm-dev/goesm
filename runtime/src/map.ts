@@ -43,9 +43,11 @@ export function makeMap<K = any, V = any>(keyType: Type, _hint?: number): GoMap<
   return new GoMap<K, V>(keyType);
 }
 
-export function mapLit<K = any, V = any>(keyType: Type, kvs: Array<[K, V]>): GoMap<K, V> {
+// mapLit makes a map literal of the keys and values kvs in turn: one array,
+// rather than one per pair, for the literal to allocate.
+export function mapLit<K = any, V = any>(keyType: Type, kvs: any[]): GoMap<K, V> {
   const m = new GoMap<K, V>(keyType);
-  for (const [k, v] of kvs) mapSet(m, k, v);
+  for (let i = 0; i < kvs.length; i += 2) mapSet(m, kvs[i], kvs[i + 1]);
   return m;
 }
 
