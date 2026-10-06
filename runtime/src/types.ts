@@ -19,6 +19,14 @@ export const Kind = {
   String: 24, Struct: 25, UnsafePointer: 26,
 } as const;
 
+// The kinds of box classes (internal/lower/box.go).
+export const BoxMode = {
+  Holder: 0, // an object holding t and the value v
+  Flat: 1, // a struct object of a subclass of t's class, its own interface value
+  Self: 2, // t is a pointer to a struct: the struct object is its interface value
+} as const;
+export type BoxMode = (typeof BoxMode)[keyof typeof BoxMode];
+
 export interface Field {
   name: string;
   pkgPath: string; // "" for exported fields
@@ -79,9 +87,9 @@ export class Type {
   // JS class for struct types (named or not).
   ctor: any = null;
   // The class of the interface values holding this type, when the lowering
-  // emitted one (setBox), and whether it is the struct class's own subclass.
+  // emitted one, and its kind (setBox).
   B: any = null;
-  flatBox = false;
+  boxMode: BoxMode = BoxMode.Holder;
   named = false;
   underlying: Type = this;
 
@@ -416,13 +424,13 @@ export function addMethods(t: Type, methods: Record<string, [(recv: any, ...args
     const [fn, type] = methods[k];
     t.methods.set(k, { fn, type });
     Object.getPrototypeOf(t.mt)[k] = fn;
-    if (t.B !== null) t.B.prototype["$" + k] = fn;
+    if (t.B !== null) t.B.prototype["$" + k] = t.boxMode === BoxMode.Holder ? unwrapping(fn) : fn;
     addFallback(k);
   }
 }
 
 // An interface method call is a call of the interface value's method
-// "$" + key, with the value (v) as the first argument (icall in the
+// "$" + key, with the interface value as the first argument (icall in the
 // lowering). The box classes the lowering emits for the types that have
 // methods (setBox) have the type's functions as these methods, and Iface's
 // own, for the interface values of the other types (generic, unnamed or the
@@ -438,16 +446,35 @@ function addFallback(k: string): void {
 }
 
 function fallback(k: string) {
-  return function (this: { t: Type }, v: any, a: any, b: any, c: any, d: any) {
+  return function (this: { t: Type; v: any }, _x: any, a: any, b: any, c: any, d: any) {
     const f = this.t.mt[k];
     switch (arguments.length) {
-      case 1: return f(v);
-      case 2: return f(v, a);
-      case 3: return f(v, a, b);
-      case 4: return f(v, a, b, c);
-      case 5: return f(v, a, b, c, d);
+      case 1: return f(this.v);
+      case 2: return f(this.v, a);
+      case 3: return f(this.v, a, b);
+      case 4: return f(this.v, a, b, c);
+      case 5: return f(this.v, a, b, c, d);
     }
-    return f.apply(undefined, arguments as any);
+    const args = Array.prototype.slice.call(arguments);
+    args[0] = this.v;
+    return f.apply(undefined, args as any);
+  };
+}
+
+// unwrapping is method function f as a method of a box holding the value
+// (BoxMode.Holder), which it is called with.
+function unwrapping(f: (recv: any, ...args: any[]) => any) {
+  return function (x: { v: any }, a: any, b: any, c: any, d: any) {
+    switch (arguments.length) {
+      case 1: return f(x.v);
+      case 2: return f(x.v, a);
+      case 3: return f(x.v, a, b);
+      case 4: return f(x.v, a, b, c);
+      case 5: return f(x.v, a, b, c, d);
+    }
+    const args = Array.prototype.slice.call(arguments);
+    args[0] = x.v;
+    return f.apply(undefined, args as any);
   };
 }
 
@@ -457,21 +484,25 @@ export function setIfaceProto(p: any): void {
   pendingKeys.length = 0;
 }
 
-// setBox registers B as the class of the interface values of type t. A flat
-// box (for a struct type) is a struct object of a subclass of t's class
-// that is its own interface value (its v is itself): one allocation per
-// boxed struct.
-export function setBox(t: Type, B: any, flat: boolean): void {
-  Object.setPrototypeOf(B.prototype, flat ? t.ctor.prototype : ifaceProto);
-  if (flat) {
-    // t is on the prototype. v, which a call reads (icall), is a field: a
-    // getter on the prototype costs every call.
-    Object.defineProperty(B.prototype, "t", { value: t });
-    registerCtor(B, t);
+
+// setBox registers B as the class of the interface values of type t: for
+// Self, the class of the struct objects t points to. The objects of Flat and
+// Self classes are their own value: t and v (the object itself) are on the
+// prototype, and the method functions are methods as they are. A Holder's
+// methods unwrap its v.
+export function setBox(t: Type, B: any, mode: BoxMode): void {
+  if (mode === BoxMode.Holder) Object.setPrototypeOf(B.prototype, ifaceProto);
+  else {
+    if (mode === BoxMode.Flat) {
+      Object.setPrototypeOf(B.prototype, t.ctor.prototype);
+      registerCtor(B, t);
+    }
+    B.prototype.t = t;
+    Object.defineProperty(B.prototype, "v", { get() { return this; }, configurable: true });
   }
-  for (const [k, m] of t.methods) B.prototype["$" + k] = m.fn;
+  for (const [k, m] of t.methods) B.prototype["$" + k] = mode === BoxMode.Holder ? unwrapping(m.fn) : m.fn;
   t.B = B;
-  t.flatBox = flat;
+  t.boxMode = mode;
 }
 
 // hasMethods reports whether t has methods in Go, including those its

@@ -15,7 +15,7 @@ import { runtimePanic } from "./panic.ts";
 import { arrayElemPtr, fieldPtr, fieldPtrTarget, indexPtrTarget } from "./ptr.ts";
 import { elemOrigins, reach, Slice } from "./slice.ts";
 import { bytesToString, stringToBytes } from "./string.ts";
-import { alignOf, ctorTypes, isAggregate, Kind, sizeOf, type Type } from "./types.ts";
+import { alignOf, ctorTypes, isAggregate, Kind, sizeOf, Type } from "./types.ts";
 
 // StringDataPtr is unsafe.StringData(s): a *byte to s[i].
 class StringDataPtr {
@@ -82,7 +82,7 @@ export function unsafeSliceFrom(p: any, n: number): any {
   }
   if (n === 1) {
     // A pointer to a single variable: the slice aliases it through a view.
-    if (typeof p === "object" && "v" in p) return new Slice(cellView(p), 0, 1, 1);
+    if (typeof p === "object" && "v" in p && !(p.t instanceof Type)) return new Slice(cellView(p), 0, 1, 1); // not a struct object (setBox)
     return new Slice([p], 0, 1, 1); // a pointer to an aggregate is the object itself
   }
   runtimePanic("goesm: unsafe.Slice of a pointer that does not point into an array or string (goesm has no address space)");

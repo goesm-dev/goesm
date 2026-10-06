@@ -7,7 +7,7 @@
 // method dispatch goes through the type's method table instead of relying on
 // JS structural typing.
 
-import { Kind, Type, implementsIface, isAggregate, setIfaceProto, tFloat32, tFloat64, zeroSized } from "./types.ts";
+import { BoxMode, Kind, Type, implementsIface, isAggregate, setIfaceProto, tFloat32, tFloat64, zeroSized } from "./types.ts";
 import { ceq } from "./complex.ts";
 import { GoPanic, runtimePanic, typeAssertionErrorType } from "./panic.ts";
 
@@ -26,23 +26,29 @@ setIfaceProto(Iface.prototype);
 export function boxOf(t: Type, v: any): Iface {
   const B = t.B;
   if (B === null) return new Iface(t, v);
-  return t.flatBox ? B.$of(v) : new B(t, v);
+  switch (t.boxMode) {
+    case BoxMode.Flat: return B.$of(v);
+    // A pointer may also be an object of the runtime's (a *rtype is a Type).
+    case BoxMode.Self: return v !== null && v.t === t ? v : new Iface(t, v);
+  }
+  return new B(t, v);
 }
 
-// isIfaceValue reports whether x is an interface value: an Iface, or a flat
-// box (setBox), which is a struct object.
+// isIfaceValue reports whether x is an interface value: an Iface, or a
+// struct object of a Flat or Self box class (setBox).
 export function isIfaceValue(x: any): boolean {
   return x instanceof Iface || (typeof x === "object" && x !== null && x.v === x && x.t instanceof Type);
 }
 
 // ptrIface converts a pointer p to a struct, of type t, to an interface
-// value. Interface values never change, so the one made last for p is kept
-// on the struct (under a symbol, which JS code does not see): code storing
-// the same pointer in interfaces again and again, as Go does freely since
-// the conversion costs nothing there, allocates once.
+// value: p itself if it is an object of t's box class (BoxMode.Self).
+// Otherwise, as interface values never change, the one made last for p is
+// kept on the struct (under a symbol, which JS code does not see): code
+// storing the same pointer in interfaces again and again, as Go does freely
+// since the conversion costs nothing there, allocates once.
 const ifaceOf = Symbol("iface");
 export function ptrIface(t: Type, p: any): Iface {
-  if (p === null) return boxOf(t, null);
+  if (p === null || t.boxMode === BoxMode.Self && p.t === t) return boxOf(t, p);
   const c: Iface | undefined = p[ifaceOf];
   if (c !== undefined && c.t === t) return c;
   return (p[ifaceOf] = boxOf(t, p));

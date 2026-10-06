@@ -8,20 +8,24 @@ import (
 
 // Box classes. An interface value is an object with the dynamic type t and
 // the value v ($rt.Iface), and an interface method call is a call of its
-// method "$" + key with v as the first argument (icall). For a type that has
-// methods called through interfaces, the lowering emits the class of its
-// interface values, and $rt.setBox puts the type's method table functions
-// on its prototype: each call site sees one class per dynamic type, whose
-// method engines resolve and inline as they do a method of a JS class. The
-// interface values of other types (generic or unnamed types, the runtime's)
-// are plain Ifaces, whose "$" + key methods (set by $rt.addMethods) call
-// through the type's method table.
+// method "$" + key with the interface value as the first argument (icall).
+// For a type that has methods called through interfaces, the lowering emits
+// the class of its interface values, and $rt.setBox puts the type's method
+// table functions on its prototype: each call site sees one class per
+// dynamic type, whose methods engines resolve and inline as they do a
+// method of a JS class. The interface values of other types (generic or
+// unnamed types, the runtime's) are plain Ifaces, whose "$" + key methods
+// (set by $rt.addMethods) call through the type's method table.
 //
-// The box of a struct type is flat where it can be: a struct object of a
-// subclass of the type's class, whose prototype has t, with a field v
-// referring to the object itself. Boxing a struct value then allocates one
-// object, not two. A struct with a field named t or v keeps a box holding
-// the value.
+// The interface value of a struct type is flat where it can be: a struct
+// object of a subclass of the type's class, whose prototype has t and a v
+// that is the object itself. Boxing a struct value then allocates one
+// object, not two, and the method functions take the box as the value. The
+// interface value of a pointer to a struct is the struct object itself
+// (self): the struct class's prototype has t, v and the methods of the
+// pointer type, and the conversion allocates nothing. A struct with a field
+// named t or v has boxes holding the value, as other types do; their
+// methods unwrap it ($rt.setBox).
 //
 // Box classes are named N$$box and N$$pbox (for *N): method functions are
 // N$M, and Go names do not begin with $.
@@ -29,7 +33,19 @@ import (
 // boxInfo describes the box class of a non-interface type.
 type boxInfo struct {
 	name string // the class name, in the defining package
-	flat bool   // the box is the struct object itself
+	flat bool   // the box is a struct object of its own
+	self bool   // the box of a pointer is the struct object pointed to
+}
+
+// mode is the box kind $rt.setBox takes.
+func (b *boxInfo) mode() int {
+	switch {
+	case b.flat:
+		return 1
+	case b.self:
+		return 2
+	}
+	return 0
 }
 
 type boxKey struct {
@@ -89,13 +105,14 @@ func (p *Program) newBoxInfo(named *types.Named, ptr bool) *boxInfo {
 	if !called {
 		return nil
 	}
-	if st, ok := named.Underlying().(*types.Struct); ok && !ptr {
-		b.flat = true
+	if st, ok := named.Underlying().(*types.Struct); ok {
+		own := true
 		for i := 0; i < st.NumFields(); i++ {
 			if f := fieldProp(st, i); f == "t" || f == "v" {
-				b.flat = false
+				own = false
 			}
 		}
+		b.flat, b.self = own && !ptr, own && ptr
 	}
 	return b
 }
@@ -123,7 +140,10 @@ func (pe *pkgEmitter) emitBoxes(w *writer, name string, named *types.Named) {
 		if _, ok := T.(*types.Pointer); ok {
 			desc = "$rt.ptrTo(" + desc + ")"
 		}
-		if !b.flat {
+		cls := b.name
+		if b.self {
+			cls = name // the struct class
+		} else if !b.flat {
 			cw := newWriter(pe.tab)
 			cw.ln("class %s {", b.name)
 			cw.indent++
@@ -134,7 +154,7 @@ func (pe *pkgEmitter) emitBoxes(w *writer, name string, named *types.Named) {
 			cw.ln("}")
 			pe.classes.append(cw)
 		}
-		w.ln("$rt.setBox(%s, %s, %t);", desc, b.name, b.flat)
+		w.ln("$rt.setBox(%s, %s, %d);", desc, cls, b.mode())
 	}
 }
 
