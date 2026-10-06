@@ -6,7 +6,11 @@ goesm の各バージョンの変更点を、新しい順に記載します。�
 
 ## Unreleased
 
-v0.0.1-beta.3 以降に `main` に入った変更です。差分は [v0.0.1-beta.3...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.3...main) で確認できます。
+v0.0.1-beta.4 以降に `main` に入った変更です。差分は [v0.0.1-beta.4...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.4...main) で確認できます。
+
+## v0.0.1-beta.4
+
+2026-10-06 にタグを付けました。v0.0.1-beta.3 からの差分は [v0.0.1-beta.3...v0.0.1-beta.4](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.3...v0.0.1-beta.4) で確認できます。
 
 生成コードの速度とバンドルサイズを、手書きの JavaScript にさらに近づける変更です。Go のコードの書き方も、それを呼ぶ JavaScript の書き方も変わりません。
 
