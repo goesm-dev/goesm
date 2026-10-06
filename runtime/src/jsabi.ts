@@ -37,7 +37,7 @@
 import {
   GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, addMethods, box, isIfaceValue, cell, classTypes, errorType, fromJSString, hasMethods,
   fromRef, funcOf, goThrown, implementsIface, interfaceOf, makeMap, mapOf, mapRange, mapSet, named, newBytes, plainPanic,
-  ptrTo, setUnderlying, sliceOf, toJSString, toRef,
+  ptrTo, setUnderlying, sliceOf, toJSString, toRef, tuple, untuple,
   tBool, tFloat64, tInt64, tString, tUnsafePointer,
 } from "./index.ts";
 
@@ -288,8 +288,10 @@ function goFuncToJS(t: Type, f: (...a: any[]) => any, ex = false): (...a: any[])
     } catch (e) {
       throw goThrown(e);
     }
-    // A Go function that blocks was lowered to an async function.
-    return r instanceof Promise ? r.then(result, (e) => { throw goThrown(e); }) : result(r);
+    // A Go function that blocks was lowered to an async function, which
+    // returns all results in an array.
+    if (r instanceof Promise) return r.then(result, (e) => { throw goThrown(e); });
+    return result(rs.length > 1 ? tuple(r, rs.length) : r);
   };
   goFuncs.set(js, f);
   return js;
@@ -323,13 +325,13 @@ function jsFuncToGo(t: Type, f: any): any {
     } catch (e) {
       if (!hasErr) jsPanic(e, null);
       const zeros = rs.slice(0, nres).map((rt) => rt.zero());
-      return nres === 0 ? jsError(e, null) : [...zeros, jsError(e, null)];
+      return nres === 0 ? jsError(e, null) : untuple([...zeros, jsError(e, null)]);
     }
     if (nres === 0) return hasErr ? null : undefined;
     if (nres === 1 && !hasErr) return jsToGo(rs[0], r, true);
     const out = rs.slice(0, nres).map((rt, i) => jsToGo(rt, nres === 1 ? r : r?.[i], true));
     if (hasErr) out.push(null);
-    return out;
+    return untuple(out);
   };
 }
 

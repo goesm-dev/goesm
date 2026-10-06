@@ -106,6 +106,12 @@ docs/                 GopherJS 比較、生成物の実例
 | chan | runtime `Chan` | |
 | 型 parameter | 型引数の表現そのもの (erasure) | 型 descriptor を dictionary 引数で受け取る |
 
+### 複数の戻り値
+
+ブロックしない関数は、複数の戻り値のうち最初の値を返し、残りを `runtime/src/results.ts` の戻り値レジスタ `$rt.$R.r1`、`$rt.$R.r2` などに置きます。呼び出し側は、ほかの Go のコードが動く前に、呼び出しの直後にそれを読みます。`n, err := parse(s)` は `const $1 = parse(s); let n = $1; let err = $rt.$R.r1;` に、`return n, nil` は `return ($rt.$R.r1 = null, n)` になります。map の参照と型アサーションの comma-ok 形式である `$rt.mapLookup` と `$rt.assertOk` も同じ方式です。Go のコードを呼ぶ値を返す return 文は、レジスタに書く前に値を順に一時変数へ評価し、戻り値の型が同じ呼び出しを返す `return f()` は結果をそのまま引き渡します。戻り値を配列で返すと、V8 がインライン化しない呼び出しのたびに配列を割り当てます。`strconv.Atoi` 型の解析ループ、`utf8.DecodeRuneInString` のループ、comma-ok の map 参照は、レジスタにすると Node と Bun で 1.2〜1.5 倍速くなりました。
+
+ブロックする関数、つまり async function は、従来どおり戻り値の配列で resolve します。呼び出し側が再開する前にほかの goroutine が動き、レジスタを上書きしうるためです。呼び出し側は await から戻った時点で `$rt.untuple(await f())` のように配列をレジスタに移すので、呼び出しの後のコードはどちらの関数を呼んでも同じ形になります。どちらにもなりうる関数値や interface method の呼び出しも、これで動きます。native も配列を返し、native を包む関数がそれをレジスタに移します。JavaScript からはどちらの形も見えません。export wrapper は複数の戻り値を配列で返し、`$goesm` の表の `tuple` はテスト harness のために戻り値を集めます。
+
 ### 64-bit 整数
 
 `int64` と `uint64` は BigInt、`int`・`uint`・`uintptr` は JS の number のままです。64 bit 全体が必要な Go のコード (hash、乱数、`time` の nanosecond、JSON 中の ID、`math.Float64bits`) は明示的に 64-bit 型を使い、`int` は index や個数に使われます。後者は number の方が数倍速く、配列や文字列が持てる範囲では正確です。

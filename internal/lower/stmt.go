@@ -300,13 +300,10 @@ func (fe *funcEmitter) declStmt(s *ast.DeclStmt) {
 				fe.defineVar(m, v, vals[i])
 			}
 		default: // tuple: f() or a comma-ok form (v, ok = m[k], <-ch, x.(T))
-			e, tt, ok := fe.commaOk(vs.Values[0])
-			if !ok {
-				e, tt = fe.expr(vs.Values[0]), fe.info.TypeOf(vs.Values[0])
-			}
+			e, tt, regs := fe.multiSrc(vs.Values[0])
 			t := fe.forceTmp(e)
 			for i, v := range vars {
-				fe.defineVar(m, v, fe.convert(fmt.Sprintf("%s[%d]", t, i), tupleAt(tt, i), v.Type()))
+				fe.defineVar(m, v, fe.convert(tupleElem(t, i, regs), tupleAt(tt, i), v.Type()))
 			}
 		}
 	}
@@ -344,26 +341,48 @@ func tupleAt(t types.Type, i int) types.Type {
 	return t
 }
 
-// commaOk returns a tuple-valued JS expression for v, ok forms, or "".
-func (fe *funcEmitter) commaOk(e ast.Expr) (string, types.Type, bool) {
+// multiSrc lowers e, a call with several results or a comma-ok form, to a
+// JS expression of its first value, with the others in the result
+// registers (regs, see multiResult), or of an array of all.
+func (fe *funcEmitter) multiSrc(e ast.Expr) (src string, tt types.Type, regs bool) {
+	if src, tt, regs, ok := fe.commaOk(e); ok {
+		return src, tt, regs
+	}
+	return fe.expr(e), fe.info.TypeOf(e), true
+}
+
+// tupleElem is the i-th value of the several values of which t holds the
+// first (regs) or all.
+func tupleElem(t string, i int, regs bool) string {
+	switch {
+	case !regs:
+		return fmt.Sprintf("%s[%d]", t, i)
+	case i == 0:
+		return t
+	}
+	return fmt.Sprintf("$rt.$R.r%d", i)
+}
+
+// commaOk returns a JS expression for v, ok forms (see multiSrc), or "".
+func (fe *funcEmitter) commaOk(e ast.Expr) (string, types.Type, bool, bool) {
 	switch x := unparen(e).(type) {
 	case *ast.IndexExpr:
 		if mt, ok := under(fe.info.TypeOf(x.X)).(*types.Map); ok {
 			return fmt.Sprintf("%s$rt.mapLookup(%s, %s, %s)", fe.mark(x), fe.expr(x.X), fe.valueOf(x.Index, mt.Key()), fe.zeroFn(mt.Elem())),
-				types.NewTuple(types.NewVar(0, nil, "", mt.Elem()), types.NewVar(0, nil, "", types.Typ[types.Bool])), true
+				types.NewTuple(types.NewVar(0, nil, "", mt.Elem()), types.NewVar(0, nil, "", types.Typ[types.Bool])), true, true
 		}
 	case *ast.TypeAssertExpr:
 		t := fe.info.TypeOf(x.Type)
 		return fmt.Sprintf("%s$rt.assertOk(%s, %s)", fe.mark(x), fe.expr(x.X), fe.desc(t)),
-			types.NewTuple(types.NewVar(0, nil, "", t), types.NewVar(0, nil, "", types.Typ[types.Bool])), true
+			types.NewTuple(types.NewVar(0, nil, "", t), types.NewVar(0, nil, "", types.Typ[types.Bool])), true, true
 	case *ast.UnaryExpr:
 		if x.Op == token.ARROW {
 			elem := under(fe.info.TypeOf(x.X)).(*types.Chan).Elem()
 			return fe.mark(x) + fe.recvExpr(fe.expr(x.X)),
-				types.NewTuple(types.NewVar(0, nil, "", elem), types.NewVar(0, nil, "", types.Typ[types.Bool])), true
+				types.NewTuple(types.NewVar(0, nil, "", elem), types.NewVar(0, nil, "", types.Typ[types.Bool])), false, true
 		}
 	}
-	return "", nil, false
+	return "", nil, false, false
 }
 
 func (fe *funcEmitter) assign(s *ast.AssignStmt) {
@@ -386,13 +405,6 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 
 	// Tuple-valued right-hand side: f() or comma-ok forms.
 	if len(s.Lhs) > 1 && len(s.Rhs) == 1 {
-		var src string
-		var tt types.Type
-		if e, t, ok := fe.commaOk(s.Rhs[0]); ok {
-			src, tt = e, t
-		} else {
-			src, tt = fe.expr(s.Rhs[0]), fe.info.TypeOf(s.Rhs[0])
-		}
 		// Go evaluates the target operands (a[f()]) before the call.
 		lvs := make([]*lvalue, len(s.Lhs))
 		if s.Tok == token.ASSIGN {
@@ -401,12 +413,13 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 				lvs[i] = &lv
 			}
 		}
+		src, tt, regs := fe.multiSrc(s.Rhs[0])
 		tmp := fe.forceTmp(m + src)
 		for i, l := range s.Lhs {
 			if isBlank(l) {
 				continue
 			}
-			val := fe.convertCopy(fmt.Sprintf("%s[%d]", tmp, i), tupleAt(tt, i), fe.lhsType(l, tupleAt(tt, i)))
+			val := fe.convertCopy(tupleElem(tmp, i, regs), tupleAt(tt, i), fe.lhsType(l, tupleAt(tt, i)))
 			if lvs[i] != nil {
 				w.ln("%s;", lvs[i].set(val))
 				continue
@@ -1314,6 +1327,8 @@ func (fe *funcEmitter) rangeFunc(s *ast.RangeStmt, label string, sig *types.Sign
 		w.ln("if (%s === 1) { %s = 1; %s = %s; %s }", rf.ret, outer.ret, outer.retv, rf.retv, outer.next(false))
 	case fe.hasDefer:
 		w.ln("if (%s === 1) { %s; break $body; }", rf.ret, fe.assignResults(rf.retv))
+	case fe.regResults():
+		w.ln("if (%s === 1) return $rt.untuple(%s);", rf.ret, rf.retv)
 	case fe.sig.Results().Len() > 0:
 		w.ln("if (%s === 1) return %s;", rf.ret, rf.retv)
 	default:
@@ -1354,7 +1369,7 @@ func (fe *funcEmitter) rangeFuncReturn(s *ast.ReturnStmt) {
 	v := "undefined"
 	switch len(vals) {
 	case 0:
-		if r := fe.resultsExpr(); r != "" {
+		if r := fe.resultsTuple(); r != "" {
 			v = r
 		}
 	case 1:
@@ -1738,7 +1753,7 @@ func (fe *funcEmitter) returnValues(s *ast.ReturnStmt) []string {
 		tt := fe.info.TypeOf(s.Results[0])
 		var vals []string
 		for i := 0; i < res.Len(); i++ {
-			vals = append(vals, fe.convert(fmt.Sprintf("%s[%d]", t, i), tupleAt(tt, i), res.At(i).Type()))
+			vals = append(vals, fe.convert(tupleElem(t, i, true), tupleAt(tt, i), res.At(i).Type()))
 		}
 		return vals
 	}
@@ -1746,12 +1761,93 @@ func (fe *funcEmitter) returnValues(s *ast.ReturnStmt) []string {
 	for i, r := range s.Results {
 		vals = append(vals, fe.valueOf(r, res.At(i).Type()))
 	}
+	if len(vals) > 1 && fe.regResults() && !fe.hasDefer && !fe.named {
+		// multiResult evaluates the first value last, and a value whose
+		// code calls Go code may overwrite the result registers: evaluate
+		// in order to temporaries up to the last such value.
+		last := -1
+		for i, r := range s.Results {
+			if mayCallGo(fe.info, r) {
+				last = i
+			}
+		}
+		for i := range vals {
+			if i <= last || i == 0 && last >= 0 {
+				if !jsLiteral.MatchString(stripMarks(vals[i])) {
+					vals[i] = fe.forceTmp(vals[i])
+				}
+			}
+		}
+	}
 	return vals
+}
+
+// mayCallGo reports whether evaluating e may call a Go function or method
+// (or receive from a channel, which lets other goroutines run).
+func mayCallGo(info *types.Info, e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.CallExpr:
+			if tv, ok := info.Types[n.Fun]; ok && tv.IsType() {
+				return true // a conversion
+			}
+			if id, ok := unparen(n.Fun).(*ast.Ident); ok {
+				if b, ok := info.Uses[id].(*types.Builtin); ok && b.Name() != "panic" {
+					return true
+				}
+			}
+			found = true
+		case *ast.UnaryExpr:
+			if n.Op == token.ARROW {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// passThrough reports whether return statement s returns the results of a
+// call as they are: a call of a function that returns them the same way
+// (in the result registers, or in an array from an async function) with
+// the same types.
+func (fe *funcEmitter) passThrough(s *ast.ReturnStmt) bool {
+	res := fe.sig.Results()
+	if len(s.Results) != 1 || res.Len() < 2 || fe.hasDefer || fe.named {
+		return false
+	}
+	call, ok := unparen(s.Results[0]).(*ast.CallExpr)
+	if !ok || fe.async && !fe.pe.prog.CallAlwaysAsync(fe.info, call) || !fe.async && fe.callBlocks(call) {
+		return false
+	}
+	tt := fe.info.TypeOf(call).(*types.Tuple)
+	for i := 0; i < res.Len(); i++ {
+		if !types.Identical(tt.At(i).Type(), res.At(i).Type()) {
+			return false
+		}
+	}
+	return true
+}
+
+// passCall lowers the call of a return statement that passes its results
+// on (see passThrough).
+func (fe *funcEmitter) passCall(call *ast.CallExpr) string {
+	prev := fe.rawCall
+	fe.rawCall = call
+	defer func() { fe.rawCall = prev }()
+	return fe.expr(call)
 }
 
 func (fe *funcEmitter) returnStmt(s *ast.ReturnStmt) {
 	w := fe.w
 	m := fe.mark(s)
+	if fe.passThrough(s) {
+		w.ln("%sreturn %s;", m, fe.passCall(unparen(s.Results[0]).(*ast.CallExpr)))
+		return
+	}
 	vals := fe.returnValues(s)
 	if fe.hasDefer {
 		fe.setResults(m, vals)
@@ -1771,10 +1867,8 @@ func (fe *funcEmitter) returnStmt(s *ast.ReturnStmt) {
 		} else {
 			w.ln("%sreturn;", m)
 		}
-	case 1:
-		w.ln("%sreturn %s;", m, vals[0])
 	default:
-		w.ln("%sreturn [%s];", m, strings.Join(vals, ", "))
+		w.ln("%sreturn %s;", m, multiResult(vals, !fe.regResults()))
 	}
 }
 

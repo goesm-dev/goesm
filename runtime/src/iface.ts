@@ -10,6 +10,7 @@
 import { BoxMode, Kind, Type, implementsIface, isAggregate, setIfaceProto, tFloat32, tFloat64, zeroSized } from "./types.ts";
 import { ceq } from "./complex.ts";
 import { GoPanic, runtimePanic, typeAssertionErrorType } from "./panic.ts";
+import { $R } from "./results.ts";
 
 export class Iface {
   declare t: Type;
@@ -141,9 +142,10 @@ export function unboxAs(t: Type, x: Iface | null): any {
   return t.kind === Kind.Interface ? x : copy(t, x!.v);
 }
 
-export function assertOk(x: Iface | null, t: Type): [any, boolean] {
-  if (!typeIs(x, t)) return [t.zero(), false];
-  return [t.kind === Kind.Interface ? x : copy(t, x!.v), true];
+// assertOk is v, ok := x.(t): it returns v and leaves ok in $R.r1.
+export function assertOk(x: Iface | null, t: Type): any {
+  if (!typeIs(x, t)) return ($R.r1 = false, t.zero());
+  return ($R.r1 = true, t.kind === Kind.Interface ? x : copy(t, x!.v));
 }
 
 function comparable(t: Type): boolean {

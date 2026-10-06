@@ -7,6 +7,7 @@
 // must not depend on order.
 
 import { hashKey } from "./iface.ts";
+import { $R } from "./results.ts";
 import { plainPanic, runtimePanic } from "./panic.ts";
 import { Kind, Type } from "./types.ts";
 
@@ -61,14 +62,17 @@ export function mapGet<K = any, V = any>(m: M<K, V>, k: K, zero: () => V): V {
   return e === undefined ? zero() : e[1];
 }
 
-export function mapLookup<K = any, V = any>(m: M<K, V>, k: K, zero: () => V): [V, boolean] {
-  if (m === null) return [zero(), false];
+// mapLookup is v, ok := m[k]: it returns v and leaves ok in $R.r1.
+export function mapLookup<K = any, V = any>(m: M<K, V>, k: K, zero: () => V): V {
+  if (m === null) return ($R.r1 = false, zero());
   if (m.direct) {
     const v = m.entries.get(k);
-    return v !== undefined || m.entries.has(k) ? [v, true] : [zero(), false];
+    if (v !== undefined || m.entries.has(k)) return ($R.r1 = true, v as V);
+    return ($R.r1 = false, zero());
   }
   const e = m.entries.get(hashKey(m.keyType, k));
-  return e === undefined ? [zero(), false] : [e[1], true];
+  if (e === undefined) return ($R.r1 = false, zero());
+  return ($R.r1 = true, e[1]);
 }
 
 export function mapSet<K = any, V = any>(m: M<K, V>, k: K, v: V): void {
