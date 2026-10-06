@@ -146,6 +146,9 @@ type pkgEmitter struct {
 	// inBounds: the index expressions of the function being emitted whose
 	// index is in range by construction (see inBoundsIndices).
 	inBounds map[*ast.IndexExpr]bool
+	// hdrLoops: the loops before which the headers of fixed slices are
+	// loaded (see inBoundsIndices and hoistSliceHeaders).
+	hdrLoops *hdrLoops
 	// scalar: the range value variables of the function being emitted
 	// that are read field by field (see scalarRangeVars).
 	scalar map[*types.Var][]int
