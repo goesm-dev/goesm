@@ -422,8 +422,10 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 	}
 
 	if s.Tok == token.ASSIGN && fe.directParallel(s) || s.Tok == token.DEFINE && fe.allNew(s) {
+		// The value of a blank target is still evaluated (assignOne keeps
+		// what has effects); directParallel's are constants and variables.
 		for i, l := range s.Lhs {
-			if !isBlank(l) {
+			if !isBlank(l) || s.Tok == token.DEFINE {
 				fe.assignOne(s.Tok, l, fe.valueOf(s.Rhs[i], fe.lhsType(l, fe.info.TypeOf(s.Rhs[i]))), "")
 			}
 		}

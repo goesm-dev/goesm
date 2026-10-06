@@ -95,6 +95,8 @@ func shadow() {
 	}
 	a, b := x+y, x*y
 	fmt.Println(a, b)
+	c, _, d := next(), next(), next()
+	fmt.Println(c, d, calls)
 }
 
 func main() {
