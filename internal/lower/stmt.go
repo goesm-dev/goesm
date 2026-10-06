@@ -7,6 +7,7 @@ import (
 	"go/types"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -144,7 +145,7 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 		if fe.splitStmt(s, m) {
 			return
 		}
-		lv := fe.lvalue(s.X, true)
+		lv := fe.opLvalue(s.X, nil)
 		t := fe.info.TypeOf(s.X)
 		op := token.ADD
 		if s.Tok == token.DEC {
@@ -177,13 +178,17 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 	case *ast.IfStmt:
 		fe.ifStmt(s, label)
 	case *ast.ForStmt:
+		end := fe.hoistSliceHeaders(s)
 		label = fe.pushBreakable(s, label, true)
 		fe.forStmt(s, label)
 		fe.popBreakable()
+		end()
 	case *ast.RangeStmt:
+		end := fe.hoistSliceHeaders(s)
 		label = fe.pushBreakable(s, label, true)
 		fe.rangeStmt(s, label)
 		fe.popBreakable()
+		end()
 	case *ast.SwitchStmt:
 		label = fe.pushBreakable(s, label, false)
 		fe.switchStmt(s, label)
@@ -366,7 +371,7 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 	m := fe.mark(s)
 	if s.Tok != token.ASSIGN && s.Tok != token.DEFINE {
 		// op-assign: x op= y
-		lv := fe.lvalue(s.Lhs[0], true)
+		lv := fe.opLvalue(s.Lhs[0], s.Rhs[0])
 		op := opAssign[s.Tok]
 		t := fe.info.TypeOf(s.Lhs[0])
 		var val string
@@ -416,9 +421,11 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 		return
 	}
 
-	if s.Tok == token.ASSIGN && fe.directParallel(s) {
+	if s.Tok == token.ASSIGN && fe.directParallel(s) || s.Tok == token.DEFINE && fe.allNew(s) {
+		// The value of a blank target is still evaluated (assignOne keeps
+		// what has effects); directParallel's are constants and variables.
 		for i, l := range s.Lhs {
-			if !isBlank(l) {
+			if !isBlank(l) || s.Tok == token.DEFINE {
 				fe.assignOne(s.Tok, l, fe.valueOf(s.Rhs[i], fe.lhsType(l, fe.info.TypeOf(s.Rhs[i]))), "")
 			}
 		}
@@ -452,6 +459,18 @@ func (fe *funcEmitter) assign(s *ast.AssignStmt) {
 			w.ln("%s;", t.lv.set(vals[i]))
 		}
 	}
+}
+
+// allNew reports whether the short variable declaration s declares all its
+// targets (or assigns the blank identifier): the right-hand sides cannot
+// refer to them, so each can be declared in turn without temporaries.
+func (fe *funcEmitter) allNew(s *ast.AssignStmt) bool {
+	for _, l := range s.Lhs {
+		if id, ok := ast.Unparen(l).(*ast.Ident); !ok || id.Name != "_" && fe.info.Defs[id] == nil {
+			return false
+		}
+	}
+	return true
 }
 
 // directParallel reports whether the parallel assignment s can assign its
@@ -664,10 +683,35 @@ func (fe *funcEmitter) simpleLvalue(ref string, t types.Type) lvalue {
 }
 
 func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
-	// With prepare, operands are evaluated now into temporaries, even plain
-	// references: in `i, a[i] = 1, 2` the index is the old i.
+	if prepare {
+		return fe.lvalueOf(e, prepareAll)
+	}
+	return fe.lvalueOf(e, prepareNone)
+}
+
+// How lvalueOf evaluates the operands of a target.
+const (
+	prepareNone = iota // where the target is used
+	prepareAll         // now, into temporaries, even plain references: in `i, a[i] = 1, 2` the index is the old i
+	prepareOnce        // now, those that are not plain references, which nothing changes before the target's last use
+)
+
+// opLvalue is the target x of x op= y (or x++ for a nil y), whose operands
+// are evaluated once, before y. A y without calls or receives changes no
+// variable, so plain references are not copied.
+func (fe *funcEmitter) opLvalue(x, y ast.Expr) lvalue {
+	if y != nil && hasCallOrRecv(y) {
+		return fe.lvalueOf(x, prepareAll)
+	}
+	return fe.lvalueOf(x, prepareOnce)
+}
+
+func (fe *funcEmitter) lvalueOf(e ast.Expr, prepare int) lvalue {
 	stab := func(s string) string {
-		if prepare && !jsLiteral.MatchString(stripMarks(s)) {
+		switch ss := stripMarks(s); {
+		case prepare == prepareNone || jsLiteral.MatchString(ss):
+		case prepare == prepareOnce && simpleRef.MatchString(ss):
+		default:
 			return fe.forceTmp(s)
 		}
 		return s
@@ -710,7 +754,7 @@ func (fe *funcEmitter) lvalue(e ast.Expr, prepare bool) lvalue {
 			}
 		case *types.Slice:
 			if s, i, ok := fe.checkedIndex(x); ok {
-				get := fe.mark(x) + sliceElem(s, i)
+				get := fe.mark(x) + fe.elem(x, s, i)
 				if isAggregate(u.Elem()) {
 					return fe.simpleLvalue(get, t)
 				}
@@ -937,6 +981,53 @@ func (fe *funcEmitter) rangeStmt(s *ast.RangeStmt, label string) {
 	fe.w.ln("}")
 }
 
+// rangeKey returns the name of the key variable of range loop s over a
+// slice, an array or an int when the loop counter can be the variable
+// itself: an int declared by the clause (per iteration, as JS gives a for
+// (let ...) variable), which the body does not assign or address; or "".
+func (fe *funcEmitter) rangeKey(s *ast.RangeStmt) string {
+	if s.Tok != token.DEFINE || s.Key == nil || isBlank(s.Key) || !fe.goVersionAtLeast("go1.22") {
+		return ""
+	}
+	v, ok := fe.info.Defs[s.Key.(*ast.Ident)].(*types.Var)
+	if !ok || v.Type() != types.Typ[types.Int] || fe.boxed(v) || assignsVar(fe.info, s.Body, v) {
+		return ""
+	}
+	return fe.declare(v)
+}
+
+// keyIf is the key rangeVars binds: i, the loop counter, if key is set (the
+// counter is a temporary), else none.
+func keyIf(key, i string) string {
+	if key == "" {
+		return ""
+	}
+	return i
+}
+
+// assignsVar reports whether body assigns v or takes its address.
+func assignsVar(info *types.Info, body ast.Node, v *types.Var) bool {
+	is := func(e ast.Expr) bool {
+		id, ok := ast.Unparen(e).(*ast.Ident)
+		return ok && info.Uses[id] == v
+	}
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			found = found || slices.ContainsFunc(n.Lhs, is)
+		case *ast.IncDecStmt:
+			found = found || is(n.X)
+		case *ast.UnaryExpr:
+			found = found || n.Op == token.AND && is(n.X)
+		case *ast.RangeStmt:
+			found = found || n.Tok == token.ASSIGN && (n.Key != nil && is(n.Key) || n.Value != nil && is(n.Value))
+		}
+		return !found
+	})
+	return found
+}
+
 func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 	w := fe.w
 	m := fe.mark(s)
@@ -961,7 +1052,10 @@ func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 			return
 		}
 		// range over integer (Go 1.22)
-		i, n := fe.tmp(), fe.tmp()
+		i, n, key := fe.rangeKey(s), fe.tmp(), ""
+		if i == "" {
+			i, key = fe.tmp(), "-"
+		}
 		zero := "0"
 		switch {
 		case isTypeParam(xt):
@@ -971,7 +1065,7 @@ func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 		}
 		w.ln("%s%sfor (let %s = %s, %s = %s; %s < %s; %s++) {", m, lp, i, zero, n, fe.expr(s.X), i, n, i)
 		w.indent++
-		fe.rangeVars(s, i, "", xt, nil)
+		fe.rangeVars(s, keyIf(key, i), "", xt, nil)
 		fe.stmts(s.Body.List)
 		w.indent--
 		w.ln("}")
@@ -992,19 +1086,32 @@ func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 			w.ln("}")
 			return
 		}
-		sl, i, n := fe.tmp(), fe.tmp(), fe.tmp()
-		w.ln("%s%sfor (let %s = %s, %s = 0, %s = %s === null ? 0 : %s.$length; %s < %s; %s++) {", m, lp, sl, fe.expr(s.X), i, n, sl, sl, i, n, i)
+		i, key, elem := fe.rangeKey(s), "", ""
+		if i == "" {
+			i, key = fe.tmp(), "-"
+		}
+		if h, ok := fe.sliceHdr(s.X); ok {
+			w.ln("%s%sfor (let %s = 0; %s < %s; %s++) {", m, lp, i, i, h.length, i)
+			elem = fmt.Sprintf("%s[%s + %s]", h.array, h.offset, i)
+		} else {
+			sl, n := fe.tmp(), fe.tmp()
+			w.ln("%s%sfor (let %s = %s, %s = 0, %s = %s === null ? 0 : %s.$length; %s < %s; %s++) {", m, lp, sl, fe.expr(s.X), i, n, sl, sl, i, n, i)
+			elem = fmt.Sprintf("%s!.$array[%s!.$offset + %s]", sl, sl, i)
+		}
 		w.indent++
 		val := ""
 		if hasVal {
-			val = fe.rangeElem(s, fmt.Sprintf("%s!.$array[%s!.$offset + %s]", sl, sl, i), u.Elem())
+			val = fe.rangeElem(s, elem, u.Elem())
 		}
-		fe.rangeVars(s, i, val, types.Typ[types.Int], u.Elem())
+		fe.rangeVars(s, keyIf(key, i), val, types.Typ[types.Int], u.Elem())
 		fe.stmts(s.Body.List)
 		w.indent--
 		w.ln("}")
 	case *types.Array:
-		arr, i := fe.tmp(), fe.tmp()
+		arr, i, key := fe.tmp(), fe.rangeKey(s), ""
+		if i == "" {
+			i, key = fe.tmp(), "-"
+		}
 		src := "null"
 		// With at most one iteration variable and a constant length, Go does
 		// not evaluate the range expression (for i := range *nilPtr is fine).
@@ -1020,7 +1127,7 @@ func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 		if hasVal {
 			val = fe.rangeElem(s, fmt.Sprintf("%s[%s]", arr, i), u.Elem())
 		}
-		fe.rangeVars(s, i, val, types.Typ[types.Int], u.Elem())
+		fe.rangeVars(s, keyIf(key, i), val, types.Typ[types.Int], u.Elem())
 		fe.stmts(s.Body.List)
 		w.indent--
 		w.ln("}")

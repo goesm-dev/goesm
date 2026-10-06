@@ -462,7 +462,7 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 			}
 			if isAggregate(t) {
 				if s, i, ok := fe.checkedIndex(x); ok {
-					return fe.mark(x) + sliceElem(s, i)
+					return fe.mark(x) + fe.elem(x, s, i)
 				}
 				return fe.mark(x) + sliceIndex(fe.expr(x.X), fe.intNumber(x.Index))
 			}
@@ -547,10 +547,10 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 		return m + set + strIndex(x, i) + closeIf(set)
 	case *types.Slice:
 		if x, i, ok := fe.checkedIndex(e); ok {
-			return fe.byteBoolLoad(e.X, m+sliceElem(x, i))
+			return fe.byteBoolLoad(e.X, m+fe.elem(e, x, i))
 		}
 		if x, set, i, ok := fe.checkedIndexTemp(e); ok {
-			return fe.byteBoolLoad(e.X, m+set+sliceElem(x, i)+")")
+			return fe.byteBoolLoad(e.X, m+set+fe.elem(e, x, i)+")")
 		}
 		x, set, i := fe.indexTemp(fe.expr(e.X), fe.intNumber(e.Index))
 		return fe.byteBoolLoad(e.X, m+set+sliceIndex(x, i)+closeIf(set))
@@ -1567,6 +1567,96 @@ func sliceElem(s, i string) string {
 	return fmt.Sprintf("(%[1]s as any).$array[(%[1]s as any).$offset + %[2]s]", s, i)
 }
 
+// elem is sliceElem for e, s[i], using the header of s loaded before the
+// loop if it was (hoistSliceHeaders).
+func (fe *funcEmitter) elem(e *ast.IndexExpr, s, i string) string {
+	if h, ok := fe.sliceHdr(e.X); ok {
+		return h.array + "[" + h.offset + " + " + i + "]"
+	}
+	return sliceElem(s, i)
+}
+
+// sliceHeader names the constants holding the array, offset and length of
+// a slice.
+type sliceHeader struct{ array, offset, length string }
+
+// sliceHdr returns the header of x loaded before the loop being lowered, if
+// x is a variable whose header was.
+func (fe *funcEmitter) sliceHdr(x ast.Expr) (sliceHeader, bool) {
+	if fe.sliceHdrs == nil {
+		return sliceHeader{}, false
+	}
+	id, ok := ast.Unparen(x).(*ast.Ident)
+	if !ok {
+		return sliceHeader{}, false
+	}
+	v, _ := fe.info.Uses[id].(*types.Var)
+	h, ok := fe.sliceHdrs[v]
+	return h, ok
+}
+
+// loadSliceHeader declares the constants holding the header of slice v.
+// The array and offset of a nil slice are null and 0: undefined would make
+// every o + i in the loop possibly NaN.
+func (fe *funcEmitter) loadSliceHeader(v *types.Var) {
+	if fe.sliceHdrs == nil {
+		fe.sliceHdrs = map[*types.Var]sliceHeader{}
+	}
+	x := fe.varRef(v)
+	h := sliceHeader{fe.tmp(), fe.tmp(), fe.tmp()}
+	fe.w.ln("const %[2]s = %[1]s === null ? null : (%[1]s as any).$array, %[3]s = %[1]s === null ? 0 : (%[1]s as any).$offset, %[4]s = %[1]s === null ? 0 : (%[1]s as any).$length;", x, h.array, h.offset, h.length)
+	fe.sliceHdrs[v] = h
+}
+
+// loadParamHeaders loads the headers of the parameters of sig that
+// hdrLoops lists outside function literals at the start of the function
+// body, for all its loops.
+func (fe *funcEmitter) loadParamHeaders(sig *types.Signature) {
+	hl := fe.pe.hdrLoops
+	if hl == nil {
+		return
+	}
+	for i := 0; i < sig.Params().Len(); i++ {
+		if v := sig.Params().At(i); hl.outer[v] && !fe.boxed(v) {
+			fe.loadSliceHeader(v)
+		}
+	}
+}
+
+// hoistSliceHeaders loads the array, offset and length of the slices
+// inBoundsIndices found for loop s into constants before it, which the
+// in-range elements, len and range clauses of the slices in the loop use: an
+// engine reloads them on every iteration of a loop that stores to an
+// object, as it cannot tell such a store from one to the slice header. A
+// block around the loop scopes the constants; the returned function closes
+// it.
+func (fe *funcEmitter) hoistSliceHeaders(s ast.Stmt) func() {
+	var vars []*types.Var
+	if hl := fe.pe.hdrLoops; hl != nil {
+		for _, v := range hl.loops[s] {
+			if _, ok := fe.sliceHdrs[v]; !ok && !fe.boxed(v) {
+				vars = append(vars, v)
+			}
+		}
+	}
+	if len(vars) == 0 {
+		return func() {}
+	}
+	w := fe.w
+	w.ln("{")
+	w.indent++
+	for _, v := range vars {
+		fe.loadSliceHeader(v)
+	}
+	return func() {
+		for _, v := range vars {
+			delete(fe.sliceHdrs, v)
+		}
+		w.indent--
+		w.ln("}")
+	}
+}
+
 // indexTemp prepares the index i of a load from s for sliceIndex or
 // strIndex: an i that cannot be evaluated again (i + 1, a call) is assigned
 // to a variable of the function first, so the load stays inline. It returns
@@ -1953,6 +2043,9 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 		case *types.Basic:
 			return arg(0) + ".length"
 		case *types.Slice:
+			if h, ok := fe.sliceHdr(e.Args[0]); ok && name == "len" {
+				return h.length
+			}
 			if a := arg(0); reusable(stripMarks(a)) {
 				prop := "$length"
 				if name == "cap" {
