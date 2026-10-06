@@ -9,7 +9,9 @@
 // _ replaced by "$": internal/bytealg.IndexByte is
 // native$internal$bytealg$IndexByte. goesm reads the export names from this
 // file, so a missing native is reported at compile time, and esbuild drops
-// the natives a program does not call.
+// the natives a program does not call. A native of a function with several
+// results returns them as an array, which the function moves into the
+// result registers (results.ts).
 //
 // The set is fixed and owned by goesm.
 
@@ -24,7 +26,7 @@ import {
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
   sliceElemRef, sliceLit, sliceToArrayPtr, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt, topString,
-  goThrown, typeArgsName, jsNull, toRef, fromRef, isASCII, noteASCII, setHTTPServer, hostListen, hostBuiltin, decodeRune,
+  goThrown, typeArgsName, $R, tuple, untuple, jsNull, toRef, fromRef, isASCII, noteASCII, setHTTPServer, hostListen, hostBuiltin, decodeRune,
 } from "./index.ts";
 import type { S } from "./index.ts";
 import { fmtFixed, fmtShortest, mayTie, roundToEven, sprintf, tieScale } from "./fmt.ts";
@@ -1265,7 +1267,8 @@ export function native$reflect$clearValue(t: Type, x: any): void {
 export function native$reflect$makeMap(t: Type): any { return makeMap(t.key!); }
 
 export function native$reflect$mapIndex(m: any, k: any): [any, boolean] {
-  return mapLookup(m, k, () => undefined);
+  const v = mapLookup(m, k, () => undefined);
+  return [v, $R.r1];
 }
 
 export function native$reflect$mapSet(m: any, k: any, x: any): void { mapSet(m, k, x); }
@@ -1304,7 +1307,7 @@ export function native$reflect$callFunc(t: Type, fn: (...a: any[]) => any, args:
     plainPanic("reflect: Call of a function that blocks is not supported by goesm");
   }
   const n = t.results.length;
-  return n === 0 ? null : sliceLit(n === 1 ? [r] : r);
+  return n === 0 ? null : sliceLit(n === 1 ? [r] : tuple(r, n));
 }
 
 export function native$reflect$makeFunc(t: Type, impl: (args: S<any>) => S<any>): (...a: any[]) => any {
@@ -1313,7 +1316,7 @@ export function native$reflect$makeFunc(t: Type, impl: (args: S<any>) => S<any>)
     const r = impl(sliceLit(a));
     if (n === 0) return undefined;
     const out = r!.$array.slice(r!.$offset, r!.$offset + r!.$length);
-    return n === 1 ? out[0] : out;
+    return n === 1 ? out[0] : untuple(out);
   };
 }
 

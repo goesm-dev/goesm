@@ -515,10 +515,11 @@ func (pe *pkgEmitter) emit() *Module {
 	}
 	// The entry package's table also carries the runtime's conversion of Go
 	// values to JSON-shaped values, for the harness to compare results
-	// with native Go's encoding/json.
+	// with native Go's encoding/json, and tuple, which collects the
+	// several results of a function that does not block (multiResult).
 	toJS := ""
 	if pe.isEntry {
-		toJS = ", toJS: $rt.toJS"
+		toJS = ", toJS: $rt.toJS, tuple: $rt.tuple"
 	}
 	pe.vars.ln("const $goesm = { path: %s, funcs: { %s }%s };", jsString(pkg.PkgPath), strings.Join(meta, ", "), toJS)
 	pe.export("$goesm", "$goesm")
@@ -677,17 +678,14 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 			continue
 		}
 		// f() or a comma-ok form (v, ok = m[k], <-ch, x.(T)).
-		e, tt, ok := fe.commaOk(in.Rhs)
-		if !ok {
-			e, tt = fe.expr(in.Rhs), fe.info.TypeOf(in.Rhs)
-		}
+		e, tt, regs := fe.multiSrc(in.Rhs)
 		t := fe.tmp()
 		pe.vars.ln("%sconst %s = %s;", mark, t, e)
 		for i, v := range in.Lhs {
 			if v.Name() == "_" {
 				continue
 			}
-			pe.vars.ln("%s = %s;", fe.varRef(v), fe.convertCopy(fmt.Sprintf("%s[%d]", t, i), tupleAt(tt, i), v.Type()))
+			pe.vars.ln("%s = %s;", fe.varRef(v), fe.convertCopy(tupleElem(t, i, regs), tupleAt(tt, i), v.Type()))
 		}
 	}
 }

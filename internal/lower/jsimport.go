@@ -511,11 +511,7 @@ func (pe *pkgEmitter) emitJSImportFunc(fd *ast.FuncDecl, fn *types.Func, d *jsIm
 			zeros = append(zeros, pe.zeroOf(results.At(i).Type(), tpScope{}))
 		}
 		zeros = append(zeros, "$jsabi.jsError($e, "+errT+")")
-		if len(zeros) == 1 {
-			w.ln("  return %s;", zeros[0])
-		} else {
-			w.ln("  return [%s];", strings.Join(zeros, ", "))
-		}
+		w.ln("  return %s;", multiResult(zeros, d.await))
 	} else {
 		w.ln("  $jsabi.jsPanic($e, %s);", errT)
 	}
@@ -531,12 +527,8 @@ func (pe *pkgEmitter) emitJSImportFunc(fd *ast.FuncDecl, fn *types.Func, d *jsIm
 	if hasErr {
 		conv = append(conv, "null")
 	}
-	switch len(conv) {
-	case 0:
-	case 1:
-		w.ln("return %s;", conv[0])
-	default:
-		w.ln("return [%s];", strings.Join(conv, ", "))
+	if len(conv) > 0 {
+		w.ln("return %s;", multiResult(conv, d.await))
 	}
 	w.indent--
 	w.ln("}")

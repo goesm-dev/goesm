@@ -141,16 +141,16 @@ func (fe *funcEmitter) jsonCall(e *ast.CallExpr) (string, bool) {
 			box := fe.convertCopy(r, t, anyT)
 			call := fe.mark(e) + fe.expr(e.Fun) + "(" + box + ")"
 			if !fe.pe.strMarshal[e] {
-				return "(" + setR + "(" + s + " = $rt.jsonMarshalWith(" + f + ", " + r + ")) !== null ? [" + s + ", null] : " + call + ")", true
+				return "(" + setR + "(" + s + " = $rt.jsonMarshalWith(" + f + ", " + r + ")) !== null ? ($rt.$R.r1 = null, " + s + ") : " + call + ")", true
 			}
 			return "(" + setR + "(" + s + " = $rt.jsonMarshalStringWith(" + f + ", " + r + ")) !== null || (" +
-				s + " = $rt.jsonMarshalString(" + box + ")) !== null ? [" + s + ", null] : (" +
-				s + " = " + call + ", [$rt.bytesToString(" + s + "[0]), " + s + "[1]]))", true
+				s + " = $rt.jsonMarshalString(" + box + ")) !== null ? ($rt.$R.r1 = null, " + s + ") : (" +
+				"$rt.bytesToString(" + call + ")))", true
 		}
 		set, x := temp(fe.valueOf(e.Args[0], anyT))
 		call := fe.mark(e) + fe.expr(e.Fun) + "(" + x + ")"
-		return "(" + set + "(" + s + " = $rt.jsonMarshalString(" + x + ")) !== null ? [" + s + ", null] : (" +
-			s + " = " + call + ", [$rt.bytesToString(" + s + "[0]), " + s + "[1]]))", true
+		return "(" + set + "(" + s + " = $rt.jsonMarshalString(" + x + ")) !== null ? ($rt.$R.r1 = null, " + s + ") : (" +
+			"$rt.bytesToString(" + call + ")))", true
 	}
 	if len(e.Args) != 2 || !isJSONFunc(fe.info, e, "Unmarshal") || fe.callBlocks(e) {
 		return "", false

@@ -5,6 +5,7 @@
 // questions, which goesm settles at compile time with go/types.
 
 export * from "./types.ts";
+export * from "./results.ts";
 export * from "./iface.ts";
 export * from "./panic.ts";
 export * from "./slice.ts";

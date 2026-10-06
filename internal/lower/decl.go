@@ -390,10 +390,7 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 				params = append(params, a+": "+pe.tsType(sig.Params().At(j).Type(), tp))
 				args = append(args, a)
 			}
-			ret := pe.resultTSType(sig, tp)
-			if pe.prog.IsAsync(fn) {
-				ret = "Promise<" + ret + ">"
-			}
+			ret := pe.resultTSType(sig, tp, pe.prog.IsAsync(fn))
 			w.ln("%s(%s): %s { return %s(%s); }", jsPropName(fn.Name()), strings.Join(params, ", "), ret, pe.methodFuncName(fn), strings.Join(append([]string{"this"}, args...), ", "))
 		}
 	}
@@ -525,9 +522,14 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 			generics = "<" + strings.Join(ns, ", ") + ">"
 		}
 		native := goesmruntime.NativeName(fn.FullName())
+		// A native returns several results in an array (see multiResult).
+		open, close := "", ""
+		if fn.Signature().Results().Len() > 1 && !pe.prog.IsAsync(fn) {
+			open, close = "$rt.untuple(", ")"
+		}
 		if generics != "" || fn.Signature().Recv() != nil {
 			// Callers also pass type dictionaries (and a receiver).
-			w.ln("%sfunction %s%s(...a: any[]): any { return ($natives.%s as any)(...a); }", pe.tab.mark(fd.Pos()), name, generics, native)
+			w.ln("%sfunction %s%s(...a: any[]): any { return %s($natives.%s as any)(...a)%s; }", pe.tab.mark(fd.Pos()), name, generics, open, native, close)
 			return
 		}
 		// A plain function forwards its parameters one by one, which V8
@@ -537,7 +539,7 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 			ps = append(ps, fmt.Sprintf("a%d: any", i))
 			as = append(as, fmt.Sprintf("a%d", i))
 		}
-		w.ln("%sfunction %s(%s): any { return ($natives.%s as any)(%s); }", pe.tab.mark(fd.Pos()), name, strings.Join(ps, ", "), native, strings.Join(as, ", "))
+		w.ln("%sfunction %s(%s): any { return %s($natives.%s as any)(%s)%s; }", pe.tab.mark(fd.Pos()), name, strings.Join(ps, ", "), open, native, strings.Join(as, ", "), close)
 		return
 	}
 	pe.emitFuncBody(w, file, fd, fn, name, nil)
@@ -591,11 +593,10 @@ func (pe *pkgEmitter) emitFuncBody(w *writer, file *ast.File, fd *ast.FuncDecl, 
 	}
 	params = append(params, fe.paramList(recvField, sig.Recv())...)
 	params = append(params, fe.paramList(fd.Type.Params, nil)...)
-	ret := fe.resultTSType(sig)
+	ret := fe.resultTSType(sig, fe.async)
 	asyncKw := ""
 	if fe.async {
 		asyncKw = "async "
-		ret = "Promise<" + ret + ">"
 	}
 	generics := ""
 	if len(tsParams) > 0 {

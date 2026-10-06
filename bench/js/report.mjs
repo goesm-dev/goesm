@@ -242,7 +242,9 @@ export function totalTable(data, lang = "en") {
 }
 
 export function startupTable(data, lang = "en") {
-  const impls = data.impls.filter((i) => !i.reference);
+  // The hand-written JS is the reference: what loading the same functions
+  // written directly in JavaScript costs.
+  const impls = data.impls;
   const rows = [
     `| ${T[lang].runtime} | ${impls.map((i) => implLabel(i, lang)).join(" | ")} |`,
     `| --- | ${impls.map(() => "---:").join(" | ")} |`,

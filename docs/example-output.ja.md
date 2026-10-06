@@ -161,14 +161,14 @@ function Map(): $rt.S<$rt.Iface | null> {
   let m: $rt.M<string, number> = $rt.mapLit($rt.types.string, ["a", 1]);
   $rt.mapSet(m, "b", 2);
   const $1 = $rt.mapLookup(m, "a", () => 0);
-  let value: number = $1[0];
-  let ok: boolean = $1[1];
+  let value: number = $1;
+  let ok: boolean = $rt.$R.r1;
   const $2 = $rt.mapLookup(m, "zzz", () => 0);
-  let missing: number = $2[0];
-  let ok2: boolean = $2[1];
+  let missing: number = $2;
+  let ok2: boolean = $rt.$R.r1;
   $rt.mapDelete(m, "a");
   const $3 = $rt.mapLookup(m, "a", () => 0);
-  let ok3: boolean = $3[1];
+  let ok3: boolean = $rt.$R.r1;
   return $rt.sliceLit([$rt.box($rt.types.int, value), $rt.box($rt.types.bool, ok), $rt.box($rt.types.int, missing), $rt.box($rt.types.bool, ok2), $rt.box($rt.types.bool, ok3), $rt.box($rt.types.int, $rt.mapLen(m)), $rt.box($rt.types.int, $rt.mapGet(m, "b", () => 0))]);
 }
 
