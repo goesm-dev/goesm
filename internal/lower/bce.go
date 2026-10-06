@@ -26,6 +26,10 @@ import (
 //
 // An array element a[i] needs no bounds check either where i ranges over an
 // array or counts up to a constant, and a is at least as long.
+//
+// Nor does s[x % len(s)] for a local slice or string variable s and an x
+// that is non-negative as above: the remainder is in [0, len(s)), and an
+// empty s panics on the division first.
 func inBoundsIndices(info *types.Info, body *ast.BlockStmt) map[*ast.IndexExpr]bool {
 	if body == nil {
 		return nil
@@ -216,6 +220,30 @@ func inBoundsIndices(info *types.Info, body *ast.BlockStmt) map[*ast.IndexExpr]b
 	}
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch n := n.(type) {
+		case *ast.IndexExpr:
+			// s[x % len(s)]; the loops declaring x are visited before.
+			rem, ok := ast.Unparen(n.Index).(*ast.BinaryExpr)
+			if !ok || rem.Op != token.REM || !isNonneg(rem.X) {
+				return true
+			}
+			s := varOf(n.X)
+			if !local(s) {
+				return true
+			}
+			switch u := under(s.Type()).(type) {
+			case *types.Slice:
+			case *types.Basic:
+				if u.Info()&types.IsString == 0 {
+					return true
+				}
+			default:
+				return true
+			}
+			if call, ok := ast.Unparen(rem.Y).(*ast.CallExpr); ok && len(call.Args) == 1 && varOf(call.Args[0]) == s {
+				if id, ok := ast.Unparen(call.Fun).(*ast.Ident); ok && info.Uses[id] == types.Universe.Lookup("len") {
+					out[n] = true
+				}
+			}
 		case *ast.RangeStmt:
 			if n.Tok != token.DEFINE || n.Key == nil {
 				return true

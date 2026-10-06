@@ -35,7 +35,7 @@
 // convert more than numbers; like natives.ts, it uses the runtime only
 // through its public module, so split builds share one runtime.
 import {
-  GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, addMethods, box, cell, classTypes, errorType, fromJSString, hasMethods,
+  GoMap, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, addMethods, box, isIfaceValue, cell, classTypes, errorType, fromJSString, hasMethods,
   fromRef, funcOf, goThrown, implementsIface, interfaceOf, makeMap, mapOf, mapRange, mapSet, named, newBytes, plainPanic,
   ptrTo, setUnderlying, sliceOf, toJSString, toRef,
   tBool, tFloat64, tInt64, tString, tUnsafePointer,
@@ -425,7 +425,7 @@ export function jsToGo(t: Type, x: any, ex = false, embedding: Type[] | null = n
       }
       return jsToGo(t.elem!, x, ex, embedding); // a pointer to a struct is the struct object
     case Kind.Interface:
-      if (x instanceof Iface) return x;
+      if (isIfaceValue(x)) return x;
       if (ex) {
         if (t === errorType) return x === null || x === undefined ? null : x instanceof GoError ? x.value : jsError(x, null);
         if (x === null || x === undefined) return null;

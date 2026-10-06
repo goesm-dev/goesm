@@ -57,6 +57,7 @@ func (pe *pkgEmitter) emitNamedType(tn *types.TypeName) {
 		w.indent++
 		w.ln("$rt.setUnderlying(%s$type, %s, %s);", name, under, ctor)
 		pe.methodTables(w, name+"$type", named, tpScope{})
+		pe.emitBoxes(w, name, named)
 		w.indent--
 		w.ln("}%s);", pkgName)
 		pe.definesTypes = true
@@ -398,6 +399,30 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 	}
 	w.indent--
 	w.ln("}")
+	if named != nil && !generic {
+		if b := pe.boxOf(named); b != nil && b.flat {
+			// The flat box (box.go): $rt.setBox makes it a subclass of the
+			// struct class, with t on its prototype.
+			w.ln("class %s {", b.name)
+			w.indent++
+			w.ln("declare t: $rt.Type;")
+			w.ln("declare v: any;")
+			for _, p := range params {
+				w.ln("declare %s;", strings.TrimPrefix(p, "$"))
+			}
+			w.ln("constructor(%s) { this.v = this; %s }", strings.Join(params, ", "), strings.Join(assigns, " "))
+			var moves []string
+			for i := 0; i < s.NumFields(); i++ {
+				moves = append(moves, "o."+fieldProp(s, i))
+			}
+			w.ln("static $of(o: %s): %s { return new %s(%s); }", name, b.name, b.name, strings.Join(moves, ", "))
+			// The type's initializer, which registers the box, is kept with
+			// the box by bundlers through this reference.
+			w.ln("static $t(): $rt.Type { return %s$type; }", name)
+			w.indent--
+			w.ln("}")
+		}
+	}
 	pe.classes.append(w)
 }
 

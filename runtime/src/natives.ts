@@ -16,7 +16,7 @@
 // natives.ts is a separate module (@goesm/runtime/natives) that uses the
 // runtime only through its public module, so split builds share one runtime.
 import {
-  GoMap, addressOf, go, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, assign, chanLen, copy, exitProcess,
+  GoMap, addressOf, boxOf, go, GoPanic, Goexit, Iface, Kind, ProgramExit, Slice, Type, assign, chanLen, copy, exitProcess,
   fromJSString, hostNodeFS, ifaceKeyString, implementsIface, isAggregate, load, toJSString, writeConsole, writeStd, writeSyncAll,
   makeSlice, mapLen, numGoroutine, runtimePanic, sizeOf, store, panic, append,
   tBool, tFloat32, tFloat64, tInt, tInt16, tInt32, tInt8, tString, tUint, tUint16, tUint32, tUint8,
@@ -781,7 +781,7 @@ export function native$maps$clone(m: Iface | null): Iface | null {
   const src = m.v as GoMap<any, any>, t = m.t;
   const dst = new GoMap<any, any>(src.keyType);
   for (const [k, v] of mapRange(src)) mapSet(dst, copy(t.key!, k), copy(t.elem!, v));
-  return new Iface(t, dst);
+  return boxOf(t, dst);
 }
 
 // slices.overlaps compares element addresses in Go: here, backing arrays and
@@ -952,7 +952,7 @@ export function native$internal$reflectlite$store(t: Type, p: any, x: any): void
 // convert returns x (of type src) as a value of type dst for assignment:
 // boxed into an interface, and a copy for aggregates.
 export function native$internal$reflectlite$convert(dst: Type, src: Type, x: any): any {
-  return dst.kind === Kind.Interface && src.kind !== Kind.Interface ? new Iface(src, copy(src, x)) : copy(src, x);
+  return dst.kind === Kind.Interface && src.kind !== Kind.Interface ? boxOf(src, copy(src, x)) : copy(src, x);
 }
 
 export function native$internal$reflectlite$length(t: Type, x: any): number {
@@ -1016,7 +1016,7 @@ export const native$reflect$equal = equal;
 export const native$reflect$newPtr = newPtr;
 
 export function native$reflect$box(t: Type, x: any): Iface | null {
-  return t.kind === Kind.Interface ? x : new Iface(t, copy(t, x));
+  return t.kind === Kind.Interface ? x : boxOf(t, copy(t, x));
 }
 
 export function native$reflect$typeKey(t: Type): Type | null { return t.key; }
@@ -1115,7 +1115,7 @@ export function native$reflect$convertible(dst: Type, src: Type): boolean {
 
 export function native$reflect$convertValue(dst: Type, src: Type, x: any): any {
   const dk = dst.kind, sk = src.kind;
-  if (dk === Kind.Interface) return sk === Kind.Interface ? x : new Iface(src, copy(src, x));
+  if (dk === Kind.Interface) return sk === Kind.Interface ? x : boxOf(src, copy(src, x));
   if (isIntKind(dk) && isIntKind(sk)) return intOf(dst, BigInt(x));
   if (isIntKind(dk) && isFloatKind(sk)) return intOf(dst, floatToBigInt(x));
   if (isFloatKind(dk) && (isIntKind(sk) || isFloatKind(sk))) {

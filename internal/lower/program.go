@@ -91,6 +91,7 @@ type Program struct {
 	ifaceImpls map[string][]ifaceImpl
 	implCache  map[[2]any]bool
 	msets      typeutil.MethodSetCache
+	boxes      sync.Map // boxKey -> *boxInfo (box.go)
 	// lockCalls are the program's sync.Mutex, RWMutex and Locker Lock and
 	// RLock calls; waitLocks those lowered to a waiting variant, and
 	// escMutexes the mutexes whose address escapes (lockcheck.go).
