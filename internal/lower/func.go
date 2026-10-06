@@ -48,6 +48,9 @@ type funcEmitter struct {
 	// statements, whose unlabelled break and continue a machine would capture.
 	gotoTargets map[types.Object]gotoTarget
 	hoisted     map[*types.Var]bool
+	// sliceHdrs holds the headers of the slices loaded before the loop
+	// being lowered (see hoistSliceHeaders).
+	sliceHdrs map[*types.Var]sliceHeader
 	// sharedRangeVars are the variables of range clauses in files before Go
 	// 1.22, declared once around their loop.
 	sharedRangeVars map[*types.Var]bool
@@ -373,6 +376,7 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 		}
 	}
 
+	fe.loadParamHeaders(sig)
 	fe.hasDefer = containsDefer(body)
 	named := sig.Results().Len() > 0 && sig.Results().At(0).Name() != ""
 	fe.results, fe.resultTs, fe.named = nil, nil, named

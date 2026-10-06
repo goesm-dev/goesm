@@ -5,6 +5,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"slices"
 )
 
 // inBoundsIndices finds the index expressions s[i] of a function body whose
@@ -30,9 +31,13 @@ import (
 // Nor does s[x % len(s)] for a local slice or string variable s and an x
 // that is non-negative as above: the remainder is in [0, len(s)), and an
 // empty s panics on the division first.
-func inBoundsIndices(info *types.Info, body *ast.BlockStmt) map[*ast.IndexExpr]bool {
+//
+// It also returns the loops before which the lowering loads the array,
+// offset and length of slices (see hoistSliceHeaders), which engines do not
+// do for loops that store to objects.
+func inBoundsIndices(info *types.Info, body *ast.BlockStmt) (map[*ast.IndexExpr]bool, *hdrLoops) {
 	if body == nil {
-		return nil
+		return nil, nil
 	}
 	// Variables assigned or addressed after their declaration, with the
 	// statements assigning them (a loop's post statement is allowed).
@@ -330,10 +335,67 @@ func inBoundsIndices(info *types.Info, body *ast.BlockStmt) map[*ast.IndexExpr]b
 		}
 		return true
 	})
-	if len(out) == 0 {
-		return nil
+	isSlice := func(v *types.Var) bool {
+		_, ok := under(v.Type()).(*types.Slice)
+		return ok && fixed(v)
 	}
-	return out
+	hdr := &hdrLoops{loops: map[ast.Stmt][]*types.Var{}, outer: map[*types.Var]bool{}}
+	var stack []ast.Node
+	ast.Inspect(body, func(n ast.Node) bool {
+		if n == nil {
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		stack = append(stack, n)
+		var s *types.Var
+		switch n := n.(type) {
+		case *ast.IndexExpr:
+			if out[n] {
+				s = varOf(n.X)
+			}
+		case *ast.RangeStmt:
+			s = varOf(n.X)
+		}
+		if s == nil || !isSlice(s) {
+			return true
+		}
+		var loop ast.Stmt
+		k := len(stack) - 1
+	outer:
+		for ; k >= 0; k-- {
+			switch l := stack[k].(type) {
+			case *ast.ForStmt, *ast.RangeStmt:
+				if l.Pos() > s.Pos() {
+					loop = l.(ast.Stmt)
+				}
+			case *ast.FuncLit:
+				break outer
+			}
+		}
+		if loop != nil && !slices.Contains(hdr.loops[loop], s) {
+			hdr.loops[loop] = append(hdr.loops[loop], s)
+		}
+		if loop != nil && k < 0 {
+			hdr.outer[s] = true
+		}
+		return true
+	})
+	if len(out) == 0 {
+		out = nil
+	}
+	if len(hdr.loops) == 0 {
+		hdr = nil
+	}
+	return out, hdr
+}
+
+// hdrLoops lists the fixed local slice variables declared before each loop
+// that are indexed in range or ranged over in it, where the loop is the
+// outermost such loop of the function (or function literal); outer holds
+// the variables with such a loop outside function literals.
+type hdrLoops struct {
+	loops map[ast.Stmt][]*types.Var
+	outer map[*types.Var]bool
 }
 
 // arrayType returns the array type of t, an array or a pointer to one.
