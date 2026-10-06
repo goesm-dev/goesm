@@ -6,7 +6,11 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 ## Unreleased
 
-Changes on `main` since v0.0.1-beta.3: [v0.0.1-beta.3...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.3...main).
+Changes on `main` since v0.0.1-beta.4: [v0.0.1-beta.4...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.4...main).
+
+## v0.0.1-beta.4
+
+Tagged on 2026-10-06. Changes since v0.0.1-beta.3: [v0.0.1-beta.3...v0.0.1-beta.4](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.3...v0.0.1-beta.4).
 
 These changes make the generated code faster and its bundles smaller, so that it comes closer to hand-written JavaScript. Nothing changes how Go code or its JavaScript callers are written.
 
