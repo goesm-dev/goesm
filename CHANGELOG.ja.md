@@ -75,7 +75,7 @@ JavaScript から Go の export を普通の JavaScript の値で呼べるよう
 - 64 バイト以上の ASCII 以外を含む文字列は、エンジンの UTF-8 エンコーダーとデコーダーで JavaScript との境界を越えます。省略できる境界チェックが増え、構造体のスライスを走査する range ループは、要素をコピーせず、使うフィールドだけを読みます。[#73](https://github.com/goesm-dev/goesm/pull/73)
 - ゼロ値はモジュールの定数になりました。インターフェースに変換した構造体のポインタはそのインターフェース値を再利用し、フィールドと要素へのポインタは WeakMap ではなくオブジェクト自身に保持します。[#74](https://github.com/goesm-dev/goesm/pull/74)
 - 一部の引数を通してだけブロックする関数には同期版が作られ、ブロックしない引数での呼び出しはそちらを使います。net/http を import するプログラムでも、`fmt.Sprintf` が非同期にならなくなりました。[#75](https://github.com/goesm-dev/goesm/pull/75)
-- 比較スイートでは、[#71](https://github.com/goesm-dev/goesm/pull/71) で Vue のワークロードが 102 ms から 42 ms になりました。[#73](https://github.com/goesm-dev/goesm/pull/73) で VitePress の goldmark 版の時間は Node.js で 0.62 倍、Bun で 0.47 倍になり、[#74](https://github.com/goesm-dev/goesm/pull/74) で Vue のワークロードはさらに 2.2〜3.2 倍速くなりました。connect-es は [#74](https://github.com/goesm-dev/goesm/pull/74) と [#75](https://github.com/goesm-dev/goesm/pull/75) でそれぞれ 10〜20% 速くなりました。[#71](https://github.com/goesm-dev/goesm/pull/71) [#73](https://github.com/goesm-dev/goesm/pull/73) [#74](https://github.com/goesm-dev/goesm/pull/74) [#75](https://github.com/goesm-dev/goesm/pull/75)
+- 比較スイートでは、[#71](https://github.com/goesm-dev/goesm/pull/71) で Vue のワークロードが 102 ms から 42 ms になりました。[#73](https://github.com/goesm-dev/goesm/pull/73) で VitePress の goldmark 版の時間は Node.js で 0.62 倍、Bun で 0.47 倍になり、[#74](https://github.com/goesm-dev/goesm/pull/74) で Vue のワークロードはさらに 2.2〜3.2 倍速くなりました。connect-es は [#74](https://github.com/goesm-dev/goesm/pull/74) と [#75](https://github.com/goesm-dev/goesm/pull/75) でそれぞれ 10〜20% 速くなりました。
 
 ### 修正
 
