@@ -132,10 +132,18 @@ type Program struct {
 	// from the program's roots calls, by name: a table lists the other
 	// methods of ifaceMethods without their functions (see reach.go).
 	calledMethods map[string][]ifaceMethod
-	reachOnce     sync.Once
+	// printedMethods are the Error and String methods of the types of
+	// panic values, which the runtime calls to print them (reach.go).
+	printedMethods map[*types.Func]bool
+	reachOnce      sync.Once
 	// unicodeClasses is set when the program may parse \p or \P in a
 	// regular expression (UnicodeClasses).
 	unicodeClasses bool
+	// regexpPatterns are the jsPattern entries of the patterns the program
+	// compiles, and regexpGo is set when it may compile a pattern that is
+	// not among them (RegexpJS).
+	regexpPatterns map[string]string
+	regexpGo       bool
 
 	// pureEmitters answer returnsPure for the functions of imported
 	// packages (PureEmitter).

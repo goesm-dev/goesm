@@ -138,6 +138,18 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 		if pkg.PkgPath == "regexp/syntax" {
 			fmt.Fprintf(h, "unicodeClasses %v\n", p.UnicodeClasses())
 		}
+		if pkg.PkgPath == "regexp" {
+			pats := p.RegexpJS()
+			exprs := make([]string, 0, len(pats))
+			for expr := range pats {
+				exprs = append(exprs, expr)
+			}
+			sort.Strings(exprs)
+			fmt.Fprintf(h, "regexpJS %v\n", pats != nil)
+			for _, expr := range exprs {
+				fmt.Fprintf(h, "%q %q\n", expr, pats[expr])
+			}
+		}
 		for _, f := range fs {
 			fmt.Fprintln(h, f)
 		}
