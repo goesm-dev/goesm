@@ -13,26 +13,25 @@ func localOffset() int
 
 func initLocal() {
 	localLoc.name = "Local"
+	localLoc.zone = []zone{{name: offsetName(localOffset()), offset: localOffset() * 60}}
+}
 
-	z := zone{}
-	offset := localOffset()
-	z.offset = offset * 60
-	// According to https://tc39.github.io/ecma262/#sec-timezoneestring,
-	// the timezone name from (new Date()).toTimeString() is an implementation-dependent
-	// result, and in Google Chrome, it gives the fully expanded name rather than
-	// the abbreviation.
-	// Hence, we construct the name from the offset.
-	z.name = "UTC"
+// offsetName names a zone by its offset in minutes east, as "UTC+9" or
+// "UTC-3:30". According to https://tc39.github.io/ecma262/#sec-timezoneestring,
+// the timezone name from (new Date()).toTimeString() is an
+// implementation-dependent result, and in Google Chrome, it gives the fully
+// expanded name rather than the abbreviation.
+func offsetName(offset int) string {
+	name := "UTC"
 	if offset < 0 {
-		z.name += "-"
+		name += "-"
 		offset *= -1
 	} else {
-		z.name += "+"
+		name += "+"
 	}
-	z.name += string(appendInt(nil, offset/60, 0))
-	min := offset % 60
-	if min != 0 {
-		z.name += ":" + string(appendInt(nil, min, 0))
+	name += string(appendInt(nil, offset/60, 0))
+	if min := offset % 60; min != 0 {
+		name += ":" + string(appendInt(nil, min, 0))
 	}
-	localLoc.zone = []zone{z}
+	return name
 }

@@ -2069,6 +2069,12 @@ export function native$time$localOffset(): number {
   return -new Date().getTimezoneOffset();
 }
 
+// time.localOffsetAt (internal/natives/patch/time/zoneinfo.go), in seconds:
+// the host's offset at a Unix time, 0 outside the range of a Date.
+export function native$time$localOffsetAt(sec: bigint): number {
+  return -Math.round(new Date(Number(sec) * 1000).getTimezoneOffset()) * 60 || 0;
+}
+
 // ---- time: timers ----
 //
 // time's timers (internal/natives/patch/time) are armed on the host's
