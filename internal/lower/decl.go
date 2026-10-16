@@ -554,7 +554,8 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 		case fd.Recv != nil:
 			pe.export(name+"$sync", name+pe.prog.goMethodSuffix(fn)+"$sync")
 		case fn.Exported():
-			pe.export(name+"$sync", fn.Name()+"$sync")
+			// Under the name other packages call the function by (goName).
+			pe.export(name+"$sync", pe.prog.goName(fn)+"$sync")
 		}
 	}
 	if wrap {

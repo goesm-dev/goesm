@@ -37,3 +37,22 @@ func Double(ns []int) {
 
 // Ages is a map, which the wrapper converts to a JavaScript object.
 func Ages() map[string]int { return map[string]int{"gopher": 16} }
+
+// Each blocks only if f does: a call with an f that does not block calls its
+// synchronous clone.
+func Each(ns []int, f func(int)) {
+	for _, n := range ns {
+		f(n)
+	}
+}
+
+// Relay passes Each a function that blocks.
+func Relay() int {
+	ch := make(chan int, 1)
+	s := 0
+	Each([]int{5}, func(n int) {
+		ch <- n
+		s += <-ch
+	})
+	return s
+}

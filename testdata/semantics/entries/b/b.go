@@ -45,3 +45,11 @@ func Labelled() string {
 	c.Inc()
 	return c.Label("b")[0]
 }
+
+// Summed calls entry a's Each with a function that does not block, through
+// its synchronous clone.
+func Summed() int {
+	s := 0
+	a.Each([]int{1, 2, 3}, func(n int) { s += n })
+	return s
+}

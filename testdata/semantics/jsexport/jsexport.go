@@ -246,6 +246,10 @@ func Lookup(name string) any {
 		return registry.GetBoxed()
 	case "held":
 		return registry.GetHeld()
+	case "list":
+		return registry.GetList()
+	case "pair":
+		return registry.GetPair()
 	}
 	return nil
 }

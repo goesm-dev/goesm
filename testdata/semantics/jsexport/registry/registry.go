@@ -33,3 +33,19 @@ func (h Holder[T]) Any() any { return h.v }
 func GetBoxed() any { return Wrap(&Boxed{n: 4}) }
 
 func GetHeld() any { return Holder[*Held]{&Held{n: 5}}.Any() }
+
+// Listed and Paired are handles inside a slice and a struct boxed into an
+// any: JavaScript gets the slice as an array, the struct as an object.
+type Listed struct{ n int }
+
+func (l *Listed) N() int { return l.n }
+
+type Paired struct{ n int }
+
+func (p *Paired) N() int { return p.n }
+
+type Pair struct{ First *Paired }
+
+func GetList() any { return []*Listed{{n: 6}, {n: 7}} }
+
+func GetPair() any { return Pair{&Paired{n: 8}} }
