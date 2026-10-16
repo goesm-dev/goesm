@@ -468,17 +468,22 @@ type Func struct {
 // Func.Release must be called to free up resources when the function will
 // not be invoked any more.
 func FuncOf(fn func(this Value, args []Value) any) Func {
-	return Func{makeValue(makeFunc(func(this ref, args []ref) []ref {
-		vs := make([]Value, len(args))
-		for i, a := range args {
-			vs[i] = makeValue(a)
-		}
-		// The result travels in a slice: if fn blocks, this function is
-		// async, and returning a Promise from it would make the Promise the
-		// function returns adopt that one instead of resolving to it.
-		return []ref{ValueOf(fn(makeValue(this), vs)).ref}
-	}))}
+	// The runtime calls fn itself, not through a Go wrapper: a wrapper
+	// would call a func value it cannot see, so it would be lowered as
+	// async and every function would return a Promise.
+	return Func{makeValue(makeFunc(fn, makeValue, funcArgs, funcResult))}
 }
+
+// funcArgs and funcResult convert for the function made by FuncOf.
+func funcArgs(args []ref) []Value {
+	vs := make([]Value, len(args))
+	for i, a := range args {
+		vs[i] = makeValue(a)
+	}
+	return vs
+}
+
+func funcResult(x any) ref { return ValueOf(x).ref }
 
 // Release frees up resources allocated for the function.
 // The function must not be invoked after calling Release.
@@ -519,4 +524,4 @@ func valueString(v ref) string
 func valueInstanceOf(v, t ref) bool
 func copyBytesToGo(dst []byte, src ref) (int, bool)
 func copyBytesToJS(dst ref, src []byte) (int, bool)
-func makeFunc(fn func(this ref, args []ref) []ref) ref
+func makeFunc(fn func(this Value, args []Value) any, value func(ref) Value, args func([]ref) []Value, result func(any) ref) ref

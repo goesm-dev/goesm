@@ -124,7 +124,8 @@ func matchMethod(ms []ifaceMethod, fn *types.Func) bool {
 
 // CalledMethod reports whether method fn, listed in method tables
 // (DynMethod), may be called through them: whether the program calls an
-// interface method that it implements. A method left out has an entry
+// interface method that it implements, and stores a type with the method
+// in an interface value. A method left out has an entry
 // without its function.
 func (p *Program) CalledMethod(fn *types.Func) bool {
 	fn = fn.Origin()
@@ -132,7 +133,7 @@ func (p *Program) CalledMethod(fn *types.Func) bool {
 		return true
 	}
 	p.reachOnce.Do(p.reach)
-	return p.printedMethods[fn] || matchMethod(p.calledMethods[fn.Name()], fn)
+	return p.printedMethods[fn] || p.storedMethods[fn] && matchMethod(p.calledMethods[fn.Name()], fn)
 }
 
 type ifaceMethod struct {

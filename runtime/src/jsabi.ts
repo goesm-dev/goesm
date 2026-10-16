@@ -451,8 +451,7 @@ export function jsToGo(t: Type, x: any, ex = false, embedding: Type[] | null = n
       if (t.elem!.kind !== Kind.Struct && t.elem!.kind !== Kind.Array) {
         // A *int and the like cross to JavaScript as the value they point
         // to (goToJS), and come back as a pointer to a copy of it.
-        if (ex) return cell(jsToGo(t.elem!, x, ex));
-        break;
+        return cell(jsToGo(t.elem!, x, ex));
       }
       return jsToGo(t.elem!, x, ex, embedding); // a pointer to a struct is the struct object
     case Kind.Interface:

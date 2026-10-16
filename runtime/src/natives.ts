@@ -259,6 +259,17 @@ export function native$internal$strconv$formatDecimal(u: bigint, neg: boolean): 
   return neg ? "-" + s : s;
 }
 
+// strconv.IsPrint beyond Latin-1, and the graphic runes it leaves out
+// (patch strconv/quote.go): the engine's Unicode tables instead of Go's.
+const printRune = /^[\p{L}\p{M}\p{N}\p{P}\p{S}]$/u;
+const spaceRune = /^\p{Zs}$/u;
+export function native$strconv$isPrint(r: number): boolean {
+  return r >= 0 && r <= 0x10ffff && printRune.test(String.fromCodePoint(r));
+}
+export function native$strconv$isSpace(r: number): boolean {
+  return r >= 0 && r <= 0x10ffff && spaceRune.test(String.fromCodePoint(r));
+}
+
 // strings.ToUpper and ToLower of ASCII strings (see the strings patch). A Go
 // string holds bytes as UTF-16 code units below 256.
 export const native$strings$isASCII = isASCII;
@@ -1611,18 +1622,24 @@ export function native$syscall$js$copyBytesToJS(dst: any, src: S<number>): [numb
 // fn returns its result as a one-element slice, so a js.Value holding a
 // Promise is told apart from the Promise of a Go function that blocks: the
 // former is returned to JavaScript as it is, with its own resolution.
-export function native$syscall$js$makeFunc(fn: (self: any, args: S<any>) => S<any> | Promise<S<any>>): any {
-  const result = (r: S<any>) => fromRef(r!.$array[r!.$offset]);
-  return function (this: any, ...args: any[]): any {
-    const a = args.map(toRef);
+export function native$syscall$js$makeFunc(
+  fn: (self: any, args: S<any>) => any,
+  value: (r: any) => any,
+  args: (a: S<any>) => S<any>,
+  result: (x: any) => any,
+): any {
+  const out = (x: any) => fromRef(result(x));
+  return function (this: any, ...a: any[]): any {
+    const refs = a.map(toRef);
     let r;
     try {
-      r = fn(toRef(this), new Slice(a, 0, a.length, a.length));
+      r = fn(value(toRef(this)), args(new Slice(refs, 0, refs.length, refs.length)));
     } catch (e) {
       throw goThrown(e); // a nil dereference is a TypeError until here
     }
-    // A Go function that blocks was lowered to an async function.
-    return r instanceof Promise ? r.then(result, (e) => { throw goThrown(e); }) : result(r);
+    // A Go function that blocks was lowered to an async function; one that
+    // does not returns its result as is.
+    return r instanceof Promise ? r.then(out, (e) => { throw goThrown(e); }) : out(r);
   };
 }
 

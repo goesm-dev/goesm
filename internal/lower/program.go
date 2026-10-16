@@ -136,7 +136,11 @@ type Program struct {
 	// printedMethods are the Error and String methods of the types of
 	// panic values, which the runtime calls to print them (reach.go).
 	printedMethods map[*types.Func]bool
-	reachOnce      sync.Once
+	// storedMethods are the methods of the types stored in interface
+	// values (ifaceImpls), the only ones an interface call can reach
+	// (reach.go).
+	storedMethods map[*types.Func]bool
+	reachOnce     sync.Once
 	// anyHandles are the exported methods of the handles that cross the
 	// entry package's JS calling ABI inside interface values (see
 	// anyHandleMethods); anyHandlesOnce computes them.

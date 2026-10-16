@@ -1,5 +1,6 @@
-// Package jsfuncsblocking is package jsfuncs with a Go function that blocks:
-// every function made by js.FuncOf may then return a Promise of its result.
+// Package jsfuncsblocking is package jsfuncs with Go functions that block:
+// those return a Promise of their result, the others still return theirs
+// directly.
 package jsfuncsblocking
 
 import "syscall/js"
