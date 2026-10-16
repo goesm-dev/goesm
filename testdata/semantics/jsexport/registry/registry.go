@@ -9,3 +9,27 @@ func (i *Item) N() int { return i.n }
 
 // Get returns an Item inside an any.
 func Get() any { return &Item{n: 3} }
+
+// Boxed and Held are handles generic code boxes: their instantiations name
+// them, the conversions only a type parameter.
+type Boxed struct{ n int }
+
+func (b *Boxed) N() int { return b.n }
+
+type Held struct{ n int }
+
+func (h *Held) N() int { return h.n }
+
+func box[T any](v T) any { return v }
+
+// Wrap passes its type parameter on to box.
+func Wrap[T any](v T) any { return box(v) }
+
+// Holder boxes its value in a method.
+type Holder[T any] struct{ v T }
+
+func (h Holder[T]) Any() any { return h.v }
+
+func GetBoxed() any { return Wrap(&Boxed{n: 4}) }
+
+func GetHeld() any { return Holder[*Held]{&Held{n: 5}}.Any() }

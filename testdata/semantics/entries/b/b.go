@@ -38,3 +38,10 @@ func Doubled() int {
 
 // Age reads the map a.Ages returns as a Go map.
 func Age() int { return a.Ages()["gopher"] }
+
+// Labelled calls a method of entry a as Go code.
+func Labelled() string {
+	c := &a.Counter{}
+	c.Inc()
+	return c.Label("b")[0]
+}

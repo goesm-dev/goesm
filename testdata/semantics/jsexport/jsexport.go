@@ -242,6 +242,10 @@ func Lookup(name string) any {
 	case "registry":
 		// Boxed by another package of the module.
 		return registry.Get()
+	case "boxed":
+		return registry.GetBoxed()
+	case "held":
+		return registry.GetHeld()
 	}
 	return nil
 }

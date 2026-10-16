@@ -37,7 +37,7 @@ var covered = map[string]bool{
 	// Which of a package and its dependencies are entries, and whether the
 	// package is an entry other packages import, are part of its module key
 	// (moduleKeys in internal/build).
-	"ImportedEntry": true, "goName": true,
+	"ImportedEntry": true, "goName": true, "goMethodSuffix": true,
 }
 
 // TestFactsCoverProgram fails when the lowering reads a Program field or

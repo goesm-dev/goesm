@@ -277,6 +277,9 @@ test("JS calling ABI: handles inside an any, of generic types, have their method
   assert.deepEqual(Object.keys(box), Object.keys(box).filter((k) => k !== "Get" && k !== "Set"));
   // A handle another package of the module boxed, which the entry forwards.
   assert.equal(m.Lookup("registry").N(), 3);
+  // Handles that generic code boxed, from a type parameter.
+  assert.equal(m.Lookup("boxed").N(), 4);
+  assert.equal(m.Lookup("held").N(), 5);
 });
 
 test("JS calling ABI: pointers, self-embedding structs and returned functions", async () => {

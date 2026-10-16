@@ -202,8 +202,8 @@ func (p *Program) SetEntries(paths []string) {
 // package that JavaScript imports too. JavaScript calls the exported
 // functions of an entry under their Go names, through wrappers that convert
 // its values (exportWrapper); such an entry also exports the functions
-// themselves, for the Go code importing it, as Name$go, and its methods
-// under their usual names (Type$Method).
+// themselves, for the Go code importing it, as Name$go, and its exported
+// methods as Type$Method$go (goMethodSuffix).
 func (p *Program) ImportedEntry(path string) bool {
 	p.importedEntriesOnce.Do(func() {
 		p.importedEntries = map[string]bool{}
@@ -226,6 +226,17 @@ func (p *Program) goName(obj types.Object) string {
 		return fn.Name() + "$go"
 	}
 	return obj.Name()
+}
+
+// goMethodSuffix is what the name Go code of other packages calls the
+// method fn by adds to Type$Method: $go for an exported method of an
+// imported entry (ImportedEntry), whose Type$Method is the wrapper
+// JavaScript calls.
+func (p *Program) goMethodSuffix(fn *types.Func) string {
+	if fn.Exported() && fn.Signature().RecvTypeParams().Len() == 0 && p.ImportedEntry(fn.Pkg().Path()) {
+		return "$go"
+	}
+	return ""
 }
 
 func NewProgram(fset *token.FileSet, pkgs []*packages.Package, std map[*packages.Package]bool) *Program {
