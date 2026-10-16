@@ -160,6 +160,9 @@ type Program struct {
 	// see reach.go.
 	Entries map[string]bool
 
+	importedEntries     map[string]bool
+	importedEntriesOnce sync.Once
+
 	// TracksGoroutines is set when the program uses goroutine-local storage
 	// (runtime.GetTraceContextFromGLS and friends): async functions then
 	// restore the running goroutine after every await.
@@ -188,6 +191,37 @@ func (p *Program) SetEntries(paths []string) {
 	for _, e := range paths {
 		p.Entries[e] = true
 	}
+}
+
+// ImportedEntry reports whether the entry package path is also imported by
+// another package of the program, as a component's package imports a
+// package that JavaScript imports too. JavaScript calls the exported
+// functions of an entry under their Go names, through wrappers that convert
+// its values (exportWrapper); such an entry also exports the functions
+// themselves, for the Go code importing it, as Name$go, and its methods
+// under their usual names (Type$Method).
+func (p *Program) ImportedEntry(path string) bool {
+	p.importedEntriesOnce.Do(func() {
+		p.importedEntries = map[string]bool{}
+		for _, pkg := range p.Pkgs {
+			for _, ip := range pkg.Types.Imports() {
+				if p.Entries[ip.Path()] {
+					p.importedEntries[ip.Path()] = true
+				}
+			}
+		}
+	})
+	return p.importedEntries[path]
+}
+
+// goName is the name Go code of other packages refers to the package-level
+// object obj by: its Go name, or Name$go for an exported function of an
+// imported entry (ImportedEntry).
+func (p *Program) goName(obj types.Object) string {
+	if fn, ok := obj.(*types.Func); ok && fn.Exported() && fn.Signature().TypeParams().Len() == 0 && fn.Signature().Recv() == nil && p.ImportedEntry(fn.Pkg().Path()) {
+		return fn.Name() + "$go"
+	}
+	return obj.Name()
 }
 
 func NewProgram(fset *token.FileSet, pkgs []*packages.Package, std map[*packages.Package]bool) *Program {

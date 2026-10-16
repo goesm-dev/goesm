@@ -289,7 +289,14 @@ func moduleKeys(lp *lower.Program, std map[*packages.Package]bool, overlay map[s
 		for _, e := range lowerEnv {
 			fmt.Fprintf(h, "%s=%q\n", e, os.Getenv(e))
 		}
-		fmt.Fprintf(h, "module %s entry %v\n", pkg.PkgPath, opts.IsEntry(pkg.PkgPath))
+		fmt.Fprintf(h, "module %s entry %v imported %v\n", pkg.PkgPath, opts.IsEntry(pkg.PkgPath), lp.ImportedEntry(pkg.PkgPath))
+		// The names the module imports by depend on which of its
+		// dependencies are entries (Program.goName).
+		for _, d := range closure {
+			if opts.IsEntry(d.PkgPath) {
+				fmt.Fprintf(h, "entry %s\n", d.PkgPath)
+			}
+		}
 		for _, d := range closure {
 			h.Write(own[d])
 		}
