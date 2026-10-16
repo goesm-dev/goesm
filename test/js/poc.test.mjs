@@ -118,8 +118,10 @@ test("js.FuncOf of a blocking Go function returns a Promise of its result", asyn
   const m = await load("GOESM_JSFUNCS_BLOCKING");
   m.Setup();
   const f = globalThis.jsfuncsblocking;
-  assert.equal(await f.value(21), 42);
+  // The functions that do not block still return their results directly.
+  assert.equal(f.value(21), 42);
   assert.equal(await f.resolve("ok"), "ok");
+  assert.ok(f.blocking(5) instanceof Promise);
   assert.equal(await f.blocking(5), 15);
   for (const p of [f.reject("x"), f.blockingReject("y")]) {
     await assert.rejects(p, (e) => {

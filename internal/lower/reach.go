@@ -104,6 +104,7 @@ func (p *Program) reach() {
 }
 
 func (p *Program) reachFrom(leftOut map[string]bool) {
+	p.findStoredMethods()
 	p.calledMethods = map[string][]ifaceMethod{}
 	p.printedMethods = map[*types.Func]bool{}
 	p.unicodeClasses, p.regexpGo = false, false
@@ -167,7 +168,7 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 		}
 		p.calledMethods[m.Name()] = append(p.calledMethods[m.Name()], im)
 		for _, fn := range byName[m.Name()] {
-			if matchMethod([]ifaceMethod{im}, fn) {
+			if p.storedMethods[fn] && matchMethod([]ifaceMethod{im}, fn) {
 				use(fn)
 			}
 		}
@@ -304,6 +305,39 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 			}
 			return true
 		})
+	}
+}
+
+// findStoredMethods collects storedMethods: the methods of the types that
+// the program converts to an interface type (ifaceImpls, which also has the
+// type arguments of instantiations and what reflection reaches from those),
+// and of js.Error, the error the runtime makes of a JavaScript exception
+// (jsabi.ts). An interface call cannot reach the method of any other type,
+// as Go's linker prunes the methods of types never converted: a program
+// that calls some String method keeps time.Time's only if it puts a Time
+// in an interface value.
+func (p *Program) findStoredMethods() {
+	if p.storedMethods != nil {
+		return
+	}
+	p.storedMethods = map[*types.Func]bool{}
+	for _, impls := range p.ifaceImpls {
+		for _, im := range impls {
+			p.storedMethods[im.fn.Origin()] = true
+		}
+	}
+	for _, pkg := range p.Pkgs {
+		if pkg.PkgPath != "syscall/js" {
+			continue
+		}
+		if obj, ok := pkg.Types.Scope().Lookup("Error").(*types.TypeName); ok {
+			for _, t := range []types.Type{obj.Type(), types.NewPointer(obj.Type())} {
+				ms := p.msets.MethodSet(t)
+				for i := 0; i < ms.Len(); i++ {
+					p.storedMethods[ms.At(i).Obj().(*types.Func).Origin()] = true
+				}
+			}
+		}
 	}
 }
 

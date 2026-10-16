@@ -315,9 +315,9 @@ func jsABIType(t types.Type, toJS bool, seen map[types.Type]bool) string {
 		}
 		return ""
 	case *types.Pointer:
-		if _, ok := u.Elem().Underlying().(*types.Struct); ok {
-			return jsABIType(u.Elem(), toJS, seen)
-		}
+		// A pointer to a struct is the struct object; any other pointer is
+		// the value it points to, and null for nil.
+		return jsABIType(u.Elem(), toJS, seen)
 	case *types.Interface:
 		if toJS || u.Empty() {
 			return ""
