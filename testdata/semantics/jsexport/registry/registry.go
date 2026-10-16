@@ -49,3 +49,15 @@ type Pair struct{ First *Paired }
 func GetList() any { return []*Listed{{n: 6}, {n: 7}} }
 
 func GetPair() any { return Pair{&Paired{n: 8}} }
+
+// Outer returns another handle from a method: JavaScript gets an Inner
+// with its methods too.
+type Outer struct{ n int }
+
+func (o *Outer) Inner() *Inner { return &Inner{n: o.n + 1} }
+
+type Inner struct{ n int }
+
+func (i *Inner) N() int { return i.n }
+
+func GetOuter() any { return &Outer{n: 8} }

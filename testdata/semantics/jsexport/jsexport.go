@@ -250,6 +250,8 @@ func Lookup(name string) any {
 		return registry.GetList()
 	case "pair":
 		return registry.GetPair()
+	case "outer":
+		return registry.GetOuter()
 	}
 	return nil
 }

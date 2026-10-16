@@ -181,9 +181,10 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 			}
 		}
 		// visit finds the handles a value of type t holds as goToJS
-		// (runtime/src/jsabi.ts) converts it: itself, or the elements,
-		// keys and fields it converts, and what a pointer that is not a
-		// handle points to.
+		// (runtime/src/jsabi.ts) converts it: itself and what its methods
+		// take and return, or the elements, keys and fields it converts,
+		// what a pointer that is not a handle points to, and what a
+		// function takes and returns.
 		var seen typeutil.Map
 		var visit func(t types.Type)
 		visit = func(t types.Type) {
@@ -204,8 +205,11 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 					return
 				}
 				if n, ok := e.(*types.Named); ok && isHandleType(t) {
+					// JavaScript calls the methods, whose arguments and
+					// results convert as well.
 					for _, fn := range handleMethods(n) {
 						p.anyHandles[fn.Origin()] = true
+						visit(fn.Signature())
 					}
 					return
 				}
@@ -222,6 +226,13 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 					if f := u.Field(i); f.Exported() || promotes(f) {
 						visit(f.Type())
 					}
+				}
+			case *types.Signature:
+				for i := 0; i < u.Params().Len(); i++ {
+					visit(u.Params().At(i).Type())
+				}
+				for i := 0; i < u.Results().Len(); i++ {
+					visit(u.Results().At(i).Type())
 				}
 			}
 		}
