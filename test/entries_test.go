@@ -10,7 +10,9 @@ import (
 
 // One program can start from several packages, as the components of an app
 // do: every root package is an entry whose exports JavaScript calls, and the
-// packages they share are lowered once, so their state is shared too.
+// packages they share are lowered once, so their state is shared too. An
+// entry that another entry imports is called by it as Go code, not through
+// the wrappers JavaScript calls (b.Age reads a Go map from a.Ages).
 func TestSeveralEntries(t *testing.T) {
 	requireNode(t)
 	dir := testdata("semantics")
@@ -26,11 +28,11 @@ const a = await import(process.argv[1]);
 const b = await import(process.argv[2]);
 const box = a.Lookup();
 box.Set(7);
-console.log([a.Add(2), a.Add(3), b.Count(), await b.Wait(), box.Get()].join(","));
+console.log([a.Add(2), a.Add(3), b.Count(), await b.Wait(), box.Get(), b.AddTwice([1, 1]), b.Doubled(), b.Age()].join(","));
 `
 	got := strings.TrimSpace(string(runNode(t, "--input-type=module", "-e", script, mod("a"), mod("b"))))
-	if got != "2,5,5,5,7" {
-		t.Errorf("got %s, want 2,5,5,5,7", got)
+	if want := "2,5,5,5,7,72,6,16"; got != want {
+		t.Errorf("got %s, want %s", got, want)
 	}
 
 	// A bundle has one entry.

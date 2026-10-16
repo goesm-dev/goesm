@@ -459,7 +459,7 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	switch {
 	case fd.Recv != nil:
 		name = pe.funcDeclName(fd, fn)
-		if !wrap {
+		if !wrap || pe.prog.ImportedEntry(pe.pkg.PkgPath) {
 			pe.export(name, name)
 		}
 	case fd.Name.Name == "init":
@@ -470,6 +470,9 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 		name = pe.funcDeclName(fd, fn)
 		if (fn.Exported() || isFmtHelper(fn)) && !wrap {
 			pe.export(name, fn.Name())
+		}
+		if g := pe.prog.goName(fn); g != fn.Name() {
+			pe.export(name, g)
 		}
 	}
 	w := pe.funcs

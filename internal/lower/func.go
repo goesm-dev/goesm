@@ -151,7 +151,7 @@ func (fe *funcEmitter) nameOf(obj types.Object) string {
 		if obj.Pkg() != fe.pe.pkg.Types {
 			// Exported under its Go name (math.NaN), which is a valid
 			// property name even where it is not a valid identifier.
-			return fe.pe.qualify(obj.Pkg(), obj.Name())
+			return fe.pe.qualify(obj.Pkg(), fe.pe.prog.goName(obj))
 		}
 		return jsName(obj.Name())
 	}

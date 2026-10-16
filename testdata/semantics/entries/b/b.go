@@ -1,7 +1,12 @@
-// Package b is the other entry (TestSeveralEntries).
+// Package b is the other entry (TestSeveralEntries). It imports entry a,
+// whose functions it calls as Go functions, not through the wrappers
+// JavaScript calls them by.
 package b
 
-import "example.com/sem/entries/shared"
+import (
+	"example.com/sem/entries/a"
+	"example.com/sem/entries/shared"
+)
 
 func Count() int { return shared.Count }
 
@@ -11,3 +16,25 @@ func Wait() int {
 	go func() { ch <- shared.Count }()
 	return <-ch
 }
+
+// AddTwice calls entry a with a slice, which its wrapper would expect as a
+// JavaScript array.
+func AddTwice(ns []int) int {
+	c := &a.Counter{}
+	for _, n := range ns {
+		a.Add(n)
+		c.Inc()
+	}
+	return shared.Count*10 + c.N
+}
+
+// Doubled sees the elements a.Double changed: the slice is shared, as Go
+// passes it, not converted from and to JavaScript.
+func Doubled() int {
+	s := []int{1, 2}
+	a.Double(s)
+	return s[0] + s[1]
+}
+
+// Age reads the map a.Ages returns as a Go map.
+func Age() int { return a.Ages()["gopher"] }
