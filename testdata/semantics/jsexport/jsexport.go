@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"example.com/sem/jsexport/registry"
 )
 
 // Weekday is the Japanese name of the day of the week of a date.
@@ -237,6 +239,9 @@ func Lookup(name string) any {
 		return &Box[int]{v: 7}
 	case "names":
 		return &Box[[]string]{v: []string{"あ"}}
+	case "registry":
+		// Boxed by another package of the module.
+		return registry.Get()
 	}
 	return nil
 }

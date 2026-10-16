@@ -273,6 +273,8 @@ test("JS calling ABI: handles inside an any, of generic types, have their method
   assert.deepEqual(names.Get(), ["い", "う"]);
   // The methods are not fields.
   assert.deepEqual(Object.keys(box), Object.keys(box).filter((k) => k !== "Get" && k !== "Set"));
+  // A handle another package of the module boxed, which the entry forwards.
+  assert.equal(m.Lookup("registry").N(), 3);
 });
 
 test("JS calling ABI: pointers, self-embedding structs and returned functions", async () => {

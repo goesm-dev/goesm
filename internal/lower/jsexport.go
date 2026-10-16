@@ -127,16 +127,29 @@ func handleTypes(pkg *types.Package) []*types.Named {
 // reach it inside interface values: when the JS calling ABI of the entry
 // package carries an interface type other than error (an `any` result, or
 // one of a function it returns), the pointers to struct types with methods
-// that the entry package stores in interface values cross as handles whose
-// type no signature names, often instantiations of generic types. Their
+// that the entry package, or another package of the program's own module
+// (whose function the entry may forward the value from), stores in
+// interface values cross as handles whose type no signature names, often
+// instantiations of generic types. The standard library and third-party
+// packages are not looked at: their boxed types would keep many methods for
+// no caller. Their
 // method tables list these methods, with their functions, and the runtime
 // gives such a handle its JS methods from its table (withJSMethods in
 // runtime/src/jsabi.ts). The methods are keyed by their origin.
 func (p *Program) anyHandleMethods() map[*types.Func]bool {
 	p.anyHandlesOnce.Do(func() {
 		p.anyHandles = map[*types.Func]bool{}
+		carries := false
 		for _, pkg := range p.Pkgs {
-			if !p.Entries[pkg.PkgPath] || !abiCarriesIface(pkg.Types) {
+			if p.Entries[pkg.PkgPath] && abiCarriesIface(pkg.Types) {
+				carries = true
+			}
+		}
+		if !carries {
+			return
+		}
+		for _, pkg := range p.Pkgs {
+			if !p.Entries[pkg.PkgPath] && (p.std[pkg] || p.Deps[pkg]) {
 				continue
 			}
 			info := pkg.TypesInfo
