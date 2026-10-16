@@ -11,7 +11,7 @@ Changes on `main` since v0.0.1-beta.4: [v0.0.1-beta.4...main](https://github.com
 ### JS calling ABI
 
 - A handle that reaches JavaScript inside an `any`, such as a pointer to an instantiation of a generic type returned by a lookup function, has its exported methods, as a handle of a type named in an exported signature does. gosfc reads the `vue.Ref` bindings of a component this way.
-- `goesm emit-ts` and `goesm build -split` take several packages and build them as one program: each is an entry with the JS calling ABI, and the packages they share are lowered once, so their modules share state. gosfc builds all the components of an app as one program this way.
+- `goesm emit-ts` and `goesm build -split` take several packages and build them as one program: each is an entry with the JS calling ABI, and the packages they share are lowered once, so their modules share state. An entry that another entry imports is called by it as Go code, not through the JavaScript wrappers. gosfc builds all the components of an app as one program this way.
 
 ## v0.0.1-beta.4
 
