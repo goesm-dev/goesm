@@ -8,6 +8,10 @@ goesm の各バージョンの変更点を、新しい順に記載します。�
 
 v0.0.1-beta.4 以降に `main` に入った変更です。差分は [v0.0.1-beta.4...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.4...main) で確認できます。
 
+### JS 呼び出しの ABI
+
+- `any` に入って JavaScript に渡るハンドル (ルックアップ関数が返すジェネリック型のインスタンスへのポインタなど) も、export された関数のシグネチャに現れる型のハンドルと同じように公開メソッドを持つようになりました。gosfc は、コンポーネントの `vue.Ref` のバインディングをこの方法で読みます。
+
 ## v0.0.1-beta.4
 
 2026-10-06 にタグを付けました。v0.0.1-beta.3 からの差分は [v0.0.1-beta.3...v0.0.1-beta.4](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.3...v0.0.1-beta.4) で確認できます。

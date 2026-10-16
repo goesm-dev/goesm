@@ -98,7 +98,7 @@ func reflectLike(fn *types.Func) bool {
 // promoted) belongs in method tables.
 func (p *Program) DynMethod(fn *types.Func) bool {
 	fn = fn.Origin()
-	if p.allMethods && fn.Exported() {
+	if p.allMethods && fn.Exported() || p.anyHandleMethods()[fn] {
 		return true
 	}
 	return matchMethod(p.ifaceMethods[fn.Name()], fn)
@@ -128,7 +128,7 @@ func matchMethod(ms []ifaceMethod, fn *types.Func) bool {
 // without its function.
 func (p *Program) CalledMethod(fn *types.Func) bool {
 	fn = fn.Origin()
-	if p.allMethods && fn.Exported() {
+	if p.allMethods && fn.Exported() || p.anyHandleMethods()[fn] {
 		return true
 	}
 	p.reachOnce.Do(p.reach)

@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"go/ast"
 	"go/types"
 	"reflect"
 	"strings"
@@ -120,6 +121,128 @@ func handleTypes(pkg *types.Package) []*types.Named {
 		}
 	}
 	return found
+}
+
+// anyHandleMethods are the exported methods JavaScript calls on handles that
+// reach it inside interface values: when the JS calling ABI of the entry
+// package carries an interface type other than error (an `any` result, or
+// one of a function it returns), the pointers to struct types with methods
+// that the entry package stores in interface values cross as handles whose
+// type no signature names, often instantiations of generic types. Their
+// method tables list these methods, with their functions, and the runtime
+// gives such a handle its JS methods from its table (withJSMethods in
+// runtime/src/jsabi.ts). The methods are keyed by their origin.
+func (p *Program) anyHandleMethods() map[*types.Func]bool {
+	p.anyHandlesOnce.Do(func() {
+		p.anyHandles = map[*types.Func]bool{}
+		for _, pkg := range p.Pkgs {
+			if pkg.PkgPath != p.Entry || !abiCarriesIface(pkg.Types) {
+				continue
+			}
+			info := pkg.TypesInfo
+			conv := func(src, dst types.Type) {
+				if src == nil || dst == nil || !isIface(dst) || isIface(src) {
+					return
+				}
+				ptr, ok := types.Unalias(src).(*types.Pointer)
+				if !ok {
+					return
+				}
+				n, ok := types.Unalias(ptr.Elem()).(*types.Named)
+				if !ok {
+					return
+				}
+				if _, ok := n.Underlying().(*types.Struct); !ok {
+					return
+				}
+				for _, fn := range handleMethods(n) {
+					p.anyHandles[fn.Origin()] = true
+				}
+			}
+			for _, f := range pkg.Syntax {
+				for _, d := range f.Decls {
+					switch d := d.(type) {
+					case *ast.FuncDecl:
+						if d.Body != nil {
+							fn := info.Defs[d.Name].(*types.Func)
+							p.findConversions(info, d.Body, fn.Signature(), conv)
+						}
+					case *ast.GenDecl:
+						p.findConversions(info, d, nil, conv)
+					}
+				}
+			}
+		}
+	})
+	return p.anyHandles
+}
+
+// abiCarriesIface reports whether the JS calling ABI of pkg, its exported
+// functions and the exported methods of its types, carries a value of an
+// interface type other than error, which can hold a handle of any type.
+func abiCarriesIface(pkg *types.Package) bool {
+	errType := types.Universe.Lookup("error").Type()
+	seen := map[types.Type]bool{}
+	var walk func(t types.Type) bool
+	walkSig := func(sig *types.Signature) bool {
+		for i := 0; i < sig.Params().Len(); i++ {
+			if walk(sig.Params().At(i).Type()) {
+				return true
+			}
+		}
+		for i := 0; i < sig.Results().Len(); i++ {
+			if walk(sig.Results().At(i).Type()) {
+				return true
+			}
+		}
+		return false
+	}
+	walk = func(t types.Type) bool {
+		t = types.Unalias(t)
+		if seen[t] || isJSValue(t) || types.Identical(t, errType) {
+			return false
+		}
+		seen[t] = true
+		switch u := t.Underlying().(type) {
+		case *types.Interface:
+			return true
+		case *types.Pointer:
+			return walk(u.Elem())
+		case *types.Slice:
+			return walk(u.Elem())
+		case *types.Array:
+			return walk(u.Elem())
+		case *types.Map:
+			return walk(u.Key()) || walk(u.Elem())
+		case *types.Struct:
+			for i := 0; i < u.NumFields(); i++ {
+				if f := u.Field(i); (f.Exported() || promotes(f)) && walk(f.Type()) {
+					return true
+				}
+			}
+		case *types.Signature:
+			return walkSig(u)
+		}
+		return false
+	}
+	scope := pkg.Scope()
+	for _, name := range scope.Names() {
+		switch obj := scope.Lookup(name).(type) {
+		case *types.Func:
+			if obj.Exported() && obj.Signature().TypeParams().Len() == 0 && walkSig(obj.Signature()) {
+				return true
+			}
+		case *types.TypeName:
+			if n, ok := obj.Type().(*types.Named); ok && obj.Exported() && n.TypeParams().Len() == 0 {
+				for _, fn := range handleMethods(n) {
+					if walkSig(fn.Signature()) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // handleMethods are the methods JavaScript calls on a handle of type *n:

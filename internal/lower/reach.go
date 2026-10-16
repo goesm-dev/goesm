@@ -211,6 +211,9 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 			}
 		}
 	}
+	for fn := range p.anyHandleMethods() {
+		use(fn)
+	}
 
 	strs := &knownStrings{byTypes: p.byTypes}
 	constPattern := map[*ast.Ident]bool{} // a patternFuncs callee with a pattern known at compile time, without \p
