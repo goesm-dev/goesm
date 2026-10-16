@@ -155,9 +155,10 @@ type Program struct {
 	// packages (PureEmitter).
 	pureEmitters map[*types.Package]*pkgEmitter
 
-	// Entry is the path of the package a build starts from, whose exported
-	// functions and methods JavaScript calls (Options.Entry); see reach.go.
-	Entry string
+	// Entries are the paths of the packages a build starts from, whose
+	// exported functions and methods JavaScript calls (Options.Entries);
+	// see reach.go.
+	Entries map[string]bool
 
 	// TracksGoroutines is set when the program uses goroutine-local storage
 	// (runtime.GetTraceContextFromGLS and friends): async functions then
@@ -181,6 +182,14 @@ func (p *Program) errorf(pos token.Pos, format string, args ...any) {
 
 // NewProgram analyses the loaded packages (dependencies first). std is the
 // set of standard library packages.
+// SetEntries sets the entry packages (Options.Entries).
+func (p *Program) SetEntries(paths []string) {
+	p.Entries = map[string]bool{}
+	for _, e := range paths {
+		p.Entries[e] = true
+	}
+}
+
 func NewProgram(fset *token.FileSet, pkgs []*packages.Package, std map[*packages.Package]bool) *Program {
 	p := &Program{
 		Fset:     fset,

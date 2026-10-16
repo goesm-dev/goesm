@@ -289,7 +289,7 @@ func moduleKeys(lp *lower.Program, std map[*packages.Package]bool, overlay map[s
 		for _, e := range lowerEnv {
 			fmt.Fprintf(h, "%s=%q\n", e, os.Getenv(e))
 		}
-		fmt.Fprintf(h, "module %s entry %v\n", pkg.PkgPath, pkg.PkgPath == opts.Entry)
+		fmt.Fprintf(h, "module %s entry %v\n", pkg.PkgPath, opts.IsEntry(pkg.PkgPath))
 		for _, d := range closure {
 			h.Write(own[d])
 		}

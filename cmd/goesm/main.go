@@ -22,8 +22,8 @@ import (
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-overlay file] [-toolexec cmd] [-v] <package>
-  goesm emit-ts [-o dir] [-overlay file] [-toolexec cmd] [-v] <package>
+  goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-overlay file] [-toolexec cmd] [-v] <package>...
+  goesm emit-ts [-o dir] [-overlay file] [-toolexec cmd] [-v] <package>...
   goesm version`)
 	os.Exit(2)
 }
