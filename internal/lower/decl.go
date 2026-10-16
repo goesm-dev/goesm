@@ -282,7 +282,7 @@ func (pe *pkgEmitter) methodFuncName(fn *types.Func) string {
 	if obj.Pkg() == pe.pkg.Types {
 		return pe.namedTypeName(obj) + "$" + fn.Name()
 	}
-	return pe.qualify(obj.Pkg(), jsName(obj.Name())+"$"+fn.Name())
+	return pe.qualify(obj.Pkg(), jsName(obj.Name())+"$"+fn.Name()+pe.prog.goMethodSuffix(fn))
 }
 
 // emitStructClass emits the JS class for struct values. Struct values are
@@ -459,8 +459,8 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	switch {
 	case fd.Recv != nil:
 		name = pe.funcDeclName(fd, fn)
-		if !wrap || pe.prog.ImportedEntry(pe.pkg.PkgPath) {
-			pe.export(name, name)
+		if g := pe.prog.goMethodSuffix(fn); g != "" || !wrap {
+			pe.export(name, name+g)
 		}
 	case fd.Name.Name == "init":
 		name = pe.fresh("init")
@@ -552,7 +552,7 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 		pe.emitFuncBody(w, file, fd, fn, name+"$sync", fn)
 		switch {
 		case fd.Recv != nil:
-			pe.export(name+"$sync", name+"$sync")
+			pe.export(name+"$sync", name+pe.prog.goMethodSuffix(fn)+"$sync")
 		case fn.Exported():
 			pe.export(name+"$sync", fn.Name()+"$sync")
 		}

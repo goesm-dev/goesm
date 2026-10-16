@@ -148,6 +148,39 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 		if !carries {
 			return
 		}
+		handle := func(t types.Type) {
+			n, ok := types.Unalias(t).(*types.Named)
+			if !ok {
+				return
+			}
+			if _, ok := n.Underlying().(*types.Struct); !ok {
+				return
+			}
+			for _, fn := range handleMethods(n) {
+				p.anyHandles[fn.Origin()] = true
+			}
+		}
+		// The type parameters converted to interface types, directly or
+		// behind a pointer, and the type arguments instantiations give them.
+		type tparam struct {
+			tp  *types.TypeParam
+			ptr bool
+		}
+		type instArg struct {
+			tp  *types.TypeParam
+			arg types.Type
+		}
+		boxed := map[tparam]bool{}
+		var insts []instArg
+		// A method's receiver type parameters stand for its type's, which
+		// instantiations name.
+		recvTP := map[*types.TypeParam]*types.TypeParam{}
+		canon := func(tp *types.TypeParam) *types.TypeParam {
+			if t, ok := recvTP[tp]; ok {
+				return t
+			}
+			return tp
+		}
 		for _, pkg := range p.Pkgs {
 			if !p.Entries[pkg.PkgPath] && (p.std[pkg] || p.Deps[pkg]) {
 				continue
@@ -157,19 +190,16 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 				if src == nil || dst == nil || !isIface(dst) || isIface(src) {
 					return
 				}
-				ptr, ok := types.Unalias(src).(*types.Pointer)
-				if !ok {
+				ptr := false
+				if pt, ok := types.Unalias(src).(*types.Pointer); ok {
+					ptr, src = true, pt.Elem()
+				}
+				if tp, ok := types.Unalias(src).(*types.TypeParam); ok {
+					boxed[tparam{canon(tp), ptr}] = true
 					return
 				}
-				n, ok := types.Unalias(ptr.Elem()).(*types.Named)
-				if !ok {
-					return
-				}
-				if _, ok := n.Underlying().(*types.Struct); !ok {
-					return
-				}
-				for _, fn := range handleMethods(n) {
-					p.anyHandles[fn.Origin()] = true
+				if ptr {
+					handle(src)
 				}
 			}
 			for _, f := range pkg.Syntax {
@@ -178,10 +208,62 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 					case *ast.FuncDecl:
 						if d.Body != nil {
 							fn := info.Defs[d.Name].(*types.Func)
-							p.findConversions(info, d.Body, fn.Signature(), conv)
+							sig := fn.Signature()
+							if rtps := sig.RecvTypeParams(); rtps.Len() > 0 {
+								base, _ := derefType(sig.Recv().Type())
+								tps := types.Unalias(base).(*types.Named).Origin().TypeParams()
+								for i := 0; i < rtps.Len() && i < tps.Len(); i++ {
+									recvTP[rtps.At(i)] = tps.At(i)
+								}
+							}
+							p.findConversions(info, d.Body, sig, conv)
 						}
 					case *ast.GenDecl:
 						p.findConversions(info, d, nil, conv)
+					}
+				}
+			}
+			for id, inst := range info.Instances {
+				var tps *types.TypeParamList
+				switch obj := info.Uses[id].(type) {
+				case *types.Func:
+					tps = obj.Origin().Signature().TypeParams()
+				case *types.TypeName:
+					if n, ok := types.Unalias(obj.Type()).(*types.Named); ok {
+						tps = n.Origin().TypeParams()
+					}
+				}
+				for i := 0; tps != nil && i < tps.Len() && i < inst.TypeArgs.Len(); i++ {
+					insts = append(insts, instArg{tps.At(i), inst.TypeArgs.At(i)})
+				}
+			}
+		}
+		// A generic function (or method) that boxes a value of a type
+		// parameter, as func box[T any](v T) any { return v } does, boxes
+		// the type arguments of its instantiations, through those of the
+		// generic functions that pass their own type parameters on.
+		for changed := true; changed; {
+			changed = false
+			for _, ia := range insts {
+				for _, ptr := range []bool{false, true} {
+					if !boxed[tparam{ia.tp, ptr}] {
+						continue
+					}
+					src := ia.arg
+					if ptr {
+						src = types.NewPointer(src)
+					}
+					ptr2 := false
+					if pt, ok := types.Unalias(src).(*types.Pointer); ok {
+						ptr2, src = true, pt.Elem()
+					}
+					if tp, ok := types.Unalias(src).(*types.TypeParam); ok {
+						if k := (tparam{canon(tp), ptr2}); !boxed[k] {
+							boxed[k] = true
+							changed = true
+						}
+					} else if ptr2 {
+						handle(src)
 					}
 				}
 			}

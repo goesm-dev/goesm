@@ -1,7 +1,11 @@
 // Package a is one of two entries of a program (TestSeveralEntries).
 package a
 
-import "example.com/sem/entries/shared"
+import (
+	"strconv"
+
+	"example.com/sem/entries/shared"
+)
 
 func Add(n int) int {
 	shared.Count += n
@@ -18,6 +22,11 @@ func (c *Counter) Inc() int {
 	c.N++
 	return c.N
 }
+
+// Label takes a string and returns a slice, which the wrapper converts.
+func (c *Counter) Label(prefix string) []string { return []string{prefix + strconv.Itoa(c.N)} }
+
+func NewCounter() *Counter { return &Counter{N: 4} }
 
 // Double doubles the elements of ns in place.
 func Double(ns []int) {

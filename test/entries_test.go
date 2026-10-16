@@ -12,7 +12,8 @@ import (
 // do: every root package is an entry whose exports JavaScript calls, and the
 // packages they share are lowered once, so their state is shared too. An
 // entry that another entry imports is called by it as Go code, not through
-// the wrappers JavaScript calls (b.Age reads a Go map from a.Ages).
+// the wrappers JavaScript calls (b.Age reads a Go map from a.Ages), while
+// JavaScript still calls the entry's methods through them (Counter$Label).
 func TestSeveralEntries(t *testing.T) {
 	requireNode(t)
 	dir := testdata("semantics")
@@ -28,10 +29,10 @@ const a = await import(process.argv[1]);
 const b = await import(process.argv[2]);
 const box = a.Lookup();
 box.Set(7);
-console.log([a.Add(2), a.Add(3), b.Count(), await b.Wait(), box.Get(), b.AddTwice([1, 1]), b.Doubled(), b.Age()].join(","));
+console.log([a.Add(2), a.Add(3), b.Count(), await b.Wait(), box.Get(), b.AddTwice([1, 1]), b.Doubled(), b.Age(), a.Counter$Label(a.NewCounter(), "あ")[0], a.NewCounter().Label("m")[0], b.Labelled()].join(","));
 `
 	got := strings.TrimSpace(string(runNode(t, "--input-type=module", "-e", script, mod("a"), mod("b"))))
-	if want := "2,5,5,5,7,72,6,16"; got != want {
+	if want := "2,5,5,5,7,72,6,16,あ4,m4,b1"; got != want {
 		t.Errorf("got %s, want %s", got, want)
 	}
 
