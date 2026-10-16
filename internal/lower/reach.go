@@ -311,8 +311,10 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 // findStoredMethods collects storedMethods: the methods of the types that
 // the program converts to an interface type (ifaceImpls, which also has the
 // type arguments of instantiations and what reflection reaches from those),
-// and of js.Error, the error the runtime makes of a JavaScript exception
-// (jsabi.ts). An interface call cannot reach the method of any other type,
+// of js.Error, the error the runtime makes of a JavaScript exception
+// (jsabi.ts), and of the handles that reach JavaScript, which converts them
+// to the interface type of a parameter it passes them for. An interface
+// call cannot reach the method of any other type,
 // as Go's linker prunes the methods of types never converted: a program
 // that calls some String method keeps time.Time's only if it puts a Time
 // in an interface value.
@@ -325,6 +327,18 @@ func (p *Program) findStoredMethods() {
 		for _, im := range impls {
 			p.storedMethods[im.fn.Origin()] = true
 		}
+	}
+	for _, pkg := range p.Pkgs {
+		if p.Entries[pkg.PkgPath] {
+			for _, n := range handleTypes(pkg.Types) {
+				for _, fn := range handleMethods(n) {
+					p.storedMethods[fn.Origin()] = true
+				}
+			}
+		}
+	}
+	for fn := range p.anyHandleMethods() {
+		p.storedMethods[fn] = true
 	}
 	for _, pkg := range p.Pkgs {
 		if pkg.PkgPath != "syscall/js" {

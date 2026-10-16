@@ -224,6 +224,16 @@ func Parser() func(string) (int, error) {
 
 func Grouper() func([]string) map[int][]string { return Lengths }
 
+// Greeter is an interface JavaScript passes a handle as, though Go never
+// converts the handle's type to it.
+type Greeter interface{ Greet() string }
+
+type Dog struct{ name string }
+
+func NewDog(name string) *Dog { return &Dog{name} }
+func (d *Dog) Greet() string  { return d.name + ": わん" }
+func Greet(g Greeter) string  { return g.Greet() }
+
 // Box is a generic type with methods: the class of its handles is shared by
 // every instantiation, so no exported signature can name one.
 type Box[T any] struct{ v T }
