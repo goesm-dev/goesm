@@ -285,6 +285,9 @@ test("JS calling ABI: handles inside an any, of generic types, have their method
   assert.equal(m.Lookup("pair").First.N(), 8);
   // A handle a method of a boxed handle returns.
   assert.equal(m.Lookup("outer").Inner().N(), 9);
+  // A handle JavaScript passes for an interface its type is never
+  // converted to in Go.
+  assert.equal(m.Greet(m.NewDog("ポチ")), "ポチ: わん");
 });
 
 test("JS calling ABI: pointers, self-embedding structs and returned functions", async () => {
