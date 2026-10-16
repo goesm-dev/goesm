@@ -31,6 +31,8 @@ try {
 
 The package you build is the one named on the command line, such as `./shop` in `goesm emit-ts ./shop` or `goesm build ./shop`, and the one a `go:` import of gosfc names. Import its module. The modules of the packages it imports are part of the tree too, but they export their functions with Go's own representation of values, for the generated modules that import them.
 
+One program can start from several packages: `goesm emit-ts ./cart ./checkout` (or `goesm build -split`) makes each of them a package you build, with the JS calling ABI above, and lowers the packages they share once. Their modules then share those packages' state, as Go code of one binary does; gosfc builds the components of an app this way.
+
 ## Conversions
 
 | Go | JavaScript |

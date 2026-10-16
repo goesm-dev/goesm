@@ -19,7 +19,7 @@ import (
 //
 // Reachable code starts from the roots: every function of the packages of
 // the program's own module (neither standard library nor third-party, with
-// the entry package always among them), package initialization, the
+// the entry packages always among them), package initialization, the
 // functions provided to //go:linkname pulls, and the methods JavaScript
 // calls on handles (jsexport.go). A reference to a function or a concrete
 // method makes it reachable; a call, method value or method expression of
@@ -116,7 +116,7 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 	byName := map[string][]*types.Func{} // concrete methods with bodies
 	var queue []body
 	for _, pkg := range p.Pkgs {
-		root := !p.std[pkg] && !p.Deps[pkg] || pkg.PkgPath == p.Entry
+		root := !p.std[pkg] && !p.Deps[pkg] || p.Entries[pkg.PkgPath]
 		for _, f := range pkg.Syntax {
 			for _, d := range f.Decls {
 				switch d := d.(type) {
@@ -203,7 +203,7 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 		}
 	}
 	for _, pkg := range p.Pkgs {
-		if pkg.PkgPath == p.Entry {
+		if p.Entries[pkg.PkgPath] {
 			for _, n := range handleTypes(pkg.Types) {
 				for _, fn := range handleMethods(n) {
 					use(fn)
@@ -481,7 +481,7 @@ func (k *knownStrings) load(tp *types.Package) {
 // jsBoundaryIfaces reports whether interface values, errors among them, may
 // cross the JavaScript boundary, where the runtime calls their Error method
 // (GoError, goToJS): whether a package has a //goesm:import, or an exported
-// function or method of the entry package has a parameter or result whose
+// function or method of an entry package has a parameter or result whose
 // type holds an interface.
 func (p *Program) jsBoundaryIfaces() bool {
 	for _, pkg := range p.Pkgs {
@@ -507,13 +507,13 @@ func (p *Program) jsBoundaryIfaces() bool {
 			}
 		}
 	}
-	var entry *packages.Package
+	var entries []*packages.Package
 	for _, pkg := range p.Pkgs {
-		if pkg.PkgPath == p.Entry {
-			entry = pkg
+		if p.Entries[pkg.PkgPath] {
+			entries = append(entries, pkg)
 		}
 	}
-	if entry == nil {
+	if entries == nil {
 		return true
 	}
 	seen := map[types.Type]bool{}
@@ -548,22 +548,24 @@ func (p *Program) jsBoundaryIfaces() bool {
 		}
 		return false
 	}
-	scope := entry.Types.Scope()
-	for _, name := range scope.Names() {
-		obj := scope.Lookup(name)
-		if !obj.Exported() {
-			continue
-		}
-		switch obj := obj.(type) {
-		case *types.Func:
-			if holdsSig(obj.Signature(), holds) {
-				return true
+	for _, entry := range entries {
+		scope := entry.Types.Scope()
+		for _, name := range scope.Names() {
+			obj := scope.Lookup(name)
+			if !obj.Exported() {
+				continue
 			}
-		case *types.TypeName:
-			ms := types.NewMethodSet(types.NewPointer(obj.Type()))
-			for i := 0; i < ms.Len(); i++ {
-				if fn := ms.At(i).Obj(); fn.Exported() && holdsSig(fn.Type().(*types.Signature), holds) {
+			switch obj := obj.(type) {
+			case *types.Func:
+				if holdsSig(obj.Signature(), holds) {
 					return true
+				}
+			case *types.TypeName:
+				ms := types.NewMethodSet(types.NewPointer(obj.Type()))
+				for i := 0; i < ms.Len(); i++ {
+					if fn := ms.At(i).Obj(); fn.Exported() && holdsSig(fn.Type().(*types.Signature), holds) {
+						return true
+					}
 				}
 			}
 		}

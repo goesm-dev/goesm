@@ -136,7 +136,7 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 	p.anyHandlesOnce.Do(func() {
 		p.anyHandles = map[*types.Func]bool{}
 		for _, pkg := range p.Pkgs {
-			if pkg.PkgPath != p.Entry || !abiCarriesIface(pkg.Types) {
+			if !p.Entries[pkg.PkgPath] || !abiCarriesIface(pkg.Types) {
 				continue
 			}
 			info := pkg.TypesInfo
