@@ -280,6 +280,9 @@ test("JS calling ABI: handles inside an any, of generic types, have their method
   // Handles that generic code boxed, from a type parameter.
   assert.equal(m.Lookup("boxed").N(), 4);
   assert.equal(m.Lookup("held").N(), 5);
+  // Handles inside a slice and a struct inside an any.
+  assert.deepEqual(m.Lookup("list").map((l) => l.N()), [6, 7]);
+  assert.equal(m.Lookup("pair").First.N(), 8);
 });
 
 test("JS calling ABI: pointers, self-embedding structs and returned functions", async () => {

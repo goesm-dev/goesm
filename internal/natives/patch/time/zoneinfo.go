@@ -135,7 +135,10 @@ func lookupLocal(sec int64) (name string, offset int, start, end int64, isDST bo
 			}
 			lo = hi
 		}
-		// Daylight saving time is the larger offset of the year.
+		// Daylight saving time is taken to be the larger offset of the
+		// year: Date does not tell. Zones whose daylight saving time moves
+		// clocks back, as Africa/Casablanca's during Ramadan does, report
+		// IsDST the other way round; their offsets are right.
 		const half = 182 * secondsPerDay
 		s.offset = off
 		s.isDST = off > localOffsetAt(sec-half) || off > localOffsetAt(sec+half)

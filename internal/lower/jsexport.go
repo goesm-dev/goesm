@@ -6,6 +6,8 @@ import (
 	"go/types"
 	"reflect"
 	"strings"
+
+	"golang.org/x/tools/go/types/typeutil"
 )
 
 // The JS calling ABI: JavaScript calling Go.
@@ -124,7 +126,8 @@ func handleTypes(pkg *types.Package) []*types.Named {
 }
 
 // anyHandleMethods are the exported methods JavaScript calls on handles that
-// reach it inside interface values: when the JS calling ABI of the entry
+// reach it inside interface values, or inside the slices, maps and structs
+// those hold: when the JS calling ABI of the entry
 // package carries an interface type other than error (an `any` result, or
 // one of a function it returns), the pointers to struct types with methods
 // that the entry package, or another package of the program's own module
@@ -148,20 +151,9 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 		if !carries {
 			return
 		}
-		handle := func(t types.Type) {
-			n, ok := types.Unalias(t).(*types.Named)
-			if !ok {
-				return
-			}
-			if _, ok := n.Underlying().(*types.Struct); !ok {
-				return
-			}
-			for _, fn := range handleMethods(n) {
-				p.anyHandles[fn.Origin()] = true
-			}
-		}
-		// The type parameters converted to interface types, directly or
-		// behind a pointer, and the type arguments instantiations give them.
+		// The type parameters whose values are converted to interface types,
+		// directly or behind a pointer, and the type arguments
+		// instantiations give them.
 		type tparam struct {
 			tp  *types.TypeParam
 			ptr bool
@@ -171,6 +163,7 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 			arg types.Type
 		}
 		boxed := map[tparam]bool{}
+		changed := false
 		var insts []instArg
 		// A method's receiver type parameters stand for its type's, which
 		// instantiations name.
@@ -181,25 +174,65 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 			}
 			return tp
 		}
+		mark := func(k tparam) {
+			if !boxed[k] {
+				boxed[k] = true
+				changed = true
+			}
+		}
+		// visit finds the handles a value of type t holds as goToJS
+		// (runtime/src/jsabi.ts) converts it: itself, or the elements,
+		// keys and fields it converts, and what a pointer that is not a
+		// handle points to.
+		var seen typeutil.Map
+		var visit func(t types.Type)
+		visit = func(t types.Type) {
+			t = types.Unalias(t)
+			if seen.At(t) != nil || isJSValue(t) {
+				return
+			}
+			seen.Set(t, true)
+			if tp, ok := t.(*types.TypeParam); ok {
+				mark(tparam{canon(tp), false})
+				return
+			}
+			switch u := t.Underlying().(type) {
+			case *types.Pointer:
+				e := types.Unalias(u.Elem())
+				if tp, ok := e.(*types.TypeParam); ok {
+					mark(tparam{canon(tp), true})
+					return
+				}
+				if n, ok := e.(*types.Named); ok && isHandleType(t) {
+					for _, fn := range handleMethods(n) {
+						p.anyHandles[fn.Origin()] = true
+					}
+					return
+				}
+				visit(e)
+			case *types.Slice:
+				visit(u.Elem())
+			case *types.Array:
+				visit(u.Elem())
+			case *types.Map:
+				visit(u.Key())
+				visit(u.Elem())
+			case *types.Struct:
+				for i := 0; i < u.NumFields(); i++ {
+					if f := u.Field(i); f.Exported() || promotes(f) {
+						visit(f.Type())
+					}
+				}
+			}
+		}
 		for _, pkg := range p.Pkgs {
 			if !p.Entries[pkg.PkgPath] && (p.std[pkg] || p.Deps[pkg]) {
 				continue
 			}
 			info := pkg.TypesInfo
 			conv := func(src, dst types.Type) {
-				if src == nil || dst == nil || !isIface(dst) || isIface(src) {
-					return
-				}
-				ptr := false
-				if pt, ok := types.Unalias(src).(*types.Pointer); ok {
-					ptr, src = true, pt.Elem()
-				}
-				if tp, ok := types.Unalias(src).(*types.TypeParam); ok {
-					boxed[tparam{canon(tp), ptr}] = true
-					return
-				}
-				if ptr {
-					handle(src)
+				if src != nil && dst != nil && isIface(dst) && !isIface(src) {
+					visit(src)
 				}
 			}
 			for _, f := range pkg.Syntax {
@@ -242,29 +275,14 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 		// parameter, as func box[T any](v T) any { return v } does, boxes
 		// the type arguments of its instantiations, through those of the
 		// generic functions that pass their own type parameters on.
-		for changed := true; changed; {
+		for changed {
 			changed = false
 			for _, ia := range insts {
-				for _, ptr := range []bool{false, true} {
-					if !boxed[tparam{ia.tp, ptr}] {
-						continue
-					}
-					src := ia.arg
-					if ptr {
-						src = types.NewPointer(src)
-					}
-					ptr2 := false
-					if pt, ok := types.Unalias(src).(*types.Pointer); ok {
-						ptr2, src = true, pt.Elem()
-					}
-					if tp, ok := types.Unalias(src).(*types.TypeParam); ok {
-						if k := (tparam{canon(tp), ptr2}); !boxed[k] {
-							boxed[k] = true
-							changed = true
-						}
-					} else if ptr2 {
-						handle(src)
-					}
+				if boxed[tparam{ia.tp, false}] {
+					visit(ia.arg)
+				}
+				if boxed[tparam{ia.tp, true}] {
+					visit(types.NewPointer(ia.arg))
 				}
 			}
 		}
@@ -302,6 +320,15 @@ func abiCarriesIface(pkg *types.Package) bool {
 		case *types.Interface:
 			return true
 		case *types.Pointer:
+			// JavaScript calls the methods of a handle, whatever its
+			// type's name.
+			if n, ok := types.Unalias(u.Elem()).(*types.Named); ok && isHandleType(t) {
+				for _, fn := range handleMethods(n) {
+					if walkSig(fn.Signature()) {
+						return true
+					}
+				}
+			}
 			return walk(u.Elem())
 		case *types.Slice:
 			return walk(u.Elem())
