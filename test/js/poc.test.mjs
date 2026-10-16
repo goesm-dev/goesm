@@ -259,6 +259,22 @@ test("JS calling ABI: handles of other packages' types have their methods", asyn
   assert.equal(b.Len(), 9);
 });
 
+test("JS calling ABI: handles inside an any, of generic types, have their methods", async () => {
+  const m = await load("GOESM_JSEXPORT");
+  const box = m.Lookup("box");
+  assert.equal(box.Get(), 7);
+  box.Set(8);
+  assert.equal(box.Get(), 8);
+  // The methods convert their arguments and results for their own type
+  // arguments, though both instantiations share a class.
+  const names = m.Lookup("names");
+  assert.deepEqual(names.Get(), ["あ"]);
+  names.Set(["い", "う"]);
+  assert.deepEqual(names.Get(), ["い", "う"]);
+  // The methods are not fields.
+  assert.deepEqual(Object.keys(box), Object.keys(box).filter((k) => k !== "Get" && k !== "Set"));
+});
+
 test("JS calling ABI: pointers, self-embedding structs and returned functions", async () => {
   const m = await load("GOESM_JSEXPORT");
   assert.equal(m.Inc(41), 42);

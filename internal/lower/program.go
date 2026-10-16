@@ -137,6 +137,11 @@ type Program struct {
 	// panic values, which the runtime calls to print them (reach.go).
 	printedMethods map[*types.Func]bool
 	reachOnce      sync.Once
+	// anyHandles are the exported methods of the handles that cross the
+	// entry package's JS calling ABI inside interface values (see
+	// anyHandleMethods); anyHandlesOnce computes them.
+	anyHandles     map[*types.Func]bool
+	anyHandlesOnce sync.Once
 	// unicodeClasses is set when the program may parse \p or \P in a
 	// regular expression (UnicodeClasses).
 	unicodeClasses bool

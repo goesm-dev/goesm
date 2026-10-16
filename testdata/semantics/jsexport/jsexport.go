@@ -221,3 +221,22 @@ func Parser() func(string) (int, error) {
 }
 
 func Grouper() func([]string) map[int][]string { return Lengths }
+
+// Box is a generic type with methods: the class of its handles is shared by
+// every instantiation, so no exported signature can name one.
+type Box[T any] struct{ v T }
+
+func (b *Box[T]) Get() T  { return b.v }
+func (b *Box[T]) Set(v T) { b.v = v }
+
+// Lookup returns handles inside an `any`, as a lookup table of values of
+// different types does: JavaScript still calls their methods.
+func Lookup(name string) any {
+	switch name {
+	case "box":
+		return &Box[int]{v: 7}
+	case "names":
+		return &Box[[]string]{v: []string{"あ"}}
+	}
+	return nil
+}
