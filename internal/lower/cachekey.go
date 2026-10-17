@@ -20,10 +20,10 @@ func (p *Program) LowerPackage(pkg *packages.Package, opts Options) *Module {
 	if pkg.PkgPath == "unsafe" {
 		return nil
 	}
-	if p.Entry == "" {
-		p.Entry = opts.Entry
+	if p.Entries == nil {
+		p.SetEntries(opts.Entries)
 	}
-	return newPkgEmitter(p, pkg, pkg.PkgPath == opts.Entry).emit()
+	return newPkgEmitter(p, pkg, p.Entries[pkg.PkgPath]).emit()
 }
 
 // Facts returns, for every package, a digest of the whole-program facts that

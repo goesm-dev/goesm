@@ -55,8 +55,8 @@ func (e *DiagError) Error() string { return strings.Join(e.Lines, "\n") }
 
 // Lowered is the result of the frontend and the semantic lowering.
 type Lowered struct {
-	Mods  []*lower.Module
-	Entry string // import path of the root package
+	Mods    []*lower.Module
+	Entries []string // import paths of the root packages, in the order of the patterns
 	// Warnings name standard library and dependency functions that goesm
 	// cannot lower yet; they were replaced by stubs that panic when called.
 	Warnings []string
@@ -83,14 +83,17 @@ func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) (*Lo
 		}
 		return nil, err
 	}
-	if len(prog.Roots) != 1 {
-		return nil, fmt.Errorf("goesm: expected exactly one package, got %d", len(prog.Roots))
+	if len(prog.Roots) == 0 {
+		return nil, fmt.Errorf("goesm: no packages to build")
 	}
-	entry := prog.Roots[0].PkgPath
+	var entries []string
+	for _, r := range prog.Roots {
+		entries = append(entries, r.PkgPath)
+	}
 	lp := lower.NewProgram(prog.Fset, prog.All, prog.Std)
 	lp.Deps = prog.Deps
-	lp.Entry = entry
-	opts := lower.Options{Entry: entry}
+	lp.SetEntries(entries)
+	opts := lower.Options{Entries: entries}
 	var mods []*lower.Module
 	cached := 0
 	if c := openCache(); c != nil {
@@ -105,7 +108,7 @@ func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) (*Lo
 		}
 		return nil, &DiagError{Layer: "goesm", Lines: lines}
 	}
-	l := &Lowered{Mods: mods, Entry: entry, Cached: cached}
+	l := &Lowered{Mods: mods, Entries: entries, Cached: cached}
 	for _, d := range lp.SortedWarns() {
 		l.Warnings = append(l.Warnings, d.String())
 	}
@@ -244,7 +247,11 @@ func Build(opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	mods, entry := l.Mods, l.Entry
+	mods := l.Mods
+	if len(l.Entries) != 1 && !opts.Split {
+		return nil, fmt.Errorf("goesm: a bundle starts from one package, got %d; build them one by one, or with -split", len(l.Entries))
+	}
+	entry := l.Entries[0]
 	tsDir := opts.TSDir
 	if tsDir == "" {
 		tsDir, err = os.MkdirTemp("", "goesm-ts-")

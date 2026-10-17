@@ -8,6 +8,10 @@ price 42.5
 JavaScript error: not a price: abc
 js.Error name: Error
 <nil> JavaScript error: -1 is not positive
+nullable: n=7
+nullable: nil
+optional: あり 1.5
+optional: true true
 done!
 JavaScript error: rejected
 [a0 b1]

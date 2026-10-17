@@ -8,6 +8,22 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 Changes on `main` since v0.0.1-beta.4: [v0.0.1-beta.4...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.4...main).
 
+### JS calling ABI
+
+- A handle that reaches JavaScript inside an `any`, such as a pointer to an instantiation of a generic type returned by a lookup function, has its exported methods, as a handle of a type named in an exported signature does. gosfc reads the `vue.Ref` bindings of a component this way.
+- `goesm emit-ts` and `goesm build -split` take several packages and build them as one program: each is an entry with the JS calling ABI, and the packages they share are lowered once, so their modules share state. An entry that another entry imports is called by it as Go code, not through the JavaScript wrappers. gosfc builds all the components of an app as one program this way.
+- A `//goesm:import` function can return a pointer to a non-struct type, such as `*string`: `null` or `undefined` becomes nil, any other value a pointer to it. Parameters take such pointers too.
+- A function made by `js.FuncOf` returns its result directly unless its own Go function blocks. Before, as soon as one function passed to `js.FuncOf` blocked, every one returned a Promise.
+
+### Standard library
+
+- `time.Local` follows the host's time zone rules: a time on the other side of a daylight saving transition has that side's offset, as a JavaScript `Date` does, instead of the offset at start-up. Zones are named by their offsets, as `UTC-5`.
+
+### Bundle size
+
+- A method called through an interface is kept only if the program stores a value of its type in an interface. A program that calls some `String` or `Error` method, as one that reads `err.Error()` does, no longer carries `time.Time`'s formatting. Without package reflect, storing a value in an interface no longer counts as storing what it contains (the `chan time.Time` of a timer).
+- `strconv.IsPrint` and the quoting of `strconv.Quote` ask the engine's Unicode tables instead of carrying Go's (7 KB), and floats are formatted with the engine's integer formatting instead of `formatBase10`. Characters newer than the engine's Unicode version are not printable.
+
 ## v0.0.1-beta.4
 
 Tagged on 2026-10-06. Changes since v0.0.1-beta.3: [v0.0.1-beta.3...v0.0.1-beta.4](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.3...v0.0.1-beta.4).

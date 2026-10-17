@@ -19,7 +19,7 @@ import (
 //
 // Reachable code starts from the roots: every function of the packages of
 // the program's own module (neither standard library nor third-party, with
-// the entry package always among them), package initialization, the
+// the entry packages always among them), package initialization, the
 // functions provided to //go:linkname pulls, and the methods JavaScript
 // calls on handles (jsexport.go). A reference to a function or a concrete
 // method makes it reachable; a call, method value or method expression of
@@ -104,6 +104,7 @@ func (p *Program) reach() {
 }
 
 func (p *Program) reachFrom(leftOut map[string]bool) {
+	p.findStoredMethods()
 	p.calledMethods = map[string][]ifaceMethod{}
 	p.printedMethods = map[*types.Func]bool{}
 	p.unicodeClasses, p.regexpGo = false, false
@@ -116,7 +117,7 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 	byName := map[string][]*types.Func{} // concrete methods with bodies
 	var queue []body
 	for _, pkg := range p.Pkgs {
-		root := !p.std[pkg] && !p.Deps[pkg] || pkg.PkgPath == p.Entry
+		root := !p.std[pkg] && !p.Deps[pkg] || p.Entries[pkg.PkgPath]
 		for _, f := range pkg.Syntax {
 			for _, d := range f.Decls {
 				switch d := d.(type) {
@@ -167,7 +168,7 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 		}
 		p.calledMethods[m.Name()] = append(p.calledMethods[m.Name()], im)
 		for _, fn := range byName[m.Name()] {
-			if matchMethod([]ifaceMethod{im}, fn) {
+			if p.storedMethods[fn] && matchMethod([]ifaceMethod{im}, fn) {
 				use(fn)
 			}
 		}
@@ -203,13 +204,16 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 		}
 	}
 	for _, pkg := range p.Pkgs {
-		if pkg.PkgPath == p.Entry {
+		if p.Entries[pkg.PkgPath] {
 			for _, n := range handleTypes(pkg.Types) {
 				for _, fn := range handleMethods(n) {
 					use(fn)
 				}
 			}
 		}
+	}
+	for fn := range p.anyHandleMethods() {
+		use(fn)
 	}
 
 	strs := &knownStrings{byTypes: p.byTypes}
@@ -301,6 +305,53 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 			}
 			return true
 		})
+	}
+}
+
+// findStoredMethods collects storedMethods: the methods of the types that
+// the program converts to an interface type (ifaceImpls, which also has the
+// type arguments of instantiations and what reflection reaches from those),
+// of js.Error, the error the runtime makes of a JavaScript exception
+// (jsabi.ts), and of the handles that reach JavaScript, which converts them
+// to the interface type of a parameter it passes them for. An interface
+// call cannot reach the method of any other type,
+// as Go's linker prunes the methods of types never converted: a program
+// that calls some String method keeps time.Time's only if it puts a Time
+// in an interface value.
+func (p *Program) findStoredMethods() {
+	if p.storedMethods != nil {
+		return
+	}
+	p.storedMethods = map[*types.Func]bool{}
+	for _, impls := range p.ifaceImpls {
+		for _, im := range impls {
+			p.storedMethods[im.fn.Origin()] = true
+		}
+	}
+	for _, pkg := range p.Pkgs {
+		if p.Entries[pkg.PkgPath] {
+			for _, n := range handleTypes(pkg.Types) {
+				for _, fn := range handleMethods(n) {
+					p.storedMethods[fn.Origin()] = true
+				}
+			}
+		}
+	}
+	for fn := range p.anyHandleMethods() {
+		p.storedMethods[fn] = true
+	}
+	for _, pkg := range p.Pkgs {
+		if pkg.PkgPath != "syscall/js" {
+			continue
+		}
+		if obj, ok := pkg.Types.Scope().Lookup("Error").(*types.TypeName); ok {
+			for _, t := range []types.Type{obj.Type(), types.NewPointer(obj.Type())} {
+				ms := p.msets.MethodSet(t)
+				for i := 0; i < ms.Len(); i++ {
+					p.storedMethods[ms.At(i).Obj().(*types.Func).Origin()] = true
+				}
+			}
+		}
 	}
 }
 
@@ -478,7 +529,7 @@ func (k *knownStrings) load(tp *types.Package) {
 // jsBoundaryIfaces reports whether interface values, errors among them, may
 // cross the JavaScript boundary, where the runtime calls their Error method
 // (GoError, goToJS): whether a package has a //goesm:import, or an exported
-// function or method of the entry package has a parameter or result whose
+// function or method of an entry package has a parameter or result whose
 // type holds an interface.
 func (p *Program) jsBoundaryIfaces() bool {
 	for _, pkg := range p.Pkgs {
@@ -504,13 +555,13 @@ func (p *Program) jsBoundaryIfaces() bool {
 			}
 		}
 	}
-	var entry *packages.Package
+	var entries []*packages.Package
 	for _, pkg := range p.Pkgs {
-		if pkg.PkgPath == p.Entry {
-			entry = pkg
+		if p.Entries[pkg.PkgPath] {
+			entries = append(entries, pkg)
 		}
 	}
-	if entry == nil {
+	if entries == nil {
 		return true
 	}
 	seen := map[types.Type]bool{}
@@ -545,22 +596,24 @@ func (p *Program) jsBoundaryIfaces() bool {
 		}
 		return false
 	}
-	scope := entry.Types.Scope()
-	for _, name := range scope.Names() {
-		obj := scope.Lookup(name)
-		if !obj.Exported() {
-			continue
-		}
-		switch obj := obj.(type) {
-		case *types.Func:
-			if holdsSig(obj.Signature(), holds) {
-				return true
+	for _, entry := range entries {
+		scope := entry.Types.Scope()
+		for _, name := range scope.Names() {
+			obj := scope.Lookup(name)
+			if !obj.Exported() {
+				continue
 			}
-		case *types.TypeName:
-			ms := types.NewMethodSet(types.NewPointer(obj.Type()))
-			for i := 0; i < ms.Len(); i++ {
-				if fn := ms.At(i).Obj(); fn.Exported() && holdsSig(fn.Type().(*types.Signature), holds) {
+			switch obj := obj.(type) {
+			case *types.Func:
+				if holdsSig(obj.Signature(), holds) {
 					return true
+				}
+			case *types.TypeName:
+				ms := types.NewMethodSet(types.NewPointer(obj.Type()))
+				for i := 0; i < ms.Len(); i++ {
+					if fn := ms.At(i).Obj(); fn.Exported() && holdsSig(fn.Type().(*types.Signature), holds) {
+						return true
+					}
 				}
 			}
 		}

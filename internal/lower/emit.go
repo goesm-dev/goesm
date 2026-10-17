@@ -77,9 +77,22 @@ type Module struct {
 
 // Options control lowering.
 type Options struct {
-	// Entry is the import path whose `func main`, if present, runs when the
-	// module is evaluated.
-	Entry string
+	// Entries are the import paths of the packages a build starts from
+	// (one for a program, several when one program serves several entry
+	// points, such as the components of an app). An entry's `func main`,
+	// if present, runs when its module is evaluated, and JavaScript calls
+	// its exported functions and methods.
+	Entries []string
+}
+
+// IsEntry reports whether the package path is one of the entries.
+func (o Options) IsEntry(path string) bool {
+	for _, e := range o.Entries {
+		if e == path {
+			return true
+		}
+	}
+	return false
 }
 
 // LowerAll lowers every package of the program, dependencies first.

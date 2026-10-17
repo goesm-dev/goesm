@@ -118,8 +118,10 @@ test("js.FuncOf of a blocking Go function returns a Promise of its result", asyn
   const m = await load("GOESM_JSFUNCS_BLOCKING");
   m.Setup();
   const f = globalThis.jsfuncsblocking;
-  assert.equal(await f.value(21), 42);
+  // The functions that do not block still return their results directly.
+  assert.equal(f.value(21), 42);
   assert.equal(await f.resolve("ok"), "ok");
+  assert.ok(f.blocking(5) instanceof Promise);
   assert.equal(await f.blocking(5), 15);
   for (const p of [f.reject("x"), f.blockingReject("y")]) {
     await assert.rejects(p, (e) => {
@@ -257,6 +259,35 @@ test("JS calling ABI: handles of other packages' types have their methods", asyn
   b.WriteString("語");
   assert.equal(b.String(), "日本語");
   assert.equal(b.Len(), 9);
+});
+
+test("JS calling ABI: handles inside an any, of generic types, have their methods", async () => {
+  const m = await load("GOESM_JSEXPORT");
+  const box = m.Lookup("box");
+  assert.equal(box.Get(), 7);
+  box.Set(8);
+  assert.equal(box.Get(), 8);
+  // The methods convert their arguments and results for their own type
+  // arguments, though both instantiations share a class.
+  const names = m.Lookup("names");
+  assert.deepEqual(names.Get(), ["あ"]);
+  names.Set(["い", "う"]);
+  assert.deepEqual(names.Get(), ["い", "う"]);
+  // The methods are not fields.
+  assert.deepEqual(Object.keys(box), Object.keys(box).filter((k) => k !== "Get" && k !== "Set"));
+  // A handle another package of the module boxed, which the entry forwards.
+  assert.equal(m.Lookup("registry").N(), 3);
+  // Handles that generic code boxed, from a type parameter.
+  assert.equal(m.Lookup("boxed").N(), 4);
+  assert.equal(m.Lookup("held").N(), 5);
+  // Handles inside a slice and a struct inside an any.
+  assert.deepEqual(m.Lookup("list").map((l) => l.N()), [6, 7]);
+  assert.equal(m.Lookup("pair").First.N(), 8);
+  // A handle a method of a boxed handle returns.
+  assert.equal(m.Lookup("outer").Inner().N(), 9);
+  // A handle JavaScript passes for an interface its type is never
+  // converted to in Go.
+  assert.equal(m.Greet(m.NewDog("ポチ")), "ポチ: わん");
 });
 
 test("JS calling ABI: pointers, self-embedding structs and returned functions", async () => {

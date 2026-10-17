@@ -68,6 +68,18 @@ func parsePrice(s string) (float64, error)
 //goesm:import "./lib.ts" mustBePositive
 func mustBePositive(n int) error
 
+//goesm:import "./lib.ts" nullable
+func nullable(n *int) *string
+
+// Opt has fields JavaScript leaves null or out.
+type Opt struct {
+	Note *string  `json:"note"`
+	N    *float64 `json:"n"`
+}
+
+//goesm:import "./lib.ts" optional
+func optional(on bool) Opt
+
 //goesm:import "./lib.ts" later await
 func later(ms int, v string) string
 
@@ -131,6 +143,24 @@ func main() {
 		fmt.Println("js.Error name:", jerr.Get("name").String())
 	}
 	fmt.Println(mustBePositive(1), mustBePositive(-1))
+
+	// Pointers to other types are the value or null.
+	seven := 7
+	for _, p := range []*string{nullable(&seven), nullable(nil)} {
+		if p == nil {
+			fmt.Println("nullable: nil")
+		} else {
+			fmt.Println("nullable:", *p)
+		}
+	}
+	for _, on := range []bool{true, false} {
+		o := optional(on)
+		if o.Note != nil && o.N != nil {
+			fmt.Println("optional:", *o.Note, *o.N)
+		} else {
+			fmt.Println("optional:", o.Note == nil, o.N == nil)
+		}
+	}
 
 	fmt.Println(later(5, "done"))
 	_, err = rejectLater()

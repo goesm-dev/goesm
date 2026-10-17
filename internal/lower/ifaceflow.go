@@ -15,8 +15,10 @@ import (
 // interface type somewhere in the program (assignment, argument, return,
 // composite literal element, send, map key, explicit conversion, append,
 // panic), the type arguments of every instantiation (a type parameter's
-// methods are called like an interface's), and, for reflection, the types
-// reachable from those through fields, elements and pointers.
+// methods are called like an interface's), and, in a program that links
+// package reflect, the types reachable from those through fields, elements
+// and pointers. Without reflect only Go code puts a value in an interface:
+// a chan time.Time stored in an interface value does not store a Time.
 //
 // Matching only by method name would make every io.Writer.Write call async
 // as soon as the program links io.PipeWriter, whose Write blocks on a
@@ -31,6 +33,10 @@ type ifaceImpl struct {
 // findIfaceTypes collects the types stored in interface values and indexes
 // their methods by name.
 func (p *Program) findIfaceTypes() {
+	reflection := false
+	for _, pkg := range p.Pkgs {
+		reflection = reflection || pkg.PkgPath == "reflect"
+	}
 	var seen typeutil.Map
 	var add func(t types.Type)
 	add = func(t types.Type) {
@@ -67,6 +73,9 @@ func (p *Program) findIfaceTypes() {
 		}
 		// Reflection can reach (and take the address of) what a stored value
 		// contains.
+		if !reflection {
+			return
+		}
 		if _, ok := t.(*types.Named); ok {
 			add(types.NewPointer(t))
 		}

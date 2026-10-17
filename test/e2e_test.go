@@ -102,31 +102,41 @@ func TestGolden(t *testing.T) {
 	requireNode(t)
 	bun := hasBun(t)
 	for _, pkg := range []string{"basics", "complexnum", "conformance", "generics", "goroutines", "int64s", "panics", "stdlibuse"} {
-		t.Run(pkg, func(t *testing.T) {
-			dir := testdata("semantics")
-			pkgPath := "example.com/sem/" + pkg
-			funcs := goldenFuncs(t, dir, pkgPath)
-			native := nativeResults(t, dir, pkgPath, funcs)
-			bundle := buildPkg(t, dir, "./"+pkg)
-			runs := []struct{ name, runtime, module string }{{"goesm ESM", "node", bundle}}
-			if bun {
-				// Bun runs the per-package TypeScript as emitted.
-				runs = append(runs, struct{ name, runtime, module string }{"goesm TS (Bun)", "bun", tsEntry(t, bundle, pkgPath)})
-			}
-			for _, r := range runs {
-				esm := esmResults(t, r.runtime, r.module)
-				for _, f := range funcs {
-					n, e := native[f.name], esm[f.name]
-					if !reflect.DeepEqual(n, e) {
-						nj, _ := json.Marshal(n)
-						ej, _ := json.Marshal(e)
-						t.Errorf("%s.%s:\n  native Go: %s\n  %s: %s", pkg, f.name, nj, r.name, ej)
-					}
-				}
-			}
-			t.Logf("%d functions compared", len(funcs))
-		})
+		t.Run(pkg, func(t *testing.T) { golden(t, pkg, bun) })
 	}
+}
+
+// TestGoldenLocalTime compares local times in a time zone with daylight
+// saving time, which Go reads from the tz database and goesm from the host.
+func TestGoldenLocalTime(t *testing.T) {
+	requireNode(t)
+	t.Setenv("TZ", "America/New_York")
+	golden(t, "localtime", hasBun(t))
+}
+
+func golden(t *testing.T, pkg string, bun bool) {
+	dir := testdata("semantics")
+	pkgPath := "example.com/sem/" + pkg
+	funcs := goldenFuncs(t, dir, pkgPath)
+	native := nativeResults(t, dir, pkgPath, funcs)
+	bundle := buildPkg(t, dir, "./"+pkg)
+	runs := []struct{ name, runtime, module string }{{"goesm ESM", "node", bundle}}
+	if bun {
+		// Bun runs the per-package TypeScript as emitted.
+		runs = append(runs, struct{ name, runtime, module string }{"goesm TS (Bun)", "bun", tsEntry(t, bundle, pkgPath)})
+	}
+	for _, r := range runs {
+		esm := esmResults(t, r.runtime, r.module)
+		for _, f := range funcs {
+			n, e := native[f.name], esm[f.name]
+			if !reflect.DeepEqual(n, e) {
+				nj, _ := json.Marshal(n)
+				ej, _ := json.Marshal(e)
+				t.Errorf("%s.%s:\n  native Go: %s\n  %s: %s", pkg, f.name, nj, r.name, ej)
+			}
+		}
+	}
+	t.Logf("%d functions compared", len(funcs))
 }
 
 type goldenFunc struct {

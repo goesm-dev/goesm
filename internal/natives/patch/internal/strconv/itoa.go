@@ -4,7 +4,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// goesm's patch of internal/strconv's itoa.go: base 10 comes from the
+// goesm's patch of internal/strconv's itoa.go: base 10 (also formatBase10,
+// which writes the digits of floats) comes from the
 // engine's number and BigInt formatting (formatDecimal and itoa in
 // runtime/src/natives.ts) instead of formatBase10's arithmetic on uint64,
 // a BigInt under goesm.
@@ -61,6 +62,21 @@ func AppendUint(dst []byte, i uint64, base int) []byte {
 	}
 	dst, _ = formatBits(dst, i, base, false, true)
 	return dst
+}
+
+// formatBase10 formats the decimal representation of u into a.
+// The caller is responsible for ensuring that a is big enough to hold u.
+// If a is too big, leading zeros will be filled in as needed.
+func formatBase10(a []byte, u uint64) {
+	s := formatDecimal(u, false)
+	if len(s) > len(a) {
+		s = s[len(s)-len(a):]
+	}
+	n := len(a) - len(s)
+	for i := range n {
+		a[i] = '0'
+	}
+	copy(a[n:], s)
 }
 
 // formatDecimal returns u in base 10, with a minus sign if neg.

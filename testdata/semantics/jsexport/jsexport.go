@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"example.com/sem/jsexport/registry"
 )
 
 // Weekday is the Japanese name of the day of the week of a date.
@@ -221,3 +223,45 @@ func Parser() func(string) (int, error) {
 }
 
 func Grouper() func([]string) map[int][]string { return Lengths }
+
+// Greeter is an interface JavaScript passes a handle as, though Go never
+// converts the handle's type to it.
+type Greeter interface{ Greet() string }
+
+type Dog struct{ name string }
+
+func NewDog(name string) *Dog { return &Dog{name} }
+func (d *Dog) Greet() string  { return d.name + ": わん" }
+func Greet(g Greeter) string  { return g.Greet() }
+
+// Box is a generic type with methods: the class of its handles is shared by
+// every instantiation, so no exported signature can name one.
+type Box[T any] struct{ v T }
+
+func (b *Box[T]) Get() T  { return b.v }
+func (b *Box[T]) Set(v T) { b.v = v }
+
+// Lookup returns handles inside an `any`, as a lookup table of values of
+// different types does: JavaScript still calls their methods.
+func Lookup(name string) any {
+	switch name {
+	case "box":
+		return &Box[int]{v: 7}
+	case "names":
+		return &Box[[]string]{v: []string{"あ"}}
+	case "registry":
+		// Boxed by another package of the module.
+		return registry.Get()
+	case "boxed":
+		return registry.GetBoxed()
+	case "held":
+		return registry.GetHeld()
+	case "list":
+		return registry.GetList()
+	case "pair":
+		return registry.GetPair()
+	case "outer":
+		return registry.GetOuter()
+	}
+	return nil
+}
