@@ -6,7 +6,11 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 ## Unreleased
 
-Changes on `main` since v0.0.1-beta.5: [v0.0.1-beta.5...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.5...main).
+Changes on `main` since v0.0.1-beta.6: [v0.0.1-beta.6...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.6...main).
+
+## v0.0.1-beta.6
+
+Tagged on 2026-10-17. Changes since v0.0.1-beta.5: [v0.0.1-beta.5...v0.0.1-beta.6](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.5...v0.0.1-beta.6).
 
 ### Blocking analysis
 
