@@ -72,6 +72,9 @@ type Program struct {
 	// boxed are variables that need a Cell because their address is taken
 	// (or, for package variables, because another package assigns them).
 	boxed map[*types.Var]bool
+	// funcVars are the function variables that only hold the functions
+	// listed (funcvars.go).
+	funcVars map[*types.Var][]any
 
 	units []*unit
 	// funcValues are the functions that can be called through a function
@@ -391,6 +394,7 @@ func (p *Program) analyzeBlocking() {
 	p.findPullCalls()
 	p.usesPull = p.usesPullFuncs()
 	p.encls = map[ast.Node]*types.Func{}
+	p.findFuncVars()
 	var units []*unit
 	add := func(u *unit, encl *types.Func) {
 		u.encl = encl
@@ -980,6 +984,11 @@ func (p *Program) classifyFunc(info *types.Info, fun ast.Expr, u *unit) {
 		case *types.Func:
 			u.callees = append(u.callees, obj.Origin())
 			return
+		case *types.Var:
+			if fns, ok := p.funcVars[obj]; ok {
+				u.callees = append(u.callees, fns...)
+				return
+			}
 		}
 	case *ast.SelectorExpr:
 		if sel, ok := info.Selections[f]; ok {
@@ -996,6 +1005,11 @@ func (p *Program) classifyFunc(info *types.Info, fun ast.Expr, u *unit) {
 		} else if obj, ok := info.Uses[f.Sel].(*types.Func); ok {
 			u.callees = append(u.callees, obj.Origin())
 			return
+		} else if v, ok := info.Uses[f.Sel].(*types.Var); ok {
+			if fns, ok := p.funcVars[v]; ok {
+				u.callees = append(u.callees, fns...)
+				return
+			}
 		}
 	}
 	if sig, ok := info.TypeOf(callee).Underlying().(*types.Signature); ok {

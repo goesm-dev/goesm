@@ -8,6 +8,10 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 Changes on `main` since v0.0.1-beta.5: [v0.0.1-beta.5...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.5...main).
 
+### Blocking analysis
+
+- A call of a variable of function type that is only ever assigned function literals, declared functions or nil, and whose address is never taken, blocks only if one of those does. Before, it blocked as soon as any function value of its signature in the program did, so in an app built as one program (gosfc) a Vue component whose setup calls such a variable could become async, and Vue then could not use its setup.
+
 ## v0.0.1-beta.5
 
 Tagged on 2026-10-17. Changes since v0.0.1-beta.4: [v0.0.1-beta.4...v0.0.1-beta.5](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.4...v0.0.1-beta.5).
