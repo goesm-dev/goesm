@@ -120,7 +120,7 @@ export function goToJS(t: Type, v: any, ex = false): any {
     }
     case Kind.Pointer:
       if (v === null) return null;
-      if (ex && isHandle(t)) return v;
+      if (ex && isHandle(t)) return withJSMethods(t, v);
       return goToJS(t.elem!, t.elem!.kind === Kind.Struct || t.elem!.kind === Kind.Array ? v : v.v, ex);
     case Kind.Interface:
       if (v === null) return null;
@@ -143,6 +143,35 @@ export function goToJS(t: Type, v: any, ex = false): any {
 function setProp(o: Record<string, any>, k: string, x: any): void {
   if (k === "__proto__") Object.defineProperty(o, k, { value: x, enumerable: true, writable: true, configurable: true });
   else o[k] = x;
+}
+
+// withJSMethods returns the handle v of pointer type t with its exported
+// methods callable from JavaScript. The lowering gives the classes of the
+// handles an exported signature names their JS methods (emitJSMethods);
+// a handle it could not see coming, such as one held by an `any` or of a
+// generic type (whose class all instantiations share), gets them here, from
+// t's method set, as non-enumerable properties of the object itself, so that
+// its fields and copies stay as they are.
+function withJSMethods(t: Type, v: any): any {
+  if (withMethodsDone.has(v)) return v;
+  withMethodsDone.add(v);
+  const proto = Object.getPrototypeOf(v);
+  for (const [key, m] of t.methods) {
+    // An unexported method's key is qualified by its package path.
+    if (key.includes(".") || key in proto || isFieldName(t.elem!, key)) continue;
+    Object.defineProperty(v, key, {
+      value: goFuncToJS(m.type, (...a: any[]) => m.fn(v, ...a), true),
+      configurable: true,
+      writable: true,
+    });
+  }
+  return v;
+}
+
+const withMethodsDone = /* @__PURE__ */ new WeakSet<object>();
+
+function isFieldName(t: Type, name: string): boolean {
+  return t.fields.some((f) => f.name === name);
 }
 
 // isHandle reports whether the pointer type t crosses to JavaScript as the Go
@@ -422,8 +451,7 @@ export function jsToGo(t: Type, x: any, ex = false, embedding: Type[] | null = n
       if (t.elem!.kind !== Kind.Struct && t.elem!.kind !== Kind.Array) {
         // A *int and the like cross to JavaScript as the value they point
         // to (goToJS), and come back as a pointer to a copy of it.
-        if (ex) return cell(jsToGo(t.elem!, x, ex));
-        break;
+        return cell(jsToGo(t.elem!, x, ex));
       }
       return jsToGo(t.elem!, x, ex, embedding); // a pointer to a struct is the struct object
     case Kind.Interface:

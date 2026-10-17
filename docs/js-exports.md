@@ -31,6 +31,8 @@ try {
 
 The package you build is the one named on the command line, such as `./shop` in `goesm emit-ts ./shop` or `goesm build ./shop`, and the one a `go:` import of gosfc names. Import its module. The modules of the packages it imports are part of the tree too, but they export their functions with Go's own representation of values, for the generated modules that import them.
 
+One program can start from several packages: `goesm emit-ts ./cart ./checkout` (or `goesm build -split`) makes each of them a package you build, with the JS calling ABI above, and lowers the packages they share once. Their modules then share those packages' state, as Go code of one binary does; gosfc builds the components of an app this way.
+
 ## Conversions
 
 | Go | JavaScript |
@@ -77,7 +79,7 @@ cart.Add({ name: "みかん", price: 100 }, { name: "柿", price: 80 });
 cart.Total(); // 180
 ```
 
-The methods of a handle convert their arguments and results like the package's functions. Each method is also a function of the module, `Cart$Add(cart, item)`. A handle of another package's type, such as a `*strings.Builder` an exported function returns, has its exported methods too. The fields of a handle hold Go's own representation (a Go string is not a JS string), so read data through methods and functions, which convert it.
+The methods of a handle convert their arguments and results like the package's functions. Each method is also a function of the module, `Cart$Add(cart, item)`. A handle of another package's type, such as a `*strings.Builder` an exported function returns, has its exported methods too, and so does a handle returned inside an `any`, such as a `*Box[int]` of a generic type from a lookup function returning `any` (its methods are then properties of the object itself, since every instantiation of a generic type shares one class). The fields of a handle hold Go's own representation (a Go string is not a JS string), so read data through methods and functions, which convert it.
 
 A handle, or an object of one of the package's struct classes, passed where an interface is expected is that interface value if its type has the interface's methods.
 

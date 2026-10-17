@@ -100,3 +100,11 @@ export function keys(m: Record<string, number>): string {
 export function throwValue(v: unknown): void {
   throw v;
 }
+
+export function nullable(n: number | null): string | null {
+  return n === null ? null : `n=${n}`;
+}
+
+export function optional(on: boolean): { note: string | null; n?: number } {
+  return on ? { note: "あり", n: 1.5 } : { note: null };
+}

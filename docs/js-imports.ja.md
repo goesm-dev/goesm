@@ -61,6 +61,7 @@ var version string
 | ほかのスライスと配列 | 配列 |
 | `map[string]T` | プレーンなオブジェクト |
 | 構造体と構造体へのポインタ | エクスポートされたフィールドを持つプレーンなオブジェクト。プロパティ名は `encoding/json` と同じく `json` タグの名前かフィールド名。埋め込んだ構造体と構造体へのポインタのフィールドは外側のオブジェクトのプロパティになる |
+| そのほかのポインタ | 指す先の値を変換したもの。nil は `null`。結果では変換したコピーへのポインタになり、`null` と `undefined` は nil |
 | 関数。引数としてのみ渡せる | 関数。その関数の引数と戻り値も同じ規則で変換される |
 | `any` | JavaScript へは動的な値の型に従って変換し、Go へは `encoding/json` が `any` にデコードする形に変換する |
 | 可変長引数 | 個別の引数 |
@@ -99,7 +100,7 @@ if errors.As(err, &jerr) {
 
 ## 制限
 
-- `//goesm:import` を含むパッケージは goesm でしかビルドできません。`go build` は本体のない関数をエラーにします。`go vet` と gopls はそのまま受け付けます。
+- `//goesm:import` を含むパッケージは goesm でしかビルドできません。`go build` と `go vet` は本体のない関数をエラー (`missing function body`) にします。パッケージに空のアセンブリファイル (`goesm.s` など) を置くと、標準ライブラリのアセンブリで実装された関数と同じように、どちらも受け付けます。gopls はどちらの場合も受け付けます。
 - `goesm build` は esbuild でバンドルするので、`.ts`、`.js`、`.mjs` は扱えますが `.vue` は扱えません。Vue コンポーネントは、Vite でビルドする gosfc から使います。
 - Go に返された JavaScript の関数は `js.Value` になり、`Invoke` で呼びます。
 - JavaScript に渡した Go の関数がブロックする場合、つまりスリープやチャネルの待機、`await` を付けた import の呼び出しを含む場合、その関数は JavaScript に Promise を返します。`xs.map(f)` のように結果を await せずに呼ぶ JavaScript のコードは、値の代わりに Promise を受け取ります。

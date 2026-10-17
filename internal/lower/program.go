@@ -136,7 +136,16 @@ type Program struct {
 	// printedMethods are the Error and String methods of the types of
 	// panic values, which the runtime calls to print them (reach.go).
 	printedMethods map[*types.Func]bool
-	reachOnce      sync.Once
+	// storedMethods are the methods of the types stored in interface
+	// values (ifaceImpls), the only ones an interface call can reach
+	// (reach.go).
+	storedMethods map[*types.Func]bool
+	reachOnce     sync.Once
+	// anyHandles are the exported methods of the handles that cross the
+	// entry package's JS calling ABI inside interface values (see
+	// anyHandleMethods); anyHandlesOnce computes them.
+	anyHandles     map[*types.Func]bool
+	anyHandlesOnce sync.Once
 	// unicodeClasses is set when the program may parse \p or \P in a
 	// regular expression (UnicodeClasses).
 	unicodeClasses bool
@@ -150,9 +159,13 @@ type Program struct {
 	// packages (PureEmitter).
 	pureEmitters map[*types.Package]*pkgEmitter
 
-	// Entry is the path of the package a build starts from, whose exported
-	// functions and methods JavaScript calls (Options.Entry); see reach.go.
-	Entry string
+	// Entries are the paths of the packages a build starts from, whose
+	// exported functions and methods JavaScript calls (Options.Entries);
+	// see reach.go.
+	Entries map[string]bool
+
+	importedEntries     map[string]bool
+	importedEntriesOnce sync.Once
 
 	// TracksGoroutines is set when the program uses goroutine-local storage
 	// (runtime.GetTraceContextFromGLS and friends): async functions then
@@ -176,6 +189,56 @@ func (p *Program) errorf(pos token.Pos, format string, args ...any) {
 
 // NewProgram analyses the loaded packages (dependencies first). std is the
 // set of standard library packages.
+// SetEntries sets the entry packages (Options.Entries).
+func (p *Program) SetEntries(paths []string) {
+	p.Entries = map[string]bool{}
+	for _, e := range paths {
+		p.Entries[e] = true
+	}
+}
+
+// ImportedEntry reports whether the entry package path is also imported by
+// another package of the program, as a component's package imports a
+// package that JavaScript imports too. JavaScript calls the exported
+// functions of an entry under their Go names, through wrappers that convert
+// its values (exportWrapper); such an entry also exports the functions
+// themselves, for the Go code importing it, as Name$go, and its exported
+// methods as Type$Method$go (goMethodSuffix).
+func (p *Program) ImportedEntry(path string) bool {
+	p.importedEntriesOnce.Do(func() {
+		p.importedEntries = map[string]bool{}
+		for _, pkg := range p.Pkgs {
+			for _, ip := range pkg.Types.Imports() {
+				if p.Entries[ip.Path()] {
+					p.importedEntries[ip.Path()] = true
+				}
+			}
+		}
+	})
+	return p.importedEntries[path]
+}
+
+// goName is the name Go code of other packages refers to the package-level
+// object obj by: its Go name, or Name$go for an exported function of an
+// imported entry (ImportedEntry).
+func (p *Program) goName(obj types.Object) string {
+	if fn, ok := obj.(*types.Func); ok && fn.Exported() && fn.Signature().TypeParams().Len() == 0 && fn.Signature().Recv() == nil && p.ImportedEntry(fn.Pkg().Path()) {
+		return fn.Name() + "$go"
+	}
+	return obj.Name()
+}
+
+// goMethodSuffix is what the name Go code of other packages calls the
+// method fn by adds to Type$Method: $go for an exported method of an
+// imported entry (ImportedEntry), whose Type$Method is the wrapper
+// JavaScript calls.
+func (p *Program) goMethodSuffix(fn *types.Func) string {
+	if fn.Exported() && fn.Signature().RecvTypeParams().Len() == 0 && p.ImportedEntry(fn.Pkg().Path()) {
+		return "$go"
+	}
+	return ""
+}
+
 func NewProgram(fset *token.FileSet, pkgs []*packages.Package, std map[*packages.Package]bool) *Program {
 	p := &Program{
 		Fset:     fset,
