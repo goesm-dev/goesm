@@ -135,10 +135,12 @@ func lookupLocal(sec int64) (name string, offset int, start, end int64, isDST bo
 			}
 			lo = hi
 		}
-		// Daylight saving time is taken to be the larger offset of the
-		// year: Date does not tell. Zones whose daylight saving time moves
-		// clocks back, as Africa/Casablanca's during Ramadan does, report
-		// IsDST the other way round; their offsets are right.
+		// Date does not tell daylight saving time: it is taken to be an
+		// offset larger than the one half a year before or after, as
+		// daylight saving time that moves clocks forward makes it. Zones
+		// whose daylight saving time moves clocks back in Go's database,
+		// as Europe/Dublin's and Africa/Casablanca's do, report IsDST
+		// differently from Go; their offsets are right.
 		const half = 182 * secondsPerDay
 		s.offset = off
 		s.isDST = off > localOffsetAt(sec-half) || off > localOffsetAt(sec+half)
