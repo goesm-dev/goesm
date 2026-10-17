@@ -1498,13 +1498,33 @@ func (fe *funcEmitter) assignResults(tuple string) string {
 
 // switchStmt lowers a Go switch to case selection followed by a JS switch on
 // the selected case index. Go case expressions are evaluated lazily in source
-// order, and `fallthrough` maps to JS fallthrough.
+// order, and `fallthrough` maps to JS fallthrough. A switch whose cases are
+// all constants of a type JS compares with === is a JS switch on the tag
+// itself.
 func (fe *funcEmitter) switchStmt(s *ast.SwitchStmt, label string) {
 	w := fe.w
 	w.ln("{")
 	w.indent++
 	if s.Init != nil {
 		fe.stmt(s.Init, "")
+	}
+	clauses := s.Body.List
+	if fe.directSwitch(s) {
+		tagT := fe.info.TypeOf(s.Tag)
+		fe.caseBodies(s.Pos(), fe.valueOf(s.Tag, tagT), label, clauses, nil, func(i int) []string {
+			cc := clauses[i].(*ast.CaseClause)
+			if cc.List == nil {
+				return []string{fe.mark(cc) + "default"}
+			}
+			var ls []string
+			for _, e := range cc.List {
+				ls = append(ls, fe.mark(e)+"case "+fe.valueOf(e, tagT))
+			}
+			return ls
+		})
+		w.indent--
+		w.ln("}")
+		return
 	}
 	var tag string
 	var tagT types.Type
@@ -1514,7 +1534,6 @@ func (fe *funcEmitter) switchStmt(s *ast.SwitchStmt, label string) {
 	}
 	c := fe.tmp()
 	w.ln("let %s = -1;", c)
-	clauses := s.Body.List
 	def := -1
 	first := true
 	for i, cl := range clauses {
@@ -1545,12 +1564,43 @@ func (fe *funcEmitter) switchStmt(s *ast.SwitchStmt, label string) {
 			w.ln("else %s = %d;", c, def)
 		}
 	}
-	fe.caseBodies(s.Pos(), c, label, clauses, nil)
+	fe.caseBodies(s.Pos(), c, label, clauses, nil, nil)
 	w.indent--
 	w.ln("}")
 }
 
-func (fe *funcEmitter) caseBodies(pos token.Pos, c, label string, clauses []ast.Stmt, prologue func(i int)) {
+// directSwitch reports whether s is lowered to a JS switch on its tag:
+// every case is a constant of the tag's type, a boolean, string, or number
+// type that is not a BigInt, so that JS's switch compares them as Go's ==
+// does, and the tag is not a constant, whose literal type TypeScript would
+// not compare with the other cases.
+func (fe *funcEmitter) directSwitch(s *ast.SwitchStmt) bool {
+	if s.Tag == nil {
+		return false
+	}
+	if tv, ok := fe.info.Types[s.Tag]; !ok || tv.Value != nil {
+		return false
+	}
+	b, ok := fe.info.TypeOf(s.Tag).Underlying().(*types.Basic)
+	if !ok || b.Info()&(types.IsBoolean|types.IsString|types.IsInteger|types.IsFloat) == 0 {
+		return false
+	}
+	if k, ok := intKind(b); ok && k.big {
+		return false
+	}
+	for _, cl := range s.Body.List {
+		for _, e := range cl.(*ast.CaseClause).List {
+			if tv, ok := fe.info.Types[e]; !ok || tv.Value == nil {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// caseBodies emits a JS switch on c with a case per clause: case i, or the
+// labels labels returns for clause i.
+func (fe *funcEmitter) caseBodies(pos token.Pos, c, label string, clauses []ast.Stmt, prologue func(i int), labels func(i int) []string) {
 	w := fe.w
 	w.ln("%s%sswitch (%s) {", fe.pe.tab.mark(pos), labelPrefix(label), c)
 	w.indent++
@@ -1566,7 +1616,15 @@ func (fe *funcEmitter) caseBodies(pos token.Pos, c, label string, clauses []ast.
 		if cc, ok := cl.(*ast.CommClause); ok && cc.Comm == nil {
 			idx = -1
 		}
-		w.ln("case %d: {", idx)
+		if labels != nil {
+			ls := labels(i)
+			for _, l := range ls[:len(ls)-1] {
+				w.ln("%s:", l)
+			}
+			w.ln("%s: {", ls[len(ls)-1])
+		} else {
+			w.ln("case %d: {", idx)
+		}
 		w.indent++
 		if prologue != nil {
 			prologue(i)
@@ -1676,7 +1734,7 @@ func (fe *funcEmitter) typeSwitchStmt(s *ast.TypeSwitchStmt, label string) {
 			}
 		}
 		fe.defineVar("", obj, val)
-	})
+	}, nil)
 	w.indent--
 	w.ln("}")
 }

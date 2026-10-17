@@ -20,9 +20,13 @@ func TestBundleSize(t *testing.T) {
 		pkg string
 		max int // bytes
 	}{
-		{"./add", 12_000},    // 71 KB when entry modules re-exported the whole runtime as $runtime
-		{"./upper", 70_000},  // 363 KB when unicode's tables and every type were kept
-		{"./sorted", 45_000}, // 133 KB
+		{"./add", 12_000}, // 71 KB when entry modules re-exported the whole runtime as $runtime
+		// 363 KB when unicode's tables and every type were kept, 29 KB
+		// with CaseRanges, which the engine's case mapping does without.
+		{"./upper", 20_000},
+		// 133 KB; 36 KB with slices' pdqsortOrdered, which sort.Ints of
+		// a []int does without.
+		{"./sorted", 28_000},
 		// 158 KB when method tables listed every method and package
 		// variables kept their initializers (internal/cpu, syscall/js).
 		{"./timeonly", 48_000},
