@@ -114,6 +114,8 @@ import { Result } from "./goesm-ts/example.com/app/main.ts";
 console.log(Result()); // 3
 ```
 
+Several packages, `goesm emit-ts ./cart ./checkout`, build as one program whose modules share state ([docs/js-exports.md](docs/js-exports.md)).
+
 To type-check code that imports the tree with `tsc`, enable `allowImportingTsExtensions`. [docs/example-output.md](docs/example-output.md) shows the generated TypeScript and JavaScript.
 
 ### `goesm build`: a bundled ES module

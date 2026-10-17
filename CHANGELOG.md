@@ -6,18 +6,22 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 ## Unreleased
 
-Changes on `main` since v0.0.1-beta.4: [v0.0.1-beta.4...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.4...main).
+Changes on `main` since v0.0.1-beta.5: [v0.0.1-beta.5...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.5...main).
+
+## v0.0.1-beta.5
+
+Tagged on 2026-10-17. Changes since v0.0.1-beta.4: [v0.0.1-beta.4...v0.0.1-beta.5](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.4...v0.0.1-beta.5).
 
 ### JS calling ABI
 
-- A handle that reaches JavaScript inside an `any`, such as a pointer to an instantiation of a generic type returned by a lookup function, has its exported methods, as a handle of a type named in an exported signature does. gosfc reads the `vue.Ref` bindings of a component this way.
+- A handle that reaches JavaScript inside an `any`, such as a pointer to an instantiation of a generic type returned by a lookup function, has its exported methods, as a handle of a type named in an exported signature does; so does a handle inside a slice, map or struct in that `any`, and a handle one of their methods returns. JavaScript can pass any handle where an interface it implements is expected, also when Go never converts its type to that interface. gosfc reads the `vue.Ref` bindings of a component this way.
 - `goesm emit-ts` and `goesm build -split` take several packages and build them as one program: each is an entry with the JS calling ABI, and the packages they share are lowered once, so their modules share state. An entry that another entry imports is called by it as Go code, not through the JavaScript wrappers. gosfc builds all the components of an app as one program this way.
 - A `//goesm:import` function can return a pointer to a non-struct type, such as `*string`: `null` or `undefined` becomes nil, any other value a pointer to it. Parameters take such pointers too.
 - A function made by `js.FuncOf` returns its result directly unless its own Go function blocks. Before, as soon as one function passed to `js.FuncOf` blocked, every one returned a Promise.
 
 ### Standard library
 
-- `time.Local` follows the host's time zone rules: a time on the other side of a daylight saving transition has that side's offset, as a JavaScript `Date` does, instead of the offset at start-up. Zones are named by their offsets, as `UTC-5`.
+- `time.Local` follows the host's time zone rules: a time on the other side of a daylight saving transition has that side's offset, as a JavaScript `Date` does, instead of the offset at start-up. Zones are named by their offsets, as `UTC-5`. `IsDST` reports whether the offset is larger than the one 182 days before or after, which differs from Go's in zones whose daylight saving time moves clocks back, such as Europe/Dublin.
 
 ### Bundle size
 
