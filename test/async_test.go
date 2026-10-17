@@ -36,6 +36,11 @@ func TestAsyncStaysLocal(t *testing.T) {
 			awaitOnly: `instanceof Promise \? await`,
 		},
 		{
+			program: "funcvars",
+			async:   []string{"relay", "waitOne", "main"},
+			sync:    []string{"add", "handle"},
+		},
+		{
 			program: "paramsync",
 			async:   []string{"apply", "twice", "write", "main"},
 			sync:    []string{"label", "count", "digest", "build", "apply$sync", "twice$sync", "write$sync"},
