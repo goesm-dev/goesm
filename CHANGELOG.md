@@ -6,7 +6,11 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 ## Unreleased
 
-Changes on `main` since v0.0.1-beta.4: [v0.0.1-beta.4...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.4...main).
+Changes on `main` since v0.0.1-beta.5: [v0.0.1-beta.5...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.5...main).
+
+## v0.0.1-beta.5
+
+Tagged on 2026-10-17. Changes since v0.0.1-beta.4: [v0.0.1-beta.4...v0.0.1-beta.5](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.4...v0.0.1-beta.5).
 
 ### JS calling ABI
 
@@ -17,7 +21,7 @@ Changes on `main` since v0.0.1-beta.4: [v0.0.1-beta.4...main](https://github.com
 
 ### Standard library
 
-- `time.Local` follows the host's time zone rules: a time on the other side of a daylight saving transition has that side's offset, as a JavaScript `Date` does, instead of the offset at start-up. Zones are named by their offsets, as `UTC-5`. `IsDST` is reversed in zones whose daylight saving offset is the smaller one, such as Dublin.
+- `time.Local` follows the host's time zone rules: a time on the other side of a daylight saving transition has that side's offset, as a JavaScript `Date` does, instead of the offset at start-up. Zones are named by their offsets, as `UTC-5`. `IsDST` reports whether the offset is larger than the one 182 days before or after, which differs from Go's in zones whose daylight saving time moves clocks back, such as Europe/Dublin.
 
 ### Bundle size
 
