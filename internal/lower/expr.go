@@ -1385,6 +1385,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 	if s, ok := fe.jsonCall(e); ok {
 		return s
 	}
+	if s, ok := fe.sortCall(e); ok {
+		return s
+	}
 	if s, ok := fe.jsValueCall(e); ok {
 		return s
 	}

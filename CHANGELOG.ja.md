@@ -6,7 +6,17 @@ goesm の各バージョンの変更点を、新しい順に記載します。�
 
 ## Unreleased
 
-v0.0.1-beta.6 以降に `main` に入った変更です。差分は [v0.0.1-beta.6...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.6...main) で確認できます。
+v0.0.1-beta.7 以降に `main` に入った変更です。差分は [v0.0.1-beta.7...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...main) で確認できます。
+
+## v0.0.1-beta.7
+
+2026-10-17 にタグを付けました。v0.0.1-beta.6 からの差分は [v0.0.1-beta.6...v0.0.1-beta.7](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.6...v0.0.1-beta.7) で確認できます。
+
+### バンドルサイズ
+
+- すべての case が bool、文字列、数値の型 (`int64` と `uint64` を除く) の定数である `switch` は、比較を並べて case の番号を選ぶ代わりに、tag に対する JS の `switch` になりました。
+- ASCII 以外の rune の `unicode.ToUpper` と `ToLower` は engine の `toUpperCase` と `toLowerCase` になりました。engine の完全な対応が複数の rune になる場合は Go の単純な対応を返します。大文字小文字を変換するプログラムに `CaseRanges` (minify 後約 10 KB) が残らなくなりました。engine のものより新しい Unicode のバージョンで追加された大文字と小文字の組は変換しません。
+- 呼び出す場所で要素の型が整数か文字列の型と決まっている `slices.Sort` (`sort.Ints` と `sort.Strings` 経由も含む) の呼び出しは、engine の sort を直接呼ぶようになりました。それだけをソートするプログラムに `slices.Sort` とその pdqsort (minify 後約 7 KB) が残らなくなりました。
 
 ## v0.0.1-beta.6
 

@@ -603,8 +603,38 @@ func (fe *funcEmitter) mayFallOff(list []ast.Stmt) bool {
 		return fe.mayFallOff(s.List)
 	case *ast.IfStmt:
 		return s.Else == nil || fe.mayFallOff(s.Body.List) || fe.mayFallOff([]ast.Stmt{s.Else})
+	case *ast.SwitchStmt:
+		return !fe.jsSwitchEnds(s, "")
+	case *ast.LabeledStmt:
+		if sw, ok := s.Stmt.(*ast.SwitchStmt); ok {
+			return !fe.jsSwitchEnds(sw, s.Label.Name)
+		}
 	}
 	return true
+}
+
+// jsSwitchEnds reports whether s, lowered to a JS switch on its tag
+// (switchStmt), never completes normally in JS's eyes: it has a default
+// clause, every clause returns or falls through to the next, and no break
+// leaves it.
+func (fe *funcEmitter) jsSwitchEnds(s *ast.SwitchStmt, label string) bool {
+	if !fe.directSwitch(s) {
+		return false
+	}
+	def := false
+	for i, cl := range s.Body.List {
+		cc := cl.(*ast.CaseClause)
+		def = def || cc.List == nil
+		if n := len(cc.Body); n > 0 && i < len(s.Body.List)-1 {
+			if b, ok := cc.Body[n-1].(*ast.BranchStmt); ok && b.Tok == token.FALLTHROUGH {
+				continue
+			}
+		}
+		if fe.mayFallOff(cc.Body) {
+			return false
+		}
+	}
+	return def && !breaks(s, label, true)
 }
 
 // recvExpr lowers a receive from ch to a [value, ok] pair.
