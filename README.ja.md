@@ -114,6 +114,8 @@ import { Result } from "./goesm-ts/example.com/app/main.ts";
 console.log(Result()); // 3
 ```
 
+`goesm emit-ts ./cart ./checkout` のように複数のパッケージを渡すと、状態を共有する 1 つのプログラムとしてビルドします ([docs/js-exports.ja.md](docs/js-exports.ja.md))。
+
 ツリーを import するコードを `tsc` で型検査するには `allowImportingTsExtensions` を有効にします。生成される TypeScript と JavaScript は [docs/example-output.ja.md](docs/example-output.ja.md) にあります。
 
 ### `goesm build`: バンドル済みの ES モジュール

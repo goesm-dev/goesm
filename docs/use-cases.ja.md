@@ -97,7 +97,7 @@ Go のコードは、`//goesm:import` で宣言した ES モジュールの関�
 - **HTTP サーバー:** HTTP/2 と gRPC 本来のプロトコル、TLS による `ListenAndServeTLS`、WebSocket と `Hijack`、トレーラー、ハンドラの実行中に読むストリーミングのリクエストボディ、クライアントストリーミングと双方向ストリーミングの RPC、`net.Listener` を渡す `Serve` はまだありません。Connect と gRPC-Web は動きます。
 - **fetch 以外の Workers の機能:** KV、D1、R2、Durable Objects などのバインディングは `syscall/js` を通してしか使えません。`ctx.waitUntil` にはつながっていないので、レスポンスの後も動いている goroutine は止められることがあります。
 - **ネットワークとプロセス:** 生の TCP や UDP に対する `net.Dial` と `net.Listen`、`pgx` や `go-sql-driver/mysql` のように TCP で接続するデータベースドライバ、`os/exec` は使えません。
-- **ブラウザでのタイムゾーン:** ブラウザで `time.LoadLocation` を使うには `import _ "time/tzdata"` が必要です。`time.Local` はホストのタイムゾーンの規則に従うので、JavaScript の `Date` と同じく、夏時間の切り替えをまたいだ時刻にはその時期のオフセットが使われます (Go 自身の js/wasm 移植は起動時のオフセットに固定します)。ゾーン名は `UTC-5` のようにオフセットから付けます。
+- **ブラウザでのタイムゾーン:** ブラウザで `time.LoadLocation` を使うには `import _ "time/tzdata"` が必要です。`time.Local` はホストのタイムゾーンの規則に従うので、JavaScript の `Date` と同じく、夏時間の切り替えをまたいだ時刻にはその時期のオフセットが使われます (Go 自身の js/wasm 移植は起動時のオフセットに固定します)。ゾーン名は `UTC-5` のようにオフセットから付けます。`IsDST` は 1 年のうち大きい方のオフセットを夏時間とみなすので、夏のオフセットの方が小さいゾーン (ダブリン、ラマダン中のカサブランカ) では逆になります。
 - **64 ビットの `int` と `uint`:** 2^53 未満では正確ですが、オーバーフローしても折り返しません。`int64` と `uint64` は正確です。
 - **並列実行:** goroutine は 1 本の JavaScript スレッドを共有し、待つ箇所でだけ切り替わります。これは `GOMAXPROCS=1` でプリエンプションのない Go と同じです。待たずに長く計算する Go のコードは、他の goroutine、タイマー、リクエストを待たせます。`runtime.Gosched` を呼ばずにフラグをポーリングするコードは止まったままになります。並列に動かす処理は Worker に切り出します。実行モデル、データ競合、メモリ安全性は [docs/concurrency.ja.md](concurrency.ja.md) にまとめています。
 - **panic:** goroutine の中で誰も recover しない panic は、Go と同じくプロセスを終了させます。Go のコードが Next.js のような Node.js のサーバーにライブラリとして組み込まれている場合も同じです。`js.FuncOf` のコールバックの中の panic は、呼び出し元ではなく `reportError` に渡ります。

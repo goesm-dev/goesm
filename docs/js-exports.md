@@ -79,7 +79,7 @@ cart.Add({ name: "みかん", price: 100 }, { name: "柿", price: 80 });
 cart.Total(); // 180
 ```
 
-The methods of a handle convert their arguments and results like the package's functions. Each method is also a function of the module, `Cart$Add(cart, item)`. A handle of another package's type, such as a `*strings.Builder` an exported function returns, has its exported methods too, and so does a handle returned inside an `any`, such as a `*Box[int]` of a generic type from a lookup function returning `any` (its methods are then properties of the object itself, since every instantiation of a generic type shares one class). The fields of a handle hold Go's own representation (a Go string is not a JS string), so read data through methods and functions, which convert it.
+The methods of a handle convert their arguments and results like the package's functions. Each method is also a function of the module, `Cart$Add(cart, item)`. A handle of another package's type, such as a `*strings.Builder` an exported function returns, has its exported methods too, and so does a handle returned inside an `any`, such as a `*Box[int]` of a generic type from a lookup function returning `any` (its methods are then properties of the object itself, since every instantiation of a generic type shares one class), a handle inside a slice, map or struct in such an `any`, and a handle that a method of one of these returns. The fields of a handle hold Go's own representation (a Go string is not a JS string), so read data through methods and functions, which convert it.
 
 A handle, or an object of one of the package's struct classes, passed where an interface is expected is that interface value if its type has the interface's methods.
 
