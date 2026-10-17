@@ -286,6 +286,26 @@ export function native$strings$lowerASCII(s: string): string {
   return l;
 }
 
+// unicode.ToUpper and ToLower beyond ASCII (see the unicode patch). The
+// engine's mapping is the full one: where it gives several runes, Go's simple
+// mapping is the rune itself, except for U+0130 (to i) and the Greek letters
+// with ypogegrammeni (to the ones with prosgegrammeni).
+export function native$unicode$lowerRune(r: number): number {
+  if (r < 0 || r > 0x10ffff) return r;
+  const l = String.fromCodePoint(r).toLowerCase();
+  const c = l.codePointAt(0)!;
+  if (l.length === (c > 0xffff ? 2 : 1)) return c;
+  return r === 0x130 ? 0x69 : r;
+}
+export function native$unicode$upperRune(r: number): number {
+  if (r < 0 || r > 0x10ffff) return r;
+  const u = String.fromCodePoint(r).toUpperCase();
+  const c = u.codePointAt(0)!;
+  if (u.length === (c > 0xffff ? 2 : 1)) return c;
+  if (r >= 0x1f80 && r <= 0x1faf && (r & 15) < 8) return r + 8;
+  return r === 0x1fb3 || r === 0x1fc3 || r === 0x1ff3 ? r + 9 : r;
+}
+
 // slices.Sort of integers and strings (see the slices patch). A Go string's
 // code units are its bytes, so the default sort's order is Go's; integers
 // are sorted as numbers in a typed array, an Int32Array when they fit, which

@@ -6,7 +6,17 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 ## Unreleased
 
-Changes on `main` since v0.0.1-beta.6: [v0.0.1-beta.6...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.6...main).
+Changes on `main` since v0.0.1-beta.7: [v0.0.1-beta.7...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...main).
+
+## v0.0.1-beta.7
+
+Tagged on 2026-10-17. Changes since v0.0.1-beta.6: [v0.0.1-beta.6...v0.0.1-beta.7](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.6...v0.0.1-beta.7).
+
+### Bundle size
+
+- A `switch` whose cases are all constants of a boolean, string or number type (not `int64` or `uint64`) is a JS `switch` on the tag, instead of a chain of comparisons selecting a case index.
+- `unicode.ToUpper` and `ToLower` beyond ASCII are the engine's `toUpperCase` and `toLowerCase` of the rune, with Go's simple mapping where the engine's full mapping gives several runes. A program that converts case no longer keeps `CaseRanges`, about 10 KB minified. A case pair added in a later Unicode version than the engine's is left unmapped.
+- A call of `slices.Sort` (also through `sort.Ints` and `sort.Strings`) whose element type is an integer or string type where it is called goes to the engine's sort directly. A program that sorts only those no longer keeps `slices.Sort` and its pdqsort, about 7 KB minified.
 
 ## v0.0.1-beta.6
 

@@ -1,7 +1,8 @@
 // Command sortbuiltin covers slices.Sort of integers and strings, which the
 // runtime sorts with the engine's sort (native$slices$sortBuiltin): whole
 // backing arrays and sub-slices, integers that fit 32 bits and ones that do
-// not, and the kinds with their own typed arrays.
+// not, the kinds with their own typed arrays, and named types and type
+// parameters as the element type.
 package main
 
 import (
@@ -55,9 +56,20 @@ func main() {
 	slices.Sort(u64)
 	fmt.Println(u64)
 
+	type id int
+	ids := []id{3, 1, 2}
+	slices.Sort(ids)
+	fmt.Println(ids, sortAny([]string{"b", "a"}), sortAny([]float64{2, math.NaN(), -1}))
+
 	var none []int
 	slices.Sort(none)
 	one := []string{"x"}
 	slices.Sort(one)
 	fmt.Println(none, one)
+}
+
+// sortAny calls slices.Sort with a type parameter as the element type.
+func sortAny[E int | string | float64](x []E) []E {
+	slices.Sort(x)
+	return x
 }
