@@ -6,7 +6,11 @@ goesm の各バージョンの変更点を、新しい順に記載します。�
 
 ## Unreleased
 
-v0.0.1-beta.4 以降に `main` に入った変更です。差分は [v0.0.1-beta.4...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.4...main) で確認できます。
+v0.0.1-beta.5 以降に `main` に入った変更です。差分は [v0.0.1-beta.5...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.5...main) で確認できます。
+
+## v0.0.1-beta.5
+
+2026-10-17 にタグを付けました。v0.0.1-beta.4 からの差分は [v0.0.1-beta.4...v0.0.1-beta.5](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.4...v0.0.1-beta.5) で確認できます。
 
 ### JS 呼び出しの ABI
 
@@ -17,7 +21,7 @@ v0.0.1-beta.4 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### 標準ライブラリ
 
-- `time.Local` がホストのタイムゾーンの規則に従うようになりました。JavaScript の `Date` と同じく、夏時間の切り替えをまたいだ時刻には、起動時のオフセットではなくその時期のオフセットが使われます。ゾーン名は `UTC-5` のようにオフセットから付けます。夏時間のオフセットの方が小さいゾーン (ダブリンなど) では `IsDST` が逆になります。
+- `time.Local` がホストのタイムゾーンの規則に従うようになりました。JavaScript の `Date` と同じく、夏時間の切り替えをまたいだ時刻には、起動時のオフセットではなくその時期のオフセットが使われます。ゾーン名は `UTC-5` のようにオフセットから付けます。`IsDST` は 182 日前か 182 日後のオフセットより大きいかどうかを返すので、Europe/Dublin のように時計を戻す夏時間のゾーンでは Go と異なります。
 
 ### バンドルサイズ
 
