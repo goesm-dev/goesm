@@ -9,10 +9,12 @@ func g(c chan int)
 //goesm:import missing quotes
 func h()
 
+type T struct{}
+
 //goesm:import "./jsimport.go" k
-func k() {}
+func (T) k() {}
 
 //goesm:import "./jsimport.go" V
 var V complex128
 
-func Use() { f(); g(nil); h(); k() }
+func Use() { f(); g(nil); h(); T{}.k() }

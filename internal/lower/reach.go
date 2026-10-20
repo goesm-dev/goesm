@@ -108,6 +108,7 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 	p.calledMethods = map[string][]ifaceMethod{}
 	p.printedMethods = map[*types.Func]bool{}
 	p.unicodeClasses, p.regexpGo = false, false
+	p.reachedFuncs = map[string]bool{}
 	type body struct {
 		node ast.Node
 		info *types.Info
@@ -147,6 +148,9 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 	seen := map[*types.Func]bool{}
 	use := func(fn *types.Func) {
 		fn = fn.Origin()
+		if !leftOut[fn.FullName()] {
+			p.reachedFuncs[fn.FullName()] = true
+		}
 		if fn.FullName() == "(*regexp.Regexp).UnmarshalText" {
 			p.unicodeClasses = true
 		}
