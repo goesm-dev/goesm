@@ -1536,7 +1536,7 @@ export function native$syscall$js$valueDelete(v: any, p: string): void {
 }
 
 export function native$syscall$js$valueIndex(v: any, i: number): any {
-  return toRef(Reflect.get(fromRef(v), i));
+  return toRef(fromRef(v)[i]);
 }
 
 export function native$syscall$js$valueSetIndex(v: any, i: number, x: any): void {
@@ -1578,18 +1578,14 @@ export function native$syscall$js$valueLength(v: any): number {
   return Number(fromRef(v).length);
 }
 
-// isObject reports whether x has properties of its own, as Value.Call
-// requires: Go's syscall/js reads the method with Reflect.get, which throws
-// for primitives, and Call panics with a ValueError for them.
-function isObject(x: any): boolean {
-  return (typeof x === "object" && x !== null) || typeof x === "function";
-}
-
+// Value.Call calls a method of any value but undefined and null, a
+// primitive's being its wrapper object's, as in JavaScript; Go's syscall/js
+// panics with a ValueError for primitives.
 export function native$syscall$js$valueCall(v: any, m: string, args: S<Iface | null>, valueOf: (x: Iface | null) => any): [any, boolean] {
   const a = jsArgs(args, valueOf);
   try {
     const o = fromRef(v);
-    if (!isObject(o)) return [undefined, false];
+    if (o == null) return [undefined, false];
     const f = native$syscall$js$valueGet(v, m);
     return [toRef(Reflect.apply(fromRef(f), o, a)), true];
   } catch (e) {
@@ -1620,8 +1616,8 @@ export function native$syscall$js$valueNew(v: any, args: S<Iface | null>, valueO
 export function native$syscall$js$valueCallJS(v: any, name: string, args: any[]): [any, boolean] {
   try {
     const o = fromRef(v);
-    if (!isObject(o)) return [undefined, false];
-    const f = o === globalThis ? fromRef(native$syscall$js$valueGetJS(v, name)) : o[name];
+    if (o == null) return [undefined, false];
+    const f = o[name];
     return [toRef(Reflect.apply(f, o, args)), true];
   } catch (e) {
     return jsThrown(e);
