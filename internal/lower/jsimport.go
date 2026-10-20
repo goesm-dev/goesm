@@ -423,6 +423,10 @@ func (pe *pkgEmitter) fromJSExpr(t types.Type, x string) string {
 			return "$jsabi.jsInt(" + x + ")"
 		}
 	}
+	if n, ok := types.Unalias(t).(*types.Named); ok && isJSValue(t) && n.Obj().Name() == "Value" {
+		// jsToGo would bring the whole converter into the bundle for it.
+		return "new " + pe.structClass(t) + "($rt.noElems, $rt.toRef(" + x + "))"
+	}
 	return "$jsabi.jsToGo(" + pe.typeDesc(t, tpScope{}) + ", " + x + ")"
 }
 

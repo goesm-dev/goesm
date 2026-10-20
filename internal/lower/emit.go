@@ -120,6 +120,7 @@ type pkgEmitter struct {
 
 	typeConsts  typeutil.Map      // types.Type -> hoisted descriptor const name
 	zeroConsts  map[string]string // zero value expression -> hoisted zero function
+	strConsts   map[string]string // string constant -> hoisted const (strLit)
 	anonStructs typeutil.Map      // *types.Struct -> class name
 	localTypes  map[*types.TypeName]string
 	localGen    map[*types.TypeName]int // gc's numbering of local types
@@ -208,6 +209,7 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 		imports:    map[*types.Package]string{},
 		localTypes: map[*types.TypeName]string{},
 		zeroConsts: map[string]string{},
+		strConsts:  map[string]string{},
 		localGen:   map[*types.TypeName]int{},
 		classes:    newWriter(tab),
 		phase1:     newWriter(tab),
@@ -655,6 +657,7 @@ func modFileName(path string) string {
 func (pe *pkgEmitter) emitVars(files []*ast.File) {
 	scope := pe.pkg.Types.Scope()
 	fe := pe.newFuncEmitter(pe.vars, nil)
+	fe.once = true
 	embeds := embedDirectives(files, pe.info)
 	// A variable whose initializer has no side effects is declared with it,
 	// as a pure expression, so that bundlers drop the unused ones (most of

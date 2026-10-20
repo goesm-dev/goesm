@@ -8,6 +8,17 @@ goesm の各バージョンの変更点を、新しい順に記載します。�
 
 v0.0.1-beta.7 以降に `main` に入った変更です。差分は [v0.0.1-beta.7...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...main) で確認できます。
 
+### バンドルサイズ
+
+- 日本語など ASCII 以外の文字を含む文字列定数は、1 バイトごとの `\x` エスケープではなく、その文字列の JS の文字列 literal になりました。Go のバイト列への変換は module を読み込むときに 1 回だけ行います。`syscall/js` の呼び出しに渡す文字列は変換せずにそのまま渡します。`goesm build` はこうした文字を `\u` エスケープではなく UTF-8 で書き出します。日本語のメッセージを 300 件持つパッケージは、minify 後 62.0 KB から 27.5 KB に、gzip 後 8.1 KB から 7.5 KB になりました。
+- `js.Value` を返す `//goesm:import` 関数は、JS の値を Go の値に変換する converter を通さずに値を直接包むようになりました。そうした関数だけを import するプログラムに converter が残らなくなりました。
+- `syscall` は host の `fs`、`process`、`path` を runtime から 1 回だけ受け取り、`js.Value.Get` は単なるプロパティの読み出しになりました。これまでは `Get` のたびにこの 3 つの名前を確認していました。
+- `time` は、`time.LoadLocation` などでタイムゾーンのデータを読み込むプログラムにだけ、タイムゾーンの規則の文字列 (最後の遷移より後の TZ 文字列) の parser を残すようになりました。
+- bitSize が 64 で書式が定数の `'e'`、`'E'`、`'f'`、`'g'`、`'G'` である `strconv.FormatFloat` と `AppendFloat` の呼び出し、および bitSize が 64 の `strconv.ParseFloat` の呼び出しは、engine の数値の書式化と解析で変換し、Go と同じ結果を返すようになりました (約 17,000 件で Go と比較しました)。こうした float だけを変換するプログラムに、`strconv` の float 変換とその表 (minify 後約 25 KB) が残らなくなりました。
+- `strings.Replacer` は、古い文字列を並べた 1 つの JS の `RegExp` になりました。空の古い文字列を含め、照合の順序は Go と同じです。これを使うプログラムに Go の trie と byte の replacer が残らなくなりました。
+
+これらにより、richinosan/toolbox の Image アプリは gzip 後 92.1 KB から 79.3 KB に、Calendar アプリは 31.5 KB から 30.4 KB になりました。
+
 ## v0.0.1-beta.7
 
 2026-10-17 にタグを付けました。v0.0.1-beta.6 からの差分は [v0.0.1-beta.6...v0.0.1-beta.7](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.6...v0.0.1-beta.7) で確認できます。

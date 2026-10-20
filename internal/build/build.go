@@ -282,6 +282,9 @@ func Build(opts Options) (*Result, error) {
 		MinifyWhitespace:  opts.Minify,
 		MinifyIdentifiers: opts.Minify,
 		MinifySyntax:      opts.Minify,
+		// Text in string literals (strLit in internal/lower) stays as it
+		// is: escaped, a kanji takes 6 bytes instead of 3.
+		Charset: api.CharsetUTF8,
 		// Packages that //goesm:import imports by name come from the
 		// node_modules of the Go module's directory and its parents, as
 		// for a file there; the TypeScript is in a temporary directory.

@@ -294,6 +294,13 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 				return true
 			}
 			use(fn)
+			if fn.FullName() == "strconv.ParseFloat" {
+				// The lowering may call the patch's parseFloat64 instead
+				// (strconvcall.go).
+				if h, ok := fn.Pkg().Scope().Lookup("parseFloat64").(*types.Func); ok {
+					use(h)
+				}
+			}
 			if pkg := fn.Pkg(); pkg != nil && pkg.Path() == "fmt" && (fn.Name() == "Sprintf" || fn.Name() == "Errorf") {
 				// The lowering of these calls calls fmt's helpers
 				// (sprintf.go).

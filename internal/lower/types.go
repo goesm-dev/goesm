@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 var jsReserved = map[string]bool{}
@@ -75,6 +76,44 @@ func jsString(s string) string {
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+// strLit renders the string constant s. A string with non-ASCII text in
+// UTF-8 is written as the characters it holds and converted to goesm's
+// string representation once, when the module is loaded: "日本" takes 6
+// bytes in a JS file that way, while jsString writes its bytes as
+// \xe6\x97\xa5\xe6\x9c\xac (24 bytes, or 12 once a bundler writes them as
+// Latin-1 characters). In code that runs once, the package's variable
+// initialisers, the conversion is written in place: a const per string
+// costs more after gzip than the conversions it saves there.
+func (fe *funcEmitter) strLit(s string) string {
+	pe := fe.pe
+	if !textString(s) {
+		return jsString(s)
+	}
+	if name, ok := pe.strConsts[s]; ok {
+		return name
+	}
+	if fe.once {
+		return "$rt.fromJSString(" + jsStringLit(s) + ")"
+	}
+	name := pe.fresh("s")
+	pe.strConsts[s] = name
+	pe.consts.ln("const %s = /* @__PURE__ */ $rt.fromJSString(%s);", name, jsStringLit(s))
+	return name
+}
+
+// textString reports whether s is valid UTF-8 with enough non-ASCII bytes
+// (two characters outside Latin-1, or three in it) for strLit to write it
+// as characters rather than bytes.
+func textString(s string) bool {
+	n := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			n++
+		}
+	}
+	return n >= 6 && utf8.ValidString(s)
 }
 
 // jsPropString renders a property name as a JS string literal of its code

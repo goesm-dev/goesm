@@ -468,7 +468,7 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 		pe.initObjs = append(pe.initObjs, fn)
 	default:
 		name = pe.funcDeclName(fd, fn)
-		if (fn.Exported() || isFmtHelper(fn)) && !wrap {
+		if (fn.Exported() || isLoweringHelper(fn)) && !wrap {
 			pe.export(name, fn.Name())
 		}
 		if g := pe.prog.goName(fn); g != fn.Name() {
