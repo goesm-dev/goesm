@@ -70,6 +70,10 @@ type Module struct {
 	TS     string // TypeScript source including an inline source map
 	Map    []byte // generated TS -> .go source map (also inlined in TS)
 	Native bool   // false: nothing to emit (e.g. package unsafe)
+	// DTS declares the JS calling ABI of an entry package's module, its
+	// exported functions and handle classes, as a TypeScript declaration
+	// file (goesm emit-ts -dts); "" for other packages.
+	DTS string
 	// Files are the JS and TS files the module imports for //goesm:import
 	// directives, by absolute path (see JSImportSpecifier).
 	Files []string
@@ -134,6 +138,8 @@ type pkgEmitter struct {
 	withBody                                     map[*types.Func]bool     // the entry package's methods that get wrappers
 	usesJSABI                                    bool                     // an export wrapper uses $jsabi
 	jsMethods                                    []string                 // statements giving classes their JS methods ($jsm)
+	dtsFuncs                                     []string                 // the exported functions' declarations in DTS
+	dts                                          bool                     // jsTS renders types for DTS
 	noCopy                                       map[*types.TypeName]bool // uncopied, once computed
 
 	lastPos token.Pos
@@ -647,6 +653,7 @@ func (pe *pkgEmitter) emit() *Module {
 		Map:    sm.JSON(file),
 		Native: true,
 		Files:  pe.jsFiles,
+		DTS:    pe.moduleDTS(),
 	}
 }
 
