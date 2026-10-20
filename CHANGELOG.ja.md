@@ -6,7 +6,11 @@ goesm の各バージョンの変更点を、新しい順に記載します。�
 
 ## Unreleased
 
-v0.0.1-beta.7 以降に `main` に入った変更です。差分は [v0.0.1-beta.7...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...main) で確認できます。
+v0.0.1-beta.8 以降に `main` に入った変更です。差分は [v0.0.1-beta.8...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.8...main) で確認できます。
+
+## v0.0.1-beta.8
+
+2026-10-21 にタグを付けました。v0.0.1-beta.7 からの差分は [v0.0.1-beta.7...v0.0.1-beta.8](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...v0.0.1-beta.8) で確認できます。
 
 ### JS calling ABI
 
