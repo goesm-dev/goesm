@@ -12,6 +12,7 @@ goesm runs goroutines as Go does with `GOMAXPROCS=1`, without preemption. Code t
 - `runtime.GOMAXPROCS` returns 1 whatever its argument is and changes nothing. `runtime.NumCPU` returns 1, and `runtime.LockOSThread` has no effect. `runtime.Gosched` lets the other runnable goroutines run first, and then the host's timers and I/O callbacks that are due.
 - An exported function that may wait returns a Promise to JavaScript. Other JavaScript code runs while the function waits, so two calls in flight interleave as two goroutines do.
 - When every goroutine waits and the host has nothing left to do, Node.js and Bun end the program with Go's `fatal error: all goroutines are asleep - deadlock!`. A browser has no process to end, so the waiting goroutines simply stay blocked.
+- A panic that nothing recovers ends the program under Node.js and Bun, as in Go: the panic goes to standard error and the process exits with status 2. A browser has no process to end, so the panic is reported as an uncaught error, like an exception thrown in an event handler, and the rest of the program keeps running: other goroutines, timers and the functions made by `js.FuncOf`. Only the goroutine that panicked stops, after running its deferred calls. A goroutine that served others, such as one that reads events from a channel in a loop, no longer serves them, and a `sync.Mutex` it locked without `defer mu.Unlock()` stays locked.
 
 ## Data races
 
