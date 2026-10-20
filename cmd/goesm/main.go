@@ -1,7 +1,7 @@
 // Command goesm builds Go packages into ES modules.
 //
 //	goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-overlay file] [-toolexec cmd] [-v] ./main
-//	goesm emit-ts [-o dir] [-overlay file] [-toolexec cmd] [-v] ./main
+//	goesm emit-ts [-o dir] [-dts] [-overlay file] [-toolexec cmd] [-v] ./main
 //	goesm version
 //
 // Arguments are ordinary Go package patterns resolved by the go command.
@@ -24,7 +24,7 @@ import (
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
   goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-overlay file] [-toolexec cmd] [-v] <package>...
-  goesm emit-ts [-o dir] [-overlay file] [-toolexec cmd] [-v] <package>...
+  goesm emit-ts [-o dir] [-dts] [-overlay file] [-toolexec cmd] [-v] <package>...
   goesm version`)
 	os.Exit(2)
 }
@@ -70,6 +70,7 @@ func main() {
 		ov := fs.String("overlay", "", "read file replacements from this JSON file (go build -overlay format)")
 		tx := fs.String("toolexec", "", toolexecUsage)
 		verbose := fs.Bool("v", false, "list standard library functions that are not supported yet")
+		dts := fs.Bool("dts", false, "also write a declaration file (.d.ts) of each package's JS calling ABI")
 		fs.Parse(os.Args[2:])
 		if fs.NArg() == 0 {
 			usage()
@@ -85,6 +86,11 @@ func main() {
 		warn(l.Warnings, *verbose)
 		if err := build.WriteTS(*out, l.Mods); err != nil {
 			fail(err)
+		}
+		if *dts {
+			if err := build.WriteDTS(*out, l.Mods); err != nil {
+				fail(err)
+			}
 		}
 		for _, m := range l.Mods {
 			fmt.Println(filepath.Join(*out, filepath.FromSlash(lower.ModuleFile(m.Path))))

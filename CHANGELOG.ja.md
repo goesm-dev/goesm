@@ -13,6 +13,8 @@ v0.0.1-beta.7 以降に `main` に入った変更です。差分は [v0.0.1-beta
 - `//goesm:import` の関数には `{ panic("goesm:import") }` のような本体を書けるようになりました。goesm はその本体を取り込んだ関数に置き換えます。空のアセンブリファイルがなくても、`go build` と `go vet` がパッケージを受け付けます。
 - 別のパッケージの struct 型へのポインタを引数に取る関数を export し、その型のメソッドが同じ型へのポインタを返す場合、entry はその型に JS のメソッドを 2 回付けていたため、esbuild が「The symbol ... has already been declared」で拒否していました。1 回だけ付けるようになりました。
 - `//goesm:import "<モジュール>" <エクスポート名> lazy` は、関数を最初に呼んだ時点で動的な `import()` によってモジュールを読み込みます。バンドラーはそのモジュールを別のチャンクに分けます。関数は `await` の import と同じくブロックします ([docs/js-imports.ja.md](docs/js-imports.ja.md#ディレクティブ))。
+- Go から JavaScript に渡す nil のスライスとマップは、`null` ではなく空の配列、`Uint8Array`、オブジェクト、`Map` になりました。対象は、export した関数の戻り値と `//goesm:import` の関数の引数です。JavaScript のコードが返す値と同じ形であり、戻り値の型からも `| null` がなくなりました。JavaScript からは、これまでどおり `null` も渡せます。
+- `js` の struct タグで、JavaScript でのフィールド名を `json` タグより優先して指定できるようになりました。`` ID int `json:"id" js:"ID"` `` は JavaScript では `ID` になり、`js:"-"` を付けたフィールドは JavaScript に渡りません。
 
 ### syscall/js
 
@@ -21,6 +23,7 @@ v0.0.1-beta.7 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### ツール
 
+- `goesm emit-ts -dts` は、ビルドしたパッケージのエクスポートの宣言ファイル `<パッケージ>.d.ts` も書き出します。このファイルはほかのファイルを import しません ([docs/js-exports.ja.md](docs/js-exports.ja.md#typescript))。
 - goesm がまだ変換できない関数の警告は、プログラムの起点から到達できるコードが呼び得る関数だけを数え、`-v` なしでも名前を表示するようになりました。`-v` を付けると、それぞれの位置と理由も表示します。これまでは `fmt` で出力するプログラムに対して、呼ばれることのない `internal/abi` と `internal/bytealg` の 19 個の関数について警告していました。
 
 ### regexp

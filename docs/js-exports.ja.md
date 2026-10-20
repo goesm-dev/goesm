@@ -40,11 +40,11 @@ try {
 | `bool`、`int`、`float64` などの数値 | boolean、number。変換せずにそのまま渡す |
 | `int64`、`uint64` | bigint。引数には number も渡せる |
 | `string` | string |
-| `[]byte` | `Uint8Array`。引数には数値の配列も渡せる |
-| その他のスライスと配列 | 配列 |
-| `map[string]T` | プレーンオブジェクト |
-| その他のマップ | `Map` |
-| 構造体 | エクスポートされたフィールドを持つプレーンオブジェクト。名前は `encoding/json` と同じく、`json` タグの名前かフィールド名になる。埋め込んだ構造体のフィールドは外側のオブジェクトのフィールドになる。引数で省いたフィールドはゼロ値になる |
+| `[]byte` | `Uint8Array`。引数には数値の配列も渡せる。nil のスライスは空の `Uint8Array` になり、引数には `null` も渡せる |
+| その他のスライスと配列 | 配列。nil のスライスは空の配列になり、引数には `null` も渡せる |
+| `map[string]T` | プレーンオブジェクト。nil のマップは空のオブジェクトになり、引数には `null` も渡せる |
+| その他のマップ | `Map`。nil のマップは空の `Map` になり、引数には `null` も渡せる |
+| 構造体 | エクスポートされたフィールドを持つプレーンオブジェクト。名前は `js` タグがあればその名前、なければ `encoding/json` と同じく `json` タグの名前かフィールド名になる。埋め込んだ構造体のフィールドは外側のオブジェクトのフィールドになる。引数で省いたフィールドはゼロ値になる |
 | メソッドを持つ構造体型へのポインタ | Go のオブジェクトそのもの。ハンドルとして扱う (後述) |
 | その他のポインタ | 指す先の値を変換したもの。nil は `null`。引数では、変換した値のコピーを指すポインタになる |
 | `error` | 最後の戻り値の `error` は例外として投げる (後述)。それ以外の位置では `GoError` か `null` |
@@ -124,6 +124,20 @@ export default { fetch: Handler() };
 ## TypeScript
 
 エクスポートには、変換表の JavaScript の型が付きます。たとえば `Total(items: Array<{ name?: string; price?: number }> | null): number` のようになり、ハンドルにはそのクラスの型が、ブロックする関数には Promise の型が付きます。引数の型が違う呼び出しは TypeScript がエラーにします。
+
+`goesm emit-ts -dts` は、エクスポートの宣言ファイルもモジュールの隣に書き出します。たとえば `shop.ts` に対しては `goesm-ts/example.com/app/shop.d.ts` を書き出します。このファイルは、エクスポートされた関数を Go の引数名で宣言し、ハンドルのクラスをそのメソッドとともに宣言します。ほかのファイルを import しないので、gosfc の `go:` の import のように、生成されたモジュールを読まないツールからも使えます。
+
+```ts
+export class Cart {
+  private constructor();
+  Add(it: { name?: string; price?: number }): void;
+  Items(): Array<{ name: string; price: number }>;
+}
+export function NewCart(): Cart | null;
+export function Total(items: Array<{ name?: string; price?: number }> | null): number;
+```
+
+戻り値のスライスとマップの型には `null` が付きません。nil のスライスとマップは、JavaScript では空になるからです。`js` タグを付けたフィールドは、その名前になります。たとえば `` ID int `json:"id" js:"ID"` `` は、JavaScript では `ID`、JSON では `id` になります。`js:"-"` を付けたフィールドは JavaScript に渡りません。
 
 ## 性能
 
