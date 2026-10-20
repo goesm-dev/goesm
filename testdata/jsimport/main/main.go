@@ -214,6 +214,7 @@ func main() {
 
 	syscallJS()
 	promises()
+	compat()
 
 	// A Promise returned to a function declared without await panics.
 	for _, f := range []func(){
