@@ -27,12 +27,13 @@ func Label(price int) string {
 `//goesm:import` precedes a function declared without a body (or with one goesm ignores, see [Limitations](#limitations)), or a package variable declared without a value:
 
 ```go
-//goesm:import "<module>" [<export>] [await]
+//goesm:import "<module>" [<export>] [await | lazy]
 ```
 
 - **module** is an import specifier. A path starting with `./` or `../` is relative to the Go file and must exist; goesm writes it into the generated module relative to where that module is. Anything else, such as `chart.js`, names a package: `goesm build` looks for it in the `node_modules` directories of the directory it runs in and of its parents, and the output of `goesm emit-ts` keeps the specifier for your bundler. A module built into the JavaScript runtime, such as `node:path`, `bun:sqlite` or `cloudflare:sockets`, stays an import in the output of `goesm build` and is resolved where the output runs.
 - **export** is the name of the export. `default`, or nothing, imports the default export, and `*` the module namespace object.
 - **await** marks a function that returns a Promise. Go calls it as a function that blocks until the Promise settles, like a channel receive, so the functions calling it become asynchronous in JavaScript too. A function that returns a Promise needs `await`: without it, the call panics when the Promise comes back. The Promise is kept only for a `js.Value` result, and is left running for a function without results.
+- **lazy** imports the module on the first call of the function instead of when the program starts, with a dynamic `import()`, which bundlers such as Vite and esbuild split into a chunk of its own. A lazy function is called like an `await` function, and the module is imported once for all functions naming it. With `*` the function takes no parameters and returns the module namespace object as a `js.Value`.
 
 ```go
 //goesm:import "chart.js" Chart
@@ -43,6 +44,9 @@ func fetchUser(id string) (User, error)
 
 //goesm:import "./config.ts" VERSION
 var version string
+
+//goesm:import "./pdf.ts" renderPDF lazy
+func renderPDF(doc js.Value) (js.Value, error) // pdf.ts loads on the first call
 ```
 
 A package variable is initialized before the package's other variables, from the value the module exports when the Go package is initialized.

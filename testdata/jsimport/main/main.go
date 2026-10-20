@@ -213,6 +213,7 @@ func main() {
 	fmt.Println(extname("/a/b/c.txt"))
 
 	syscallJS()
+	promises()
 
 	// A Promise returned to a function declared without await panics.
 	for _, f := range []func(){

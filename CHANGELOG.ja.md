@@ -12,6 +12,12 @@ v0.0.1-beta.7 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 - `//goesm:import` の関数には `{ panic("goesm:import") }` のような本体を書けるようになりました。goesm はその本体を取り込んだ関数に置き換えます。空のアセンブリファイルがなくても、`go build` と `go vet` がパッケージを受け付けます。
 - 別のパッケージの struct 型へのポインタを引数に取る関数を export し、その型のメソッドが同じ型へのポインタを返す場合、entry はその型に JS のメソッドを 2 回付けていたため、esbuild が「The symbol ... has already been declared」で拒否していました。1 回だけ付けるようになりました。
+- `//goesm:import "<モジュール>" <エクスポート名> lazy` は、関数を最初に呼んだ時点で動的な `import()` によってモジュールを読み込みます。バンドラーはそのモジュールを別のチャンクに分けます。関数は `await` の import と同じくブロックします ([docs/js-imports.ja.md](docs/js-imports.ja.md#ディレクティブ))。
+
+### syscall/js
+
+- `Get`、`Index`、`Length`、`Call` は、真偽値、数値、文字列に対して panic せず、JavaScript のプロパティアクセスと同じように動くようになりました (`js.ValueOf("abc").Length()` は 3)。`undefined` と `null` に対しては、これまでどおり `*js.ValueError` で panic します。
+- Promise を待つパッケージ `github.com/goesm-dev/goesm/promise` を追加しました。`promise.Await(p)` は Promise の値を返し、拒否された場合は拒否の理由を `js.Error` として返します。そのため、`errors.As` で `AbortError` を取り出せます。goesm はこの関数を `await` に変換し、Go の WebAssembly 版では `then` のコールバックで待ちます ([docs/dom.ja.md](docs/dom.ja.md#promise))。
 
 ### ツール
 

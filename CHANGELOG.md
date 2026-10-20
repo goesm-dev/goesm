@@ -12,6 +12,12 @@ Changes on `main` since v0.0.1-beta.7: [v0.0.1-beta.7...main](https://github.com
 
 - A `//goesm:import` function may have a body, such as `{ panic("goesm:import") }`, which goesm replaces with the import, so that `go build` and `go vet` accept the package without an empty assembly file.
 - An entry whose exported functions take a pointer to a struct type of another package, whose methods return a pointer to the same type, gave that type its JS methods twice, which esbuild rejected ("The symbol ... has already been declared"). It gives them once.
+- `//goesm:import "<module>" <export> lazy` imports the module with a dynamic `import()` on the first call of the function, so that a bundler splits it into a chunk of its own. The function blocks like an `await` import ([docs/js-imports.md](docs/js-imports.md#the-directive)).
+
+### syscall/js
+
+- `Get`, `Index`, `Length` and `Call` work on booleans, numbers and strings as property accesses do in JavaScript (`js.ValueOf("abc").Length()` is 3) instead of panicking. `undefined` and `null` still panic with a `*js.ValueError`.
+- The new package `github.com/goesm-dev/goesm/promise` waits for a Promise: `promise.Await(p)` returns its value, or its rejection reason as a `js.Error`, so that `errors.As` reaches an `AbortError`. goesm compiles it to `await`; with Go's WebAssembly port it waits with `then` callbacks ([docs/dom.md](docs/dom.md#promises)).
 
 ### Tools
 

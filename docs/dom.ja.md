@@ -67,7 +67,29 @@ form.Call("addEventListener", "submit", js.FuncOf(func(this js.Value, args []js.
 }))
 ```
 
+クリップボードへの書き込み、`window.open`、フルスクリーンなど、ユーザー操作を必要とする呼び出しも、最初に待つ前に書けばハンドラの中で動きます。その時点のハンドラは、まだイベントの処理中だからです。
+
 `js.FuncOf` で作った関数は、JavaScript の関数と一緒にガベージコレクタが回収します。そのため `Release` は不要で、呼んでも何もしません。goroutine とタイマーはページのイベントループの上で動きます。この実行モデルは [concurrency.ja.md](concurrency.ja.md) で説明しています。
+
+## オブジェクトでない値
+
+`Get`、`Index`、`Length`、`Call` は、真偽値、数値、文字列にも使えます。JavaScript と同じく、これらの値はラッパーオブジェクトのプロパティとメソッドを持ちます。たとえば `js.ValueOf("abc").Length()` は 3 になり、`v.Call("toFixed", 2)` は数値を整形します。Go の WebAssembly 版はこれらの呼び出しで panic するため、そちらでも動かすコードは先に `Type()` を確かめます。`undefined` と `null` に対しては、どちらの実装も `*js.ValueError` で panic します。`Set`、`SetIndex`、`Delete` にはオブジェクトが必要です。
+
+## Promise
+
+`fetch` や `navigator.clipboard.readText` のように Promise を返す `syscall/js` の呼び出しは、Promise を `js.Value` として返します。`github.com/goesm-dev/goesm/promise` の `promise.Await` は、チャネルの受信と同じようにその Promise を待ち、値を返します。Promise が拒否された場合は、拒否の理由を `js.Error` として返します。そのため、`errors.As` で `AbortError` という名前の `DOMException` を取り出せます。
+
+```go
+import "github.com/goesm-dev/goesm/promise"
+
+resp, err := promise.Await(js.Global().Call("fetch", url, opts))
+var jerr js.Error
+if errors.As(err, &jerr) && jerr.Get("name").String() == "AbortError" {
+	return // AbortController で中止された
+}
+```
+
+goesm は `promise.Await` を JavaScript の `await` に変換します。このパッケージは Go の WebAssembly 版でもビルドでき、そちらでは `then` のコールバックで待ちます。
 
 ## 性能
 
