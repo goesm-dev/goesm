@@ -28,8 +28,11 @@ type funcEmitter struct {
 	// of interface calls (icall), and temps (see indexTemp), if any, with
 	// var at its end.
 	inBody bool
-	ir     string
-	temps  []string
+	// once: emitting the package's variable initialisers, which run once
+	// (not the function literals in them).
+	once  bool
+	ir    string
+	temps []string
 
 	tp       tpScope
 	sig      *types.Signature

@@ -117,8 +117,12 @@ func (fe *funcEmitter) jsArg(a ast.Expr, value, jsFunc types.Type) (string, bool
 // jsString is the string a converted to a JavaScript string: the constant
 // itself if it is ASCII, which the two representations share.
 func (fe *funcEmitter) jsString(a ast.Expr) string {
-	if tv := fe.info.Types[a]; tv.Value != nil && tv.Value.Kind() == constant.String && isASCII(constant.StringVal(tv.Value)) {
-		return fe.expr(a)
+	if tv := fe.info.Types[a]; tv.Value != nil && tv.Value.Kind() == constant.String {
+		if s := constant.StringVal(tv.Value); isASCII(s) {
+			return fe.expr(a)
+		} else if utf8.ValidString(s) {
+			return jsStringLit(s) // the characters themselves: nothing to convert
+		}
 	}
 	return "$rt.toJSString(" + fe.valueOf(a, types.Typ[types.String]) + ")"
 }

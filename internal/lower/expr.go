@@ -79,6 +79,9 @@ func (fe *funcEmitter) expr(e ast.Expr) string {
 		if isTypeParam(tv.Type) && tv.Value.Kind() != constant.String && tv.Value.Kind() != constant.Bool {
 			return fe.constT(tv.Value, tv.Type)
 		}
+		if tv.Value.Kind() == constant.String {
+			return fe.strLit(constant.StringVal(tv.Value))
+		}
 		return constLit(tv.Value, tv.Type)
 	}
 	switch e := e.(type) {
@@ -145,6 +148,9 @@ func (fe *funcEmitter) ident(e *ast.Ident) string {
 		}
 		return fe.nameOf(obj)
 	case *types.Const:
+		if obj.Val().Kind() == constant.String {
+			return fe.strLit(constant.StringVal(obj.Val()))
+		}
 		return constLit(obj.Val(), obj.Type())
 	}
 	fe.errorf(e.Pos(), "unsupported identifier %s", e.Name)
@@ -1383,6 +1389,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 		return s
 	}
 	if s, ok := fe.jsonCall(e); ok {
+		return s
+	}
+	if s, ok := fe.strconvCall(e); ok {
 		return s
 	}
 	if s, ok := fe.sortCall(e); ok {

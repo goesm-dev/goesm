@@ -8,6 +8,17 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 Changes on `main` since v0.0.1-beta.7: [v0.0.1-beta.7...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...main).
 
+### Bundle size
+
+- A string constant with non-ASCII text, such as Japanese, is a JS string literal of that text, converted to Go's bytes once when the module loads, instead of a `\x` escape per byte. A string that a `syscall/js` call takes is the text itself, with no conversion. `goesm build` writes such text as UTF-8 instead of `\u` escapes. A package of 300 Japanese messages went from 62.0 KB to 27.5 KB minified, and from 8.1 KB to 7.5 KB gzip.
+- A `//goesm:import` function that returns `js.Value` wraps the value directly, instead of going through the converter of JS values to Go values, which a program that imports only such functions no longer keeps.
+- `syscall` gets the host's `fs`, `process` and `path` from the runtime once, and `js.Value.Get` is a plain property read. Before, every `Get` checked for those three names.
+- `time` keeps the parser of a time zone's rule string (the TZ string after the last transition) only when the program loads time zone data, such as with `time.LoadLocation`.
+- A call of `strconv.FormatFloat` or `AppendFloat` with bitSize 64 and a constant format `'e'`, `'E'`, `'f'`, `'g'` or `'G'`, and of `strconv.ParseFloat` with bitSize 64, converts with the engine's number formatting and parsing, giving Go's results (checked against Go on about 17,000 cases). A program that converts only such floats no longer keeps `strconv`'s float conversions and their tables, about 25 KB minified.
+- `strings.Replacer` is one JS `RegExp` of its old strings, with Go's order of matching, including empty old strings. A program that uses it no longer keeps Go's trie and byte replacers.
+
+With these, the Image app of richinosan/toolbox went from 92.1 KB to 79.3 KB gzip and the Calendar app from 31.5 KB to 30.4 KB.
+
 ## v0.0.1-beta.7
 
 Tagged on 2026-10-17. Changes since v0.0.1-beta.6: [v0.0.1-beta.6...v0.0.1-beta.7](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.6...v0.0.1-beta.7).
