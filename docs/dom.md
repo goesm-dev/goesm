@@ -67,7 +67,29 @@ form.Call("addEventListener", "submit", js.FuncOf(func(this js.Value, args []js.
 }))
 ```
 
+Clipboard writes, `window.open`, fullscreen and other calls that need a user gesture work in a handler when they come before its first wait, because the handler is still running inside the event at that point.
+
 The garbage collector reclaims a function made by `js.FuncOf` together with the JavaScript function, so `Release` is not needed; calling it does nothing. Goroutines and timers run on the page's event loop ([concurrency.md](concurrency.md)).
+
+## Values that are not objects
+
+`Get`, `Index`, `Length` and `Call` also work on booleans, numbers and strings, which have the properties and methods of their wrapper objects, as in JavaScript: `js.ValueOf("abc").Length()` is 3, and `v.Call("toFixed", 2)` formats a number. Go's WebAssembly port panics for them, so code that should also run there checks `Type()` first. `undefined` and `null` panic with a `*js.ValueError` in both, and `Set`, `SetIndex` and `Delete` need an object.
+
+## Promises
+
+A `syscall/js` call that returns a Promise, such as `fetch` or `navigator.clipboard.readText`, returns it as a `js.Value`. `promise.Await` from `github.com/goesm-dev/goesm/promise` waits for it like a channel receive and returns its value, or its rejection reason as a `js.Error`, so `errors.As` reaches a `DOMException` named `AbortError`:
+
+```go
+import "github.com/goesm-dev/goesm/promise"
+
+resp, err := promise.Await(js.Global().Call("fetch", url, opts))
+var jerr js.Error
+if errors.As(err, &jerr) && jerr.Get("name").String() == "AbortError" {
+	return // cancelled with an AbortController
+}
+```
+
+goesm compiles `promise.Await` to JavaScript's `await`. The package also builds with Go's WebAssembly port, where it waits with `then` callbacks.
 
 ## Performance
 

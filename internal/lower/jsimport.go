@@ -46,6 +46,7 @@ import (
 type jsImport struct {
 	spec, name string
 	await      bool
+	lazy       bool      // the module is imported on the first call (implies await)
 	pos        token.Pos // of the directive
 }
 
@@ -79,7 +80,8 @@ func parseJSImport(s string) (*jsImport, error) {
 	}
 	d := &jsImport{spec: spec, name: "default"}
 	fields := strings.Fields(s[len(q):])
-	if n := len(fields); n > 0 && fields[n-1] == "await" {
+	if n := len(fields); n > 0 && (fields[n-1] == "await" || fields[n-1] == "lazy") {
+		d.lazy = fields[n-1] == "lazy"
 		d.await = true
 		fields = fields[:n-1]
 	}
@@ -88,7 +90,7 @@ func parseJSImport(s string) (*jsImport, error) {
 	case 1:
 		d.name = fields[0]
 	default:
-		return nil, fmt.Errorf("//goesm:import takes a module, an export name and await, got %q", s)
+		return nil, fmt.Errorf("//goesm:import takes a module, an export name and await or lazy, got %q", s)
 	}
 	return d, nil
 }
@@ -151,7 +153,7 @@ func (pe *pkgEmitter) varJSImports(files []*ast.File) map[*types.Var]*jsImport {
 					continue
 				}
 				if d.await {
-					pe.errorf(pos, "//goesm:import: await applies only to functions")
+					pe.errorf(pos, "//goesm:import: await and lazy apply only to functions")
 					continue
 				}
 				v, ok := pe.info.Defs[vs.Names[0]].(*types.Var)
@@ -246,11 +248,51 @@ func (pe *pkgEmitter) jsImportBinding(d *jsImport) string {
 	return local
 }
 
+// jsLazyBinding returns the JS expression that imports d's module on the
+// first call and evaluates to its export d.name (the module namespace for
+// "*"), for an async function: a dynamic import, which bundlers split into
+// a chunk of its own.
+func (pe *pkgEmitter) jsLazyBinding(d *jsImport) string {
+	spec := d.spec
+	if strings.HasPrefix(spec, "./") || strings.HasPrefix(spec, "../") {
+		dir := filepath.Dir(pe.prog.Fset.Position(d.pos).Filename)
+		abs := filepath.Join(dir, filepath.FromSlash(spec))
+		if _, err := os.Stat(abs); err != nil {
+			pe.errorf(d.pos, "//goesm:import: %s does not exist", spec)
+		}
+		spec = abs
+		if !pe.jsFileSet[abs] {
+			pe.jsFileSet[abs] = true
+			pe.jsFiles = append(pe.jsFiles, abs)
+		}
+	}
+	m := pe.jsModules[spec]
+	if m == nil {
+		m = &jsModule{spec: spec}
+		pe.jsModules[spec] = m
+		pe.jsModuleOrder = append(pe.jsModuleOrder, m)
+	}
+	if m.lazy == "" {
+		m.lazy = pe.fresh("jsLazy")
+		pe.reserved[m.lazy] = true
+	}
+	ns := "(await " + m.lazy + "())"
+	switch {
+	case d.name == "*":
+		return ns
+	case token.IsIdentifier(d.name):
+		return "(0, " + ns + "." + d.name + ")"
+	default:
+		return "(0, " + ns + "[" + jsStringLit(d.name) + "])"
+	}
+}
+
 // jsModule is an ES module imported by //goesm:import directives.
 type jsModule struct {
 	spec           string
 	def, namespace string   // local names of the default export and the namespace
 	named          []string // "export as local"
+	lazy           string   // the function importing the module dynamically, once
 }
 
 // jsImportDecls returns the import declarations of the module's
@@ -271,6 +313,10 @@ func (pe *pkgEmitter) jsImportDecls() []string {
 		}
 		if m.namespace != "" {
 			out = append(out, fmt.Sprintf("import * as %s from %s;", m.namespace, spec))
+		}
+		if m.lazy != "" {
+			out = append(out, fmt.Sprintf("let %s$m: Promise<any> | undefined;", m.lazy),
+				fmt.Sprintf("const %s = (): Promise<any> => (%s$m ??= import(%s));", m.lazy, m.lazy, spec))
 		}
 	}
 	return out
@@ -492,7 +538,16 @@ func (pe *pkgEmitter) emitJSImportFunc(fd *ast.FuncDecl, fn *types.Func, d *jsIm
 			return
 		}
 	}
-	f := pe.jsImportBinding(d)
+	var f string
+	if d.lazy {
+		if d.name == "*" && params.Len() > 0 {
+			pe.errorf(d.pos, "%s cannot be imported from JavaScript: a lazy import of the module namespace (*) takes no parameters", fn.Name())
+			return
+		}
+		f = pe.jsLazyBinding(d)
+	} else {
+		f = pe.jsImportBinding(d)
+	}
 	var ps, args []string
 	for i := 0; i < params.Len(); i++ {
 		p := fmt.Sprintf("a%d", i)
@@ -505,6 +560,9 @@ func (pe *pkgEmitter) emitJSImportFunc(fd *ast.FuncDecl, fn *types.Func, d *jsIm
 		args = append(args, pe.toJSExpr(params.At(i).Type(), p))
 	}
 	call := f + "(" + strings.Join(args, ", ") + ")"
+	if d.lazy && d.name == "*" {
+		call = f
+	}
 	kw, ret := "", "any"
 	if d.await {
 		kw, ret = "async ", "Promise<any>"

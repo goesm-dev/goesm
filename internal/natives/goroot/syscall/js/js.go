@@ -174,15 +174,23 @@ func (t Type) isObject() bool {
 	return t == TypeObject || t == TypeFunction
 }
 
+// hasProperties reports whether a value of type t has properties to read:
+// any value but undefined and null, a boolean, number, string or symbol
+// those of its wrapper object, as in JavaScript ("abc".length,
+// (1.5).toFixed(1)). Go's own syscall/js panics for those.
+func (t Type) hasProperties() bool {
+	return t != TypeUndefined && t != TypeNull
+}
+
 // Type returns the JavaScript type of the value v. It is similar to
 // JavaScript's typeof operator, except that it returns TypeNull instead of
 // TypeObject for null.
 func (v Value) Type() Type { return Type(valueType(v.ref)) }
 
 // Get returns the JavaScript property p of value v.
-// It panics if v is not a JavaScript object.
+// It panics if v is undefined or null.
 func (v Value) Get(p string) Value {
-	if vType := v.Type(); !vType.isObject() {
+	if vType := v.Type(); !vType.hasProperties() {
 		panic(&ValueError{"Value.Get", vType})
 	}
 	return makeValue(valueGet(v.ref, p))
@@ -207,9 +215,9 @@ func (v Value) Delete(p string) {
 }
 
 // Index returns JavaScript index i of value v.
-// It panics if v is not a JavaScript object.
+// It panics if v is undefined or null.
 func (v Value) Index(i int) Value {
-	if vType := v.Type(); !vType.isObject() {
+	if vType := v.Type(); !vType.hasProperties() {
 		panic(&ValueError{"Value.Index", vType})
 	}
 	return makeValue(valueIndex(v.ref, i))
@@ -228,7 +236,7 @@ func (v Value) SetIndex(i int, x any) {
 // name p a JavaScript string and x already converted to a JavaScript value
 // (see callJS).
 func (v Value) getJS(p ref) Value {
-	if vType := v.Type(); !vType.isObject() {
+	if vType := v.Type(); !vType.hasProperties() {
 		panic(&ValueError{"Value.Get", vType})
 	}
 	return makeValue(valueGetJS(v.ref, p))
@@ -255,16 +263,17 @@ func (v Value) setIndexJS(i int, x ref) {
 func valueOfRef(x any) ref { return ValueOf(x).ref }
 
 // Length returns the JavaScript property "length" of v.
-// It panics if v is not a JavaScript object.
+// It panics if v is undefined or null.
 func (v Value) Length() int {
-	if vType := v.Type(); !vType.isObject() {
+	if vType := v.Type(); !vType.hasProperties() {
 		panic(&ValueError{"Value.Length", vType})
 	}
 	return valueLength(v.ref)
 }
 
 // Call does a JavaScript call to the method m of value v with the given
-// arguments. It panics if v has no method m. The arguments get mapped to
+// arguments. It panics if v has no method m (undefined and null have
+// none; a boolean, number or string has its wrapper object's). The arguments get mapped to
 // JavaScript values according to the ValueOf function.
 func (v Value) Call(m string, args ...any) Value {
 	res, ok := valueCall(v.ref, m, args, valueOfRef)
@@ -276,7 +285,7 @@ func (v Value) Call(m string, args ...any) Value {
 
 // callFailed panics as Call does when the call failed with res.
 func (v Value) callFailed(m string, res ref) {
-	if vType := v.Type(); !vType.isObject() {
+	if vType := v.Type(); !vType.hasProperties() {
 		panic(&ValueError{"Value.Call", vType})
 	}
 	if propType := v.Get(m).Type(); propType != TypeFunction {
