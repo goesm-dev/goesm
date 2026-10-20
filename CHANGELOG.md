@@ -20,6 +20,7 @@ Changes on `main` since v0.0.1-beta.7: [v0.0.1-beta.7...main](https://github.com
 
 - `Get`, `Index`, `Length` and `Call` work on booleans, numbers and strings as property accesses do in JavaScript (`js.ValueOf("abc").Length()` is 3) instead of panicking. `undefined` and `null` still panic with a `*js.ValueError`.
 - The new package `github.com/goesm-dev/goesm/promise` waits for a Promise: `promise.Await(p)` returns its value, or its rejection reason as a `js.Error`, so that `errors.As` reaches an `AbortError`. goesm compiles it to `await`; with Go's WebAssembly port it waits with `then` callbacks ([docs/dom.md](docs/dom.md#promises)).
+- The new package `github.com/goesm-dev/goesm/jscompat` gives Go code JavaScript's behaviour where Go's differs: `RegExp` for patterns in JavaScript's syntax (lookaround, backreferences), `Normalize` (NFC, NFD, NFKC, NFKD), `Round` as `Math.round`, the engine's `Cos`, `Sin` and other `Math` functions, and `UTF16Offset`, `ByteOffset` and `UTF16Len` for UTF-16 offsets such as `selectionStart` ([docs/go-and-js.md](docs/go-and-js.md)).
 
 ### Tools
 
