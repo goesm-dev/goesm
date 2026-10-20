@@ -12,6 +12,7 @@ goesm は、goroutine を `GOMAXPROCS=1` の Go と同じように、プリエ�
 - `runtime.GOMAXPROCS` は、引数に関係なく 1 を返し、何も変えません。`runtime.NumCPU` は 1 を返し、`runtime.LockOSThread` は何もしません。`runtime.Gosched` は、まず実行可能な他の goroutine に順番を譲り、次に期限の来たホストのタイマーと I/O のコールバックに譲ります。
 - 待つ可能性のある export された関数は、JavaScript に Promise を返します。その関数が待っている間は他の JavaScript のコードが動くので、同時に実行中の 2 つの呼び出しは、2 つの goroutine と同じように交互に進みます。
 - すべての goroutine が待っていて、ホストにも残りの処理がない場合、Node.js と Bun では Go と同じ `fatal error: all goroutines are asleep - deadlock!` でプログラムが終了します。ブラウザには終了させるプロセスがないので、待っている goroutine はそのまま止まり続けます。
+- どこでも recover されなかった panic は、Node.js と Bun では Go と同じくプログラムを終了させます。panic の内容を標準エラーに出力し、プロセスは終了コード 2 で終了します。ブラウザには終了させるプロセスがないので、panic は、イベントハンドラーで投げられた例外と同じく、捕捉されなかったエラーとして報告されます。プログラムのほかの部分は動き続けます。ほかの goroutine も、タイマーも、`js.FuncOf` で作った関数も動きます。止まるのは panic した goroutine だけで、その goroutine も defer した呼び出しを実行してから止まります。ただし、ほかの goroutine のために働いていた goroutine は、その役目を果たさなくなります。たとえば、チャネルからイベントをループで読む goroutine が該当します。また、その goroutine が `defer mu.Unlock()` を使わずにロックした `sync.Mutex` は、ロックされたままになります。
 
 ## データ競合
 
