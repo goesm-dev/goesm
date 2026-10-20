@@ -301,10 +301,17 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 					use(h)
 				}
 			}
-			if pkg := fn.Pkg(); pkg != nil && pkg.Path() == "fmt" && (fn.Name() == "Sprintf" || fn.Name() == "Errorf") {
+			if pkg := fn.Pkg(); pkg != nil && pkg.Path() == "fmt" {
 				// The lowering of these calls calls fmt's helpers
-				// (sprintf.go).
-				for _, name := range []string{"newError", "panicText"} {
+				// (sprintf.go, printcall.go).
+				var helpers []string
+				switch name := fn.Name(); name {
+				case "Sprintf", "Errorf":
+					helpers = []string{"newError", "panicText"}
+				case "Print", "Println", "Printf", "Fprint", "Fprintln", "Fprintf":
+					helpers = []string{"panicText", "printStd", "Sp" + strings.TrimPrefix(name, "F")[1:]}
+				}
+				for _, name := range helpers {
 					if h, ok := pkg.Scope().Lookup(name).(*types.Func); ok {
 						use(h)
 					}
