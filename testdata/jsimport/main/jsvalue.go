@@ -51,7 +51,9 @@ func syscallJS() {
 		func() {
 			fmt.Println(js.ValueOf(1.5).Call("toFixed", 2).String(), js.ValueOf("abc").Length(), js.ValueOf("abc").Index(1).String(), js.ValueOf(1).Get("x").IsUndefined())
 		},
-		func() { fmt.Println(js.ValueOf("s").Call("concat", "t").String(), js.ValueOf("s").Call("concat", []any{"t"}...).String()) },
+		func() {
+			fmt.Println(js.ValueOf("s").Call("concat", "t").String(), js.ValueOf("s").Call("concat", []any{"t"}...).String())
+		},
 		func() { js.Undefined().Get("x") },
 		func() { js.Null().Index(0) },
 		func() { js.Undefined().Call("f") },
