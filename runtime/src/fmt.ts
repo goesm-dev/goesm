@@ -277,3 +277,204 @@ export function fmtF(v: number, prec: number): string {
   if (v === 0 && prec <= 100) return (Object.is(v, -0) ? "-" : "") + (0).toFixed(prec);
   return fmtFixed(v, prec);
 }
+
+// ---- strconv.FormatFloat and ParseFloat of float64 (strconvcall.go) ----
+
+// formatFloat64 is strconv.FormatFloat(v, fmt, prec, 64) for fmt 'e', 'E',
+// 'f', 'g' and 'G': Go's fmtEFG of the digits floatDigits gives, as
+// internal/strconv's ftoa64 formats them.
+export function formatFloat64(v: number, fmt: number, prec: number): string {
+  if (v !== v) return "NaN";
+  if (v === Infinity) return "+Inf";
+  if (v === -Infinity) return "-Inf";
+  const neg = v < 0 || Object.is(v, -0);
+  if (v === 0) return fmtEFG(neg, "", 0, prec, fmt, prec < 0);
+  if (prec < 0 && fmt === 103) return fmtShortest(v); // 'g'
+  if (fmt === 102 && prec >= 0) { // 'f'
+    const t = fmtFixed(v, prec);
+    if (t !== "") return t;
+  }
+  const [d, dp] = floatDigits(Math.abs(v), fmt, prec);
+  const shortest = prec < 0;
+  if (shortest) {
+    prec = fmt === 101 || fmt === 69 ? Math.max(d.length - 1, 0) : fmt === 102 ? Math.max(d.length - dp, 0) : d.length;
+  } else if ((fmt === 103 || fmt === 71) && prec === 0) {
+    prec = 1;
+  }
+  return fmtEFG(neg, d, dp, prec, fmt, shortest);
+}
+
+// floatDigits returns the decimal digits of x > 0, without leading or
+// trailing zeros, and the position of the decimal point: the shortest that
+// read back as x if prec < 0, else x rounded to even to prec digits for fmt
+// ('e': prec+1 significant digits, 'g': prec, 'f': prec after the point).
+function floatDigits(x: number, fmt: number, prec: number): [string, number] {
+  let t: string, dp: number;
+  const n = fmt === 101 || fmt === 69 ? prec + 1 : Math.max(prec, 1); // significant digits for 'e' and 'g'
+  if (prec < 0 || (fmt !== 102 && n <= 101)) {
+    t = prec < 0 ? x.toExponential() : x.toExponential(n - 1);
+    const e = t.indexOf("e");
+    const exp = +t.slice(e + 1);
+    t = t.slice(0, e);
+    if (prec >= 0 && tieScale(x) === n - 1 - exp) t = roundToEven(t);
+    dp = exp + 1;
+  } else {
+    // Beyond the engine's range (toFixed for 'f' up to 1e21 and 100
+    // decimals, toExponential up to 101 digits): x's exact decimal
+    // expansion, x = m·2^e, rounded to even.
+    scratch.setFloat64(0, x);
+    const hi = scratch.getUint32(0), lo = scratch.getUint32(4);
+    const be = (hi >>> 20) & 0x7ff;
+    const m = BigInt((hi & 0xfffff) * 2 ** 32 + lo + (be === 0 ? 0 : 2 ** 52));
+    const e = (be === 0 ? 1 : be) - 1075;
+    t = e >= 0 ? (m << BigInt(e)).toString() : (m * 5n ** BigInt(-e)).toString();
+    dp = e >= 0 ? t.length : t.length + e;
+    let keep = fmt === 102 ? dp + prec : n;
+    if (keep < t.length) {
+      if (keep < 0) return ["", 0];
+      const c = t.charCodeAt(keep);
+      let up = c > 53 || (c === 53 && (/[1-9]/.test(t.slice(keep + 1)) || (keep > 0 && (t.charCodeAt(keep - 1) & 1) === 1)));
+      t = t.slice(0, keep);
+      if (up) {
+        let i = keep - 1;
+        while (i >= 0 && t.charCodeAt(i) === 57) i--;
+        if (i < 0) {
+          t = "1";
+          dp++;
+        } else {
+          t = t.slice(0, i) + String.fromCharCode(t.charCodeAt(i) + 1);
+        }
+      }
+    }
+  }
+  t = t.replace(".", "");
+  let i = 0;
+  while (i < t.length && t.charCodeAt(i) === 48) i++;
+  dp -= i;
+  t = t.slice(i).replace(/0+$/, "");
+  return t === "" ? ["", 0] : [t, dp];
+}
+
+// fmtEFG is internal/strconv's: the digits d (a decimal point at dp) in
+// format fmt with precision prec.
+function fmtEFG(neg: boolean, d: string, dp: number, prec: number, fmt: number, shortest: boolean): string {
+  const nd = d.length;
+  if (fmt === 103 || fmt === 71) { // 'g', 'G'
+    let eprec = prec;
+    if (eprec > nd && nd >= dp) eprec = nd;
+    if (shortest) eprec = 6;
+    const exp = dp - 1;
+    if (exp < -4 || exp >= eprec) {
+      if (prec > nd) prec = nd;
+      prec--;
+      fmt = fmt + 101 - 103;
+    } else {
+      if (prec > dp) prec = nd;
+      prec = Math.max(prec - dp, 0);
+      fmt = 102;
+    }
+  }
+  let s = neg ? "-" : "";
+  if (fmt === 101 || fmt === 69) { // 'e', 'E'
+    s += nd !== 0 ? d[0] : "0";
+    if (prec > 0) s += "." + d.slice(1, Math.min(nd, prec + 1)) + "0".repeat(Math.max(0, prec + 1 - Math.max(1, Math.min(nd, prec + 1))));
+    let exp = nd === 0 ? 0 : dp - 1;
+    s += String.fromCharCode(fmt) + (exp < 0 ? "-" : "+");
+    exp = Math.abs(exp);
+    return s + (exp < 10 ? "0" + exp : String(exp));
+  }
+  if (fmt === 102) { // 'f'
+    s += dp > 0 ? d.slice(0, Math.min(nd, dp)) + "0".repeat(dp - Math.min(nd, dp)) : "0";
+    if (prec > 0) {
+      const lz = Math.min(prec, Math.max(0, -dp));
+      const off = dp + lz;
+      const m = Math.min(prec - lz, Math.max(0, nd - off));
+      s += "." + "0".repeat(lz) + d.slice(off, off + m) + "0".repeat(Math.max(0, prec - lz - m));
+    }
+    return s;
+  }
+  return s.slice(neg ? 1 : 0) + "%" + String.fromCharCode(fmt);
+}
+
+// parseFloat64 is strconv.ParseFloat(s, 64) on the engine's number parsing
+// once s has Go's syntax for a floating-point literal (readFloat and
+// underscoreOK in internal/strconv): the value and 0, or 1 for ErrSyntax,
+// 2 for ErrRange. s is a Go string; a valid one is ASCII.
+export function parseFloat64(s: string): [number, number] {
+  const sp = /^([+-]?)(?:(inf|infinity)|(nan))$/i.exec(s);
+  if (sp !== null) {
+    if (sp[3] !== undefined) return sp[1] === "" ? [NaN, 0] : [0, 1];
+    return [sp[1] === "-" ? -Infinity : Infinity, 0];
+  }
+  const m = /^([+-]?)(?:0[xX]((?:[0-9a-fA-F_]*\.)?[0-9a-fA-F_]*)[pP]([+-]?[0-9][0-9_]*)|((?:[0-9_]*\.)?[0-9_]*)(?:[eE]([+-]?[0-9][0-9_]*))?)$/.exec(s);
+  if (m === null || !/[0-9a-fA-F]/.test(m[2] ?? m[4]) || (m[4] !== undefined && !/[0-9]/.test(m[4]))) return [0, 1];
+  if (s.includes("_") && !underscoreOK(s)) return [0, 1];
+  let v: number;
+  if (m[4] !== undefined) {
+    v = Number(m[1] + (m[4] + (m[5] !== undefined ? "e" + m[5] : "")).replace(/_/g, ""));
+  } else {
+    v = hexFloat(m[2].replace(/_/g, ""), Math.max(-1e5, Math.min(1e5, Number(m[3].replace(/_/g, "")))));
+    if (m[1] === "-") v = -v;
+  }
+  return v === Infinity || v === -Infinity ? [v, 2] : [v, 0];
+}
+
+// underscoreOK is internal/strconv's: underscores in s only separate digits
+// (or a base prefix and a digit), as in Go literals.
+function underscoreOK(s: string): boolean {
+  let saw = "^", i = 0;
+  if (s[0] === "+" || s[0] === "-") s = s.slice(1);
+  let hex = false;
+  if (s.length >= 2 && s[0] === "0" && "bBoOxX".includes(s[1])) {
+    i = 2;
+    saw = "0";
+    hex = s[1] === "x" || s[1] === "X";
+  }
+  for (; i < s.length; i++) {
+    const c = s[i];
+    if ((c >= "0" && c <= "9") || (hex && /[a-fA-F]/.test(c))) {
+      saw = "0";
+      continue;
+    }
+    if (c === "_") {
+      if (saw !== "0") return false;
+      saw = "_";
+      continue;
+    }
+    if (saw === "_") return false;
+    saw = "!";
+  }
+  return saw !== "_";
+}
+
+// hexFloat is the hexadecimal mantissa h (with an optional point) times
+// 2^p, rounded to even as a float64.
+function hexFloat(h: string, p: number): number {
+  const dot = h.indexOf(".");
+  if (dot >= 0) {
+    p -= 4 * (h.length - dot - 1);
+    h = h.slice(0, dot) + h.slice(dot + 1);
+  }
+  let m = BigInt("0x" + (h || "0"));
+  if (m === 0n) return 0;
+  const bits = m.toString(2).length;
+  const top = bits - 1 + p; // the exponent of m's leading bit
+  if (top > 1023) return Infinity;
+  const width = Math.min(53, top + 1075); // the bits a float64 keeps there
+  let drop = bits - Math.max(width, 0);
+  if (width <= 0) {
+    // Below half the smallest subnormal, or at most it: it rounds to it
+    // only if above the halfway point.
+    return top === -1075 && m !== 1n << BigInt(bits - 1) ? 2 ** -1074 : 0;
+  }
+  if (drop > 0) {
+    const d = BigInt(drop);
+    const rest = m & ((1n << d) - 1n), half = 1n << (d - 1n);
+    m >>= d;
+    if (rest > half || (rest === half && (m & 1n) === 1n)) m++;
+  } else {
+    drop = 0;
+  }
+  // m now fits in 54 bits at most, and m·2^(p+drop) is exact unless it overflows.
+  return Number(m) * 2 ** (p + drop);
+}

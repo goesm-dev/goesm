@@ -135,17 +135,24 @@ func (fe *funcEmitter) fmtFunc(e *ast.CallExpr) *types.Func {
 	return fn
 }
 
-// isFmtHelper reports whether fn is a function of the fmt patch that the
-// lowering calls from other packages, which fmt exports for them.
-func isFmtHelper(fn *types.Func) bool {
-	return fn.Pkg() != nil && fn.Pkg().Path() == "fmt" && (fn.Name() == "newError" || fn.Name() == "panicText")
+// loweringHelpers are the functions of patches that the lowering calls
+// from other packages, which their packages export for them.
+var loweringHelpers = map[string]bool{
+	"fmt.newError":         true,
+	"fmt.panicText":        true,
+	"strconv.parseFloat64": true, // strconvcall.go
+}
+
+// isLoweringHelper reports whether fn is one of loweringHelpers.
+func isLoweringHelper(fn *types.Func) bool {
+	return fn.Pkg() != nil && fn.Signature().Recv() == nil && loweringHelpers[fn.Pkg().Path()+"."+fn.Name()]
 }
 
 // fmtHelper returns the JS reference to the fmt patch's function name, or
 // "" if fmt has none.
 func (fe *funcEmitter) fmtHelper(fn *types.Func, name string) string {
 	f, ok := fn.Pkg().Scope().Lookup(name).(*types.Func)
-	if !ok || !isFmtHelper(f) {
+	if !ok || !isLoweringHelper(f) {
 		return ""
 	}
 	return fe.nameOf(f)
@@ -211,7 +218,7 @@ func (fe *funcEmitter) sprintf(e *ast.CallExpr) (string, bool) {
 	var lit strings.Builder
 	flush := func() {
 		if lit.Len() > 0 {
-			pieces = append(pieces, jsString(lit.String()))
+			pieces = append(pieces, fe.strLit(lit.String()))
 			lit.Reset()
 		}
 	}
