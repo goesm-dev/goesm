@@ -27,12 +27,13 @@ func Label(price int) string {
 `//goesm:import` は、本体のない関数宣言か、値のないパッケージ変数の宣言の直前に書きます。関数には goesm が無視する本体を書くこともできます ([制限](#制限) を参照)。
 
 ```go
-//goesm:import "<モジュール>" [<エクスポート名>] [await]
+//goesm:import "<モジュール>" [<エクスポート名>] [await | lazy]
 ```
 
 - **モジュール**は import の指定子です。`./` か `../` で始まるパスは Go のファイルからの相対パスで、ファイルが存在しなければなりません。goesm は、生成したモジュールの位置から見た相対パスに書き換えて出力します。`chart.js` のようなそれ以外の指定子はパッケージを指します。`goesm build` は、実行したディレクトリとその親ディレクトリにある `node_modules` からパッケージを探します。`goesm emit-ts` の出力では指定子がそのまま残り、利用側のバンドラーが解決します。`node:path`、`bun:sqlite`、`cloudflare:sockets` のように JavaScript のランタイムに組み込まれたモジュールは、`goesm build` の出力でも import のまま残り、出力を実行する環境で解決されます。
 - **エクスポート名**は取り込むエクスポートの名前です。`default` を書くか何も書かなければデフォルトエクスポートを、`*` を書けばモジュールの名前空間オブジェクトを取り込みます。
 - **await** は、Promise を返す関数に付けます。Go からはチャネルの受信と同じく Promise が決着するまでブロックする関数として呼べ、その関数を呼ぶ側の関数も JavaScript では非同期になります。Promise を返す関数には `await` が必要です。付けずに宣言すると、Promise が返った時点で呼び出しが panic します。ただし、戻り値が `js.Value` の場合は Promise をそのまま受け取り、戻り値がない場合は Promise を待たずに戻ります。
+- **lazy** を付けると、モジュールをプログラムの開始時ではなく、関数を最初に呼んだ時点で動的な `import()` によって読み込みます。Vite や esbuild などのバンドラーは、そのモジュールを別のチャンクに分けます。lazy の関数は `await` の関数と同じように呼び出され、同じモジュールを指す関数がいくつあっても、モジュールの読み込みは一度だけです。`*` を指定した関数は引数を取らず、モジュールの名前空間オブジェクトを `js.Value` として返します。
 
 ```go
 //goesm:import "chart.js" Chart
@@ -43,6 +44,9 @@ func fetchUser(id string) (User, error)
 
 //goesm:import "./config.ts" VERSION
 var version string
+
+//goesm:import "./pdf.ts" renderPDF lazy
+func renderPDF(doc js.Value) (js.Value, error) // 最初の呼び出しで pdf.ts を読み込む
 ```
 
 パッケージ変数は、そのパッケージのほかの変数より先に、Go パッケージの初期化時点でモジュールがエクスポートしている値で初期化されます。

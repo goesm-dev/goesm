@@ -46,13 +46,21 @@ func syscallJS() {
 	fmt.Println(frozen.Get("x").IsUndefined(), frozen.Index(0).IsUndefined())
 
 	for _, f := range []func(){
-		func() { js.ValueOf(1).Get("x") },
+		// A primitive's properties are its wrapper object's, as in
+		// JavaScript; Go's syscall/js panics for them.
+		func() {
+			fmt.Println(js.ValueOf(1.5).Call("toFixed", 2).String(), js.ValueOf("abc").Length(), js.ValueOf("abc").Index(1).String(), js.ValueOf(1).Get("x").IsUndefined())
+		},
+		func() {
+			fmt.Println(js.ValueOf("s").Call("concat", "t").String(), js.ValueOf("s").Call("concat", []any{"t"}...).String())
+		},
+		func() { js.Undefined().Get("x") },
+		func() { js.Null().Index(0) },
+		func() { js.Undefined().Call("f") },
 		func() { js.ValueOf("s").Set("x", 1) },
 		func() { js.Null().SetIndex(0, 1) },
 		func() { o.Call("ないメソッド", 1) },
 		func() { js.ValueOf(true).Call("f") },
-		func() { js.ValueOf("s").Call("concat", "t") },
-		func() { js.ValueOf("s").Call("concat", []any{"t"}...) },
 		func() { o.Invoke(1) },
 		func() { o.New() },
 		func() { js.Global().Get("JSON").Call("parse", "{") },
