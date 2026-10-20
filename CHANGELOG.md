@@ -6,7 +6,11 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 ## Unreleased
 
-Changes on `main` since v0.0.1-beta.7: [v0.0.1-beta.7...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...main).
+Changes on `main` since v0.0.1-beta.8: [v0.0.1-beta.8...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.8...main).
+
+## v0.0.1-beta.8
+
+Tagged on 2026-10-21. Changes since v0.0.1-beta.7: [v0.0.1-beta.7...v0.0.1-beta.8](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...v0.0.1-beta.8).
 
 ### JS calling ABI
 
