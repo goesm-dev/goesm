@@ -40,8 +40,8 @@ func TestJSImportDiagnostics(t *testing.T) {
 		"jsimport.go:3:1: //goesm:import: ./missing.ts does not exist [goesm lowering]",
 		"jsimport.go:6:1: g cannot be imported from JavaScript: parameter 1: chan int has no JavaScript counterpart [goesm lowering]",
 		"jsimport.go:9:1: //goesm:import needs a quoted module specifier",
-		"jsimport.go:12:1: //goesm:import must precede a function declared without a body [goesm lowering]",
-		"jsimport.go:15:1: variable V cannot be imported from JavaScript: complex128 has no JavaScript counterpart [goesm lowering]",
+		"jsimport.go:14:1: //goesm:import must precede a function declaration, not a method [goesm lowering]",
+		"jsimport.go:17:1: variable V cannot be imported from JavaScript: complex128 has no JavaScript counterpart [goesm lowering]",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("diagnostics missing %q:\n%s", want, out)

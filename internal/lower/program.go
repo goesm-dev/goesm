@@ -27,6 +27,8 @@ import (
 type Diagnostic struct {
 	Pos token.Position
 	Msg string
+	// Func is the full name of the function a warning is about.
+	Func string `json:",omitempty"`
 }
 
 func (d Diagnostic) String() string {
@@ -121,6 +123,10 @@ type Program struct {
 	// literals that are sequences then have generators (seqgen.go).
 	usesPull bool
 
+	// stdWritten are the names of os.Stdout and os.Stderr if the program
+	// changes them (printcall.go).
+	stdWritten map[string]bool
+
 	// //go:linkname pulls (bodyless functions) and the functions providing
 	// their symbols (see linkname.go).
 	linkPulls    map[*types.Func]string
@@ -139,6 +145,10 @@ type Program struct {
 	// printedMethods are the Error and String methods of the types of
 	// panic values, which the runtime calls to print them (reach.go).
 	printedMethods map[*types.Func]bool
+	// reachedFuncs are the full names of the functions of the standard
+	// library and dependencies that the code reachable from the roots uses
+	// (reach.go).
+	reachedFuncs map[string]bool
 	// storedMethods are the methods of the types stored in interface
 	// values (ifaceImpls), the only ones an interface call can reach
 	// (reach.go).
@@ -264,6 +274,9 @@ func NewProgram(fset *token.FileSet, pkgs []*packages.Package, std map[*packages
 	}
 	for _, pkg := range pkgs {
 		p.byTypes[pkg.Types] = pkg
+		if !std[pkg] {
+			dropJSImportBodies(pkg)
+		}
 	}
 	p.analyzeAddrs()
 	p.analyzeLinknames()
@@ -393,6 +406,7 @@ type unit struct {
 func (p *Program) analyzeBlocking() {
 	p.findPullCalls()
 	p.usesPull = p.usesPullFuncs()
+	p.stdWritten = findStdWrites(p.Pkgs)
 	p.encls = map[ast.Node]*types.Func{}
 	p.findFuncVars()
 	var units []*unit
@@ -1330,7 +1344,19 @@ func (p *Program) IsAsync(fn *types.Func) bool { return p.async[fn.Origin()] }
 func (p *Program) SortedDiags() []Diagnostic { return sortDiags(p.Diags) }
 
 // SortedWarns returns warnings in position order.
-func (p *Program) SortedWarns() []Diagnostic { return sortDiags(p.Warns) }
+// SortedWarns returns the warnings about functions that code reachable from
+// the program's roots may call: the others are never called, so a stub
+// does no harm.
+func (p *Program) SortedWarns() []Diagnostic {
+	p.reachOnce.Do(p.reach)
+	var ws []Diagnostic
+	for _, w := range p.Warns {
+		if w.Func == "" || p.reachedFuncs[w.Func] {
+			ws = append(ws, w)
+		}
+	}
+	return sortDiags(ws)
+}
 
 func sortDiags(diags []Diagnostic) []Diagnostic {
 	d := append([]Diagnostic(nil), diags...)

@@ -140,6 +140,7 @@ func (fe *funcEmitter) fmtFunc(e *ast.CallExpr) *types.Func {
 var loweringHelpers = map[string]bool{
 	"fmt.newError":         true,
 	"fmt.panicText":        true,
+	"fmt.printStd":         true, // printcall.go
 	"strconv.parseFloat64": true, // strconvcall.go
 }
 
@@ -168,13 +169,22 @@ func (fe *funcEmitter) sprintf(e *ast.CallExpr) (string, bool) {
 	if fn == nil || fe.callBlocks(e) {
 		return "", false
 	}
-	errorf := fn.Name() == "Errorf"
 	ftv := fe.info.Types[e.Args[0]]
 	if ftv.Value == nil || ftv.Value.Kind() != constant.String {
 		return "", false
 	}
-	specs, tail, ok := parseSprintf(constant.StringVal(ftv.Value))
-	args := e.Args[1:]
+	fallback := func(boxes string) string {
+		return fe.mark(e) + fe.expr(e.Fun) + "(" + fe.expr(e.Args[0]) + ", " + boxes + ")"
+	}
+	return fe.concatFormat(fn, constant.StringVal(ftv.Value), e.Args[1:], fn.Name() == "Errorf", fallback)
+}
+
+// concatFormat lowers the formatting of args with the constant format as
+// sprintf describes, or returns false. fn is a function of package fmt,
+// errorf whether the result is Errorf's, and fallback the call of fmt's
+// own code with the boxed arguments.
+func (fe *funcEmitter) concatFormat(fn *types.Func, format string, args []ast.Expr, errorf bool, fallback func(boxes string) string) (string, bool) {
+	specs, tail, ok := parseSprintf(format)
 	if !ok || len(specs) != len(args) {
 		return "", false
 	}
@@ -306,7 +316,7 @@ func (fe *funcEmitter) sprintf(e *ast.CallExpr) (string, bool) {
 	}
 	conds = append(append(conds, errChecks...), errConds...)
 	if len(conds) > 0 {
-		call := fe.mark(e) + fe.expr(e.Fun) + "(" + fe.expr(e.Args[0]) + ", $rt.sliceLit<$rt.Iface | null>([" + strings.Join(boxes, ", ") + "]))"
+		call := fallback("$rt.sliceLit<$rt.Iface | null>([" + strings.Join(boxes, ", ") + "])")
 		s = strings.Join(conds, " || ") + " ? " + call + " : " + s
 	}
 	if len(sets) > 0 {

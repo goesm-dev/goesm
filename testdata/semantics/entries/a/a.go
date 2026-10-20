@@ -28,6 +28,9 @@ func (c *Counter) Label(prefix string) []string { return []string{prefix + strco
 
 func NewCounter() *Counter { return &Counter{N: 4} }
 
+// Copy returns a handle of the type it is called on.
+func (c *Counter) Copy() *Counter { d := *c; return &d }
+
 // Double doubles the elements of ns in place.
 func Double(ns []int) {
 	for i := range ns {

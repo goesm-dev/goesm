@@ -33,6 +33,7 @@ namespace 1.2.3
 {"__proto__":{"a":1}} true
 __proto__,a true
 c.txt
+.txt
 {"ascii":1,"名前":"ペン","価格":120,"big":9007199254740992,"ok":true,"none":null,"self":1,"list":[1,"a"]}
 ペン 120 9.007199254740992e+15
 3 零 1.5 1
