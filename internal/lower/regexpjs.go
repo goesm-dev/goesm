@@ -36,16 +36,20 @@ import (
 //
 // Go also guarantees that matching takes time linear in the input, which
 // a backtracking engine does not: (a+)+b on a long run of a's backtracks
-// exponentially, and \d+x unanchored rescans every run of digits from each
-// of its positions. So only patterns whose backtracking cannot blow up are
-// translated (safe): the pattern is deterministic (at each step of a match,
-// the next character decides which part of the pattern it belongs to, so a
-// failing alternative fails at once), or at least only finitely ambiguous
-// (ambiguous), and a pattern that can start anywhere (not anchored by ^ or
-// \A) cannot rescan: a repetition after which the match can still fail
-// matches no character a match can start with, as in \$\{[a-z]+\}, so the
-// search tries no start inside the run it scanned. A search then takes
-// time linear in the input times the pattern's length.
+// exponentially. So only patterns whose backtracking takes at most time
+// quadratic in the input are translated (safe), as that bounded cost is
+// worth leaving out Go's engines. A match from one start takes linear time
+// when the pattern is deterministic (at each step of a match, the next
+// character decides which part of the pattern it belongs to, so a failing
+// alternative fails at once), or at least only finitely ambiguous, and
+// quadratic time when it is polynomially ambiguous of degree 1, as
+// ^(\S+)\s+(.*)$ on a run of spaces, where each way of splitting the run
+// is tried once (ambiguity). A pattern that can start anywhere (not
+// anchored by ^ or \A) is tried from each start in turn: \d+x from each
+// digit of a run, which is quadratic in the run's length. With degree 1,
+// that stays quadratic only when the run whose splits are tried holds no
+// character a match can start with, so that the runs of different starts
+// do not overlap: unicode-range:\s*([^;]+); is translated, \d+\d+x is not.
 
 // regexpEntry is the compile-time translation of a pattern, as jsPattern
 // returns it to the regexp patch: the RegExp source, the number of
@@ -169,28 +173,24 @@ func nullable(re *syntax.Regexp, assertions bool) bool {
 type rxAnalysis struct {
 	sets   [][]rune // position -> rune ranges (pairs, as syntax's classes)
 	follow []map[int]bool
-	loop   []bool // the position is under a repetition without an upper bound
 	tooBig bool
 }
 
 // rxInfo is what the automaton needs of a subexpression: whether it can
-// match the empty string (with assertions between the characters it
-// matches, and without), its first positions and its last positions (also
-// the last ones without an assertion after them).
+// match the empty string, its first positions and its last positions.
 type rxInfo struct {
-	nullable, cleanNullable bool
-	first, last, cleanLast  []int
+	nullable    bool
+	first, last []int
 }
 
-func (a *rxAnalysis) pos(set []rune, loop bool) rxInfo {
+func (a *rxAnalysis) pos(set []rune) rxInfo {
 	if len(a.sets) >= maxRegexpPositions {
 		a.tooBig = true
 	}
 	p := len(a.sets)
 	a.sets = append(a.sets, set)
 	a.follow = append(a.follow, map[int]bool{})
-	a.loop = append(a.loop, loop)
-	return rxInfo{first: []int{p}, last: []int{p}, cleanLast: []int{p}}
+	return rxInfo{first: []int{p}, last: []int{p}}
 }
 
 func (a *rxAnalysis) link(from, to []int) {
@@ -203,7 +203,7 @@ func (a *rxAnalysis) link(from, to []int) {
 
 func (a *rxAnalysis) concat(x, y rxInfo) rxInfo {
 	a.link(x.last, y.first)
-	r := rxInfo{nullable: x.nullable && y.nullable, cleanNullable: x.cleanNullable && y.cleanNullable}
+	r := rxInfo{nullable: x.nullable && y.nullable}
 	r.first = x.first
 	if x.nullable {
 		r.first = union(x.first, y.first)
@@ -212,20 +212,14 @@ func (a *rxAnalysis) concat(x, y rxInfo) rxInfo {
 	if y.nullable {
 		r.last = union(y.last, x.last)
 	}
-	r.cleanLast = y.cleanLast
-	if y.cleanNullable {
-		r.cleanLast = union(y.cleanLast, x.cleanLast)
-	}
 	return r
 }
 
 func (a *rxAnalysis) alt(x, y rxInfo) rxInfo {
 	return rxInfo{
-		nullable:      x.nullable || y.nullable,
-		cleanNullable: x.cleanNullable || y.cleanNullable,
-		first:         union(x.first, y.first),
-		last:          union(x.last, y.last),
-		cleanLast:     union(x.cleanLast, y.cleanLast),
+		nullable: x.nullable || y.nullable,
+		first:    union(x.first, y.first),
+		last:     union(x.last, y.last),
 	}
 }
 
@@ -243,11 +237,11 @@ func union(x, y []int) []int {
 	return r
 }
 
-var empty = rxInfo{nullable: true, cleanNullable: true}
+var empty = rxInfo{nullable: true}
 
 // build adds the positions of re, with each counted repetition expanded,
 // and returns its rxInfo.
-func (a *rxAnalysis) build(re *syntax.Regexp, loop bool) rxInfo {
+func (a *rxAnalysis) build(re *syntax.Regexp) rxInfo {
 	if a.tooBig {
 		return empty
 	}
@@ -261,33 +255,33 @@ func (a *rxAnalysis) build(re *syntax.Regexp, loop bool) rxInfo {
 	case syntax.OpLiteral:
 		r := empty
 		for _, c := range re.Rune {
-			r = a.concat(r, a.pos(literalSet(c, re.Flags&syntax.FoldCase != 0), loop))
+			r = a.concat(r, a.pos(literalSet(c, re.Flags&syntax.FoldCase != 0)))
 		}
 		return r
 	case syntax.OpCharClass:
-		return a.pos(re.Rune, loop)
+		return a.pos(re.Rune)
 	case syntax.OpAnyCharNotNL:
-		return a.pos([]rune{0, '\n' - 1, '\n' + 1, unicode.MaxRune}, loop)
+		return a.pos([]rune{0, '\n' - 1, '\n' + 1, unicode.MaxRune})
 	case syntax.OpAnyChar:
-		return a.pos([]rune{0, unicode.MaxRune}, loop)
+		return a.pos([]rune{0, unicode.MaxRune})
 	case syntax.OpCapture:
-		return a.build(re.Sub[0], loop)
+		return a.build(re.Sub[0])
 	case syntax.OpConcat:
 		r := empty
 		for _, sub := range re.Sub {
-			r = a.concat(r, a.build(sub, loop))
+			r = a.concat(r, a.build(sub))
 		}
 		return r
 	case syntax.OpAlternate:
 		r := rxInfo{}
 		for _, sub := range re.Sub {
-			r = a.alt(r, a.build(sub, loop))
+			r = a.alt(r, a.build(sub))
 		}
 		return r
 	case syntax.OpQuest:
-		return a.alt(empty, a.build(re.Sub[0], loop))
+		return a.alt(empty, a.build(re.Sub[0]))
 	case syntax.OpStar, syntax.OpPlus:
-		x := a.build(re.Sub[0], true)
+		x := a.build(re.Sub[0])
 		a.link(x.last, x.first)
 		if re.Op == syntax.OpStar {
 			return a.alt(empty, x)
@@ -302,21 +296,21 @@ func (a *rxAnalysis) build(re *syntax.Regexp, loop bool) rxInfo {
 			n--
 		}
 		for i := 0; i < n && !a.tooBig; i++ {
-			r = a.concat(r, a.build(re.Sub[0], loop))
+			r = a.concat(r, a.build(re.Sub[0]))
 		}
 		if re.Max == -1 {
 			star := &syntax.Regexp{Op: syntax.OpPlus, Sub: re.Sub[:1]}
 			if re.Min == 0 {
 				star.Op = syntax.OpStar
 			}
-			return a.concat(r, a.build(star, loop))
+			return a.concat(r, a.build(star))
 		}
 		var opt func(k int) rxInfo
 		opt = func(k int) rxInfo {
 			if k == 0 || a.tooBig {
 				return empty
 			}
-			x := a.build(re.Sub[0], loop)
+			x := a.build(re.Sub[0])
 			return a.alt(empty, a.concat(x, opt(k-1)))
 		}
 		return a.concat(r, opt(re.Max-re.Min))
@@ -325,27 +319,12 @@ func (a *rxAnalysis) build(re *syntax.Regexp, loop bool) rxInfo {
 	return empty
 }
 
-// safe reports whether matching re by backtracking takes linear time
-// (see the comment at the top of the file).
+// safe reports whether searching for re by backtracking takes at most
+// quadratic time (see the comment at the top of the file).
 func (a *rxAnalysis) safe(re *syntax.Regexp) bool {
-	root := a.build(re, false)
+	root := a.build(re)
 	if a.tooBig {
 		return false
-	}
-	if !anchored(re) {
-		ends := map[int]bool{}
-		for _, p := range root.cleanLast {
-			ends[p] = true
-		}
-		var starts []rune // the runes a match can start with
-		for _, p := range root.first {
-			starts = append(starts, a.sets[p]...)
-		}
-		for p, loop := range a.loop {
-			if loop && !ends[p] && overlaps(a.sets[p], starts) {
-				return false
-			}
-		}
 	}
 	// The automaton's states: 0 the start, p+1 position p.
 	n := len(a.sets) + 1
@@ -366,7 +345,13 @@ func (a *rxAnalysis) safe(re *syntax.Regexp) bool {
 	if n > maxAmbiguityStates {
 		return false
 	}
-	return !a.ambiguous(succ)
+	var starts []rune // the runes a match can start with, if it can start anywhere
+	if !anchored(re) {
+		for _, p := range root.first {
+			starts = append(starts, a.sets[p]...)
+		}
+	}
+	return a.ambiguity(succ, starts) < 2
 }
 
 func plus1(ps []int) []int {
@@ -380,17 +365,22 @@ func plus1(ps []int) []int {
 // maxAmbiguityStates bounds the automata whose ambiguity is computed.
 const maxAmbiguityStates = 100
 
-// ambiguous reports whether the automaton (succ, with the runes of state q
-// in a.sets[q-1]) lets a backtracking matcher take more than linear time
-// on some input: whether it is exponentially ambiguous, a state p having
-// two different cycles on the same string, or (approximately) infinitely
-// ambiguous, two different states p and q on cycles with a string leading
-// from p both back to p and to q. Neither is the case for
+// ambiguity reports how much time a backtracking matcher can take on the
+// automaton (succ, with the runes of state q in a.sets[q-1]) from one
+// start: 0 for linear time, 1 for quadratic and 2 for more. It is 2 if the
+// automaton is exponentially ambiguous, a state p having two different
+// cycles on the same string. A pair of different states p and q on cycles
+// with a string leading from p both back to p and to q makes it
+// (approximately) infinitely ambiguous, of degree 1 if no such pair starts
+// at q, and 2 if one does. With starts, the runes a match of a pattern that
+// can start anywhere starts with, degree 1 is 2 if a state on a cycle
+// through p accepts one of them: the runs where the matches from two starts
+// try every split could then overlap. Neither is the case for
 // ^(?:(\d+)h)?(?:(\d+)m)?$, which is not deterministic (both groups start
 // with a digit) but whose wrong guess fails at the h. Weideman et al.,
 // "Analyzing Matching Time Behavior of Backtracking Regular Expression
 // Matchers by Using Ambiguity of NFA" (2016).
-func (a *rxAnalysis) ambiguous(succ [][]int) bool {
+func (a *rxAnalysis) ambiguity(succ [][]int, starts []rune) int {
 	n := len(succ)
 	same := func(x, y int) bool { return overlaps(a.sets[x-1], a.sets[y-1]) }
 	// The pair automaton: (x, y) -> (x', y') where both runs read a rune
@@ -424,6 +414,21 @@ func (a *rxAnalysis) ambiguous(succ [][]int) bool {
 	for p := 1; p < n; p++ {
 		onCycle[p] = reach(p, func(v int) []int { return succ[v] }, n)[p]
 	}
+	// overlapsCycle reports whether a state on a cycle through p accepts a
+	// rune of starts.
+	overlapsCycle := func(p int) bool {
+		if starts == nil {
+			return false
+		}
+		from := reach(p, func(v int) []int { return succ[v] }, n)
+		for q := 1; q < n; q++ {
+			if from[q] && reach(q, func(v int) []int { return succ[v] }, n)[p] && overlaps(a.sets[q-1], starts) {
+				return true
+			}
+		}
+		return false
+	}
+	ida := make([][]int, n) // p -> the states q of such pairs
 	for p := 1; p < n; p++ {
 		if !onCycle[p] {
 			continue
@@ -436,14 +441,26 @@ func (a *rxAnalysis) ambiguous(succ [][]int) bool {
 			}
 			// Two runs from p part on the same string.
 			if reach(v, pairSucc, n*n)[p*n+p] {
-				return true // and meet again at p
+				return 2 // and meet again at p
 			}
 			if x == p && onCycle[y] {
-				return true
+				ida[p] = append(ida[p], y)
+				if overlapsCycle(p) {
+					return 2
+				}
 			}
 		}
 	}
-	return false
+	degree := 0
+	for p := range ida {
+		for _, q := range ida[p] {
+			degree = 1
+			if len(ida[q]) > 0 {
+				return 2
+			}
+		}
+	}
+	return degree
 }
 
 func (a *rxAnalysis) disjoint(ps []int) bool {
