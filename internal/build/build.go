@@ -213,6 +213,24 @@ func WriteTS(dir string, mods []*lower.Module) error {
 	})
 }
 
+// WriteDTS writes the declaration file of each entry package's module next
+// to the module, at p.d.ts for the module p.ts (see lower.Module.DTS).
+func WriteDTS(dir string, mods []*lower.Module) error {
+	for _, m := range mods {
+		if m.DTS == "" {
+			continue
+		}
+		p := strings.TrimSuffix(tsPath(dir, m.Path), ".ts") + ".d.ts"
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, []byte(m.DTS), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // splitResolver keeps imports between modules external in split mode: an
 // import of another entry point (a Go package's module or the runtime) stays
 // an ES module import of its output, with the same relative specifier ending

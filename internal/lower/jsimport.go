@@ -8,7 +8,6 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 
@@ -444,8 +443,7 @@ func (pe *pkgEmitter) structToJS(t types.Type, x string) string {
 		if !f.Exported() {
 			continue
 		}
-		tag := reflect.StructTag(st.Tag(i)).Get("json")
-		name, _, _ := strings.Cut(tag, ",")
+		name := jsFieldName(st.Tag(i))
 		if name == "-" {
 			continue
 		}

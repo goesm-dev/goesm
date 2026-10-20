@@ -62,9 +62,9 @@ Arguments are converted from Go to JavaScript and results from JavaScript to Go,
 | `string` | string |
 | `js.Value`, `js.Func` | the value itself |
 | `[]byte` | `Uint8Array` |
-| other slices and arrays | array |
-| `map[string]T` | plain object |
-| struct, pointer to struct | plain object with the exported fields, named as `encoding/json` names them (the `json` tag name, or the field name); an embedded struct or pointer to struct contributes its fields |
+| other slices and arrays | array; an empty one for a nil slice |
+| `map[string]T` | plain object; an empty one for a nil map |
+| struct, pointer to struct | plain object with the exported fields, named by their `js` tag, or else as `encoding/json` names them (the `json` tag name, or the field name); an embedded struct or pointer to struct contributes its fields |
 | other pointers | the value pointed to, converted; `null` for nil. A result is a pointer to a converted copy, `nil` for `null` or `undefined` |
 | function (arguments only) | function, which converts its own arguments and results the same way |
 | `any` | to JavaScript, the conversion of the dynamic value; to Go, the value as `encoding/json` decodes it into an `any` |

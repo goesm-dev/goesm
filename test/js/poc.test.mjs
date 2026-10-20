@@ -217,7 +217,9 @@ test("JS calling ABI: structs, slices and maps are plain values", async () => {
   ];
   assert.equal(m.Total({ ID: 1n, Items: items }), 610);
   assert.equal(m.Total({}), 0);
-  assert.deepEqual(m.Cheapest(items), { name: "りんご", price: 120, quantity: 3, Tags: null });
+  assert.deepEqual(m.Cheapest(items), { name: "りんご", price: 120, quantity: 3, Tags: [] });
+  assert.deepEqual(m.Rename({ ID: 1, name: "a", Skip: 5, note: "x", id: 9, n: "y" }), { ID: 2, name: "a", note: "x" });
+  assert.deepEqual(m.NilParts(), [[], [], new Uint8Array(0), {}, new Map()]);
   assert.deepEqual(m.Counts(["a", "b", "a"]), { a: 2, b: 1 });
   assert.deepEqual(m.Lengths(["go", "js", "ts!"]), new Map([[2, ["go", "js"]], [3, ["ts!"]]]));
   const b = m.Bytes(new Uint8Array([1, 2, 3]));
