@@ -8,6 +8,10 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 Changes on `main` since v0.0.1-beta.7: [v0.0.1-beta.7...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...main).
 
+### regexp
+
+- A constant pattern is matched with the engine's `RegExp` also when a search by backtracking can take time quadratic in the input, instead of only linear: a pattern that can start anywhere and rescans, such as `\d+x` or `(\w+)@(\w+)`, and one that tries each split of a run once, such as `^(\S+)\s+(.*)$` or `unicode-range:\s*([^;]+);`. A program whose patterns are all of this kind no longer keeps Go's parser and engines, about 55 KB gzip. Patterns that can take longer, such as `(a+)+b` or `\d+\d+$`, still keep them. The Image app of richinosan/toolbox, with its 14 patterns compiled by `regexp.MustCompile` instead of its own wrapper of JS `RegExp`, goes from 120.0 KB to 81.9 KB gzip (79.2 KB with the wrapper).
+
 ### Bundle size
 
 - A string constant with non-ASCII text, such as Japanese, is a JS string literal of that text, converted to Go's bytes once when the module loads, instead of a `\x` escape per byte. A string that a `syscall/js` call takes is the text itself, with no conversion. `goesm build` writes such text as UTF-8 instead of `\u` escapes. A package of 300 Japanese messages went from 62.0 KB to 27.5 KB minified, and from 8.1 KB to 7.5 KB gzip.
