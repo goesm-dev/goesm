@@ -8,6 +8,10 @@ goesm の各バージョンの変更点を、新しい順に記載します。�
 
 v0.0.1-beta.7 以降に `main` に入った変更です。差分は [v0.0.1-beta.7...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...main) で確認できます。
 
+### JS calling ABI
+
+- 別のパッケージの struct 型へのポインタを引数に取る関数を export し、その型のメソッドが同じ型へのポインタを返す場合、entry はその型に JS のメソッドを 2 回付けていたため、esbuild が「The symbol ... has already been declared」で拒否していました。1 回だけ付けるようになりました。
+
 ### regexp
 
 - 定数のパターンは、バックトラックによる検索に入力の長さの 2 乗に比例する時間がかかり得る場合も、線形時間の場合と同じく engine の `RegExp` で照合するようになりました。`\d+x` や `(\w+)@(\w+)` のようにどこからでも始まり同じ範囲を走査し直すパターンと、`^(\S+)\s+(.*)$` や `unicode-range:\s*([^;]+);` のように並びの分け方を 1 回ずつ試すパターンが該当します。こうしたパターンだけを使うプログラムには、Go の parser とエンジン (gzip 後約 55 KB) が残らなくなりました。`(a+)+b` や `\d+\d+$` のようにさらに時間がかかり得るパターンでは、これまでどおり残ります。richinosan/toolbox の Image アプリで、独自の JS `RegExp` の wrapper の代わりに 14 個のパターンを `regexp.MustCompile` でコンパイルすると、gzip 後の大きさは 120.0 KB から 81.9 KB になります (wrapper では 79.2 KB)。
