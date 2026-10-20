@@ -28,14 +28,19 @@ func TestTranslateRegexp(t *testing.T) {
 		// Unanchored, but no start of a match is inside [a-z]+.
 		{`\$\{([a-z]+)\}`, `\u0024\u007b([a-z]+)\u007d`},
 
-		{`(?:(a)|b)+`, ""},     // JavaScript resets the capture in each iteration
-		{`(?:|a)?`, ""},        // an iteration that matches nothing
-		{`(a+)+b`, ""},         // exponential backtracking
-		{`\d+\d+$`, ""},        // polynomial backtracking
-		{`^(\S+)\s+(.*)$`, ""}, // polynomial backtracking on spaces before a \n
-		{`\d+x`, ""},           // unanchored: each digit of a run starts a rescan
-		{`(\w+)@(\w+)`, ""},    // likewise
-		{`a(`, ""},             // Go reports the error
+		{`(?:(a)|b)+`, ""}, // JavaScript resets the capture in each iteration
+		{`(?:|a)?`, ""},    // an iteration that matches nothing
+		{`(a+)+b`, ""},     // exponential backtracking
+		// Quadratic: each split of a run of spaces, each start in a run.
+		{`^(\S+)\s+(.*)$`, `^((?:[\u0000-\u0008\u000b\u000e-\u001f\u0021-\ud7ff\ue000-\uffff]|\ud800[\udc00-\udfff]|[\ud801-\udbfe][\udc00-\udfff]|\udbff[\udc00-\udfff])+)[\u0009-\u000a\u000c-\u000d\u0020]+((?:[\u0000-\u0009\u000b-\ud7ff\ue000-\uffff]|\ud800[\udc00-\udfff]|[\ud801-\udbfe][\udc00-\udfff]|\udbff[\udc00-\udfff])*)$`},
+		{`\d+x`, `[0-9]+x`},
+		{`(\w+)@(\w+)`, `([0-9A-Z\u005fa-z]+)\u0040([0-9A-Z\u005fa-z]+)`},
+		// Quadratic too: no start is in the run of spaces.
+		{`u:\s*([^;]+);`, `u\u003a[\u0009-\u000a\u000c-\u000d\u0020]*((?:[\u0000-\u003a\u003c-\ud7ff\ue000-\uffff]|\ud800[\udc00-\udfff]|[\ud801-\udbfe][\udc00-\udfff]|\udbff[\udc00-\udfff])+)\u003b`},
+		{`\d+\d+$`, ""},     // quadratic from each start, and starts in the run
+		{`^\d+\d+\d+$`, ""}, // cubic
+		{`a\s*\s*\s*b`, ""}, // likewise
+		{`a(`, ""},          // Go reports the error
 	} {
 		e, ok := translateRegexp(c.expr)
 		if js, _, _ := strings.Cut(e, "\x00"); js != c.js || ok != (c.js != "") {

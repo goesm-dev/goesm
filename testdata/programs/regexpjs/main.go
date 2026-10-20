@@ -76,6 +76,14 @@ var patterns = []*regexp.Regexp{
 	regexp.MustCompile(`fo(?:o|x)`),
 	regexp.MustCompile(`\A\d`),
 	regexp.MustCompile(`\d\z`),
+	// Searching for these can take quadratic time.
+	regexp.MustCompile(`\d+x`),
+	regexp.MustCompile(`(\w+)@(\w+)`),
+	regexp.MustCompile(`^(\S+)\s+(.*)$`),
+	regexp.MustCompile(`u:\s*([^;]+);`),
+	regexp.MustCompile(`url\(["']?([^"')]+)["']?\)`),
+	regexp.MustCompile(`url\(([^)]+?\.woff2)\)`),
+	regexp.MustCompile(`@font-face\s*\{[^}]*\}`),
 }
 
 var inputs = []string{
@@ -120,6 +128,12 @@ var inputs = []string{
 	"é",
 	"foo foo",
 	"zoo boo",
+	"12x 3x x9x 45",
+	"me@host you@there @x",
+	"lead  two words\nnext",
+	"u: a b; u:x; u:  ;",
+	`url("a.woff2") url(b.woff2) url('c.ttf')`,
+	"@font-face { src: x } @font-face{} @font-face {",
 }
 
 func main() {
