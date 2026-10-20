@@ -72,14 +72,19 @@ func (l *Location) lookup(sec int64) (name string, offset int, start, end int64,
 
 	// If we're at the end of the known zone transitions,
 	// try the extend string.
-	if lo == len(tx)-1 && l.extend != "" {
-		if ename, eoffset, estart, eend, eisDST, ok := tzset(l.extend, start, sec); ok {
+	if lo == len(tx)-1 && l.extend != "" && tzsetHook != nil {
+		if ename, eoffset, estart, eend, eisDST, ok := tzsetHook(l.extend, start, sec); ok {
 			return ename, eoffset, estart, eend, eisDST
 		}
 	}
 
 	return
 }
+
+// tzsetHook is tzset once a Location has been loaded from tzdata (patch
+// zoneinfo_read.go): only those have an extend string, so a program that
+// never loads one leaves out the parsing of TZ rules.
+var tzsetHook func(s string, lastTxSec, sec int64) (name string, offset int, start, end int64, isDST, ok bool)
 
 // localOffsetAt returns the host's offset from UTC at the Unix time sec, in
 // seconds east (the negated Date.prototype.getTimezoneOffset).

@@ -29,7 +29,7 @@ import {
   goThrown, typeArgsName, $R, tuple, untuple, jsNull, toRef, fromRef, isASCII, noteASCII, setHTTPServer, hostListen, hostBuiltin, decodeRune,
 } from "./index.ts";
 import type { S } from "./index.ts";
-import { fmtFixed, fmtShortest, mayTie, roundToEven, sprintf, tieScale } from "./fmt.ts";
+import { fmtFixed, fmtShortest, formatFloat64, mayTie, parseFloat64, roundToEven, sprintf, tieScale } from "./fmt.ts";
 import { jsonMarshal, jsonUnmarshal, registerJSONErrors, registerTypeOf } from "./json.ts";
 
 // ---- runtime ----
@@ -275,6 +275,48 @@ export function native$strconv$isSpace(r: number): boolean {
 export const native$strings$isASCII = isASCII;
 // utf8.ValidString of an ASCII string (see the unicode/utf8 patch).
 export const native$unicode$utf8$isASCII = isASCII;
+// strings.Replacer (patch strings/replace.go) as one RegExp, a character
+// class when the olds are single bytes. Alternation tries the olds in
+// argument order, as Go does. An empty old matches where no earlier old does; Go then
+// still tries the olds after it at the same place, which the optional group
+// does here.
+export function native$strings$replacerOf(oldnew: S<string>): any {
+  const n = oldnew === null ? 0 : oldnew.$length;
+  const news = new Map<string, string>();
+  const olds: string[] = [];
+  let empty = -1;
+  let bytes = true;
+  for (let i = 0; i + 1 < n; i += 2) {
+    const o = oldnew!.$array[oldnew!.$offset + i];
+    if (news.has(o)) continue;
+    news.set(o, oldnew!.$array[oldnew!.$offset + i + 1]);
+    if (o === "") {
+      empty = olds.length;
+      continue;
+    }
+    olds.push(o.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&"));
+    bytes &&= o.length === 1;
+  }
+  let src: string;
+  if (empty >= 0) {
+    const after = olds.slice(empty).join("|");
+    src = olds.slice(0, empty).concat(after ? "(" + after + ")?" : "").join("|");
+  } else if (olds.length === 0) {
+    return null;
+  } else {
+    src = bytes ? "[" + olds.join("") + "]" : olds.join("|");
+  }
+  return { re: new RegExp(src, "g"), news, empty: empty >= 0 ? news.get("")! : null };
+}
+
+export function native$strings$replaceAll(r: any, s: string): string {
+  if (r === null) return s;
+  if (r.empty === null) return s.replace(r.re, (m: string) => r.news.get(m));
+  return s.replace(r.re, (m: string, after: unknown) =>
+    typeof after === "string" ? r.empty + r.news.get(after) : m === "" ? r.empty : r.news.get(m),
+  );
+}
+
 export function native$strings$upperASCII(s: string): string {
   const u = s.toUpperCase();
   noteASCII(u);
@@ -405,6 +447,11 @@ export function native$fmt$fmtUint(v: number, verb: number, prec: number): strin
 // fmt's fast paths (see the fmt patch and fmt.ts).
 export const native$fmt$fmtFixed = fmtFixed;
 export const native$fmt$fmtShortest = fmtShortest;
+
+// strconv's FormatFloat, AppendFloat and ParseFloat of a float64, where
+// the lowering calls them (strconvcall.go).
+export const native$strconv$formatFloat64JS = formatFloat64;
+export const native$strconv$parseFloat64JS = parseFloat64;
 export function native$fmt$jsSprintf(format: string, a: S<Iface | null>): [string, boolean] {
   const s = sprintf(format, a);
   return s === null ? ["", false] : [s, true];
@@ -1477,13 +1524,7 @@ export function native$syscall$js$valueGet(v: any, p: string): any {
 }
 
 export function native$syscall$js$valueGetJS(v: any, name: string): any {
-  const o = fromRef(v);
-  if (o === globalThis) {
-    if (name === "fs") return hostFS();
-    if (name === "process" && (globalThis as any).process === undefined) return hostProcess();
-    if (name === "path" && (globalThis as any).path === undefined) return hostPath();
-  }
-  return toRef(o[name]);
+  return toRef(fromRef(v)[name]);
 }
 
 export function native$syscall$js$valueSet(v: any, p: string, x: any): void {
@@ -1663,11 +1704,11 @@ export function native$syscall$js$makeFunc(
   };
 }
 
-// ---- the host's fs and process, seen through js.Global() ----
+// ---- the host's fs and process, for package syscall ----
 //
-// Package syscall reaches files through js.Global().Get("fs") with Node's
-// callback API, like Go's wasm_exec.js expects. goesm always supplies its own
-// fs there, without touching globalThis, even if the host has a global fs
+// Package syscall reaches files through an fs object with Node's callback
+// API, which Go's wasm_exec.js puts in globalThis.fs. goesm hands package
+// syscall its own (patch/syscall/fs_js.go), even if the host has a global fs
 // (as wasm_exec.js users set up): it calls back before returning, which lets
 // goesm lower syscall.fsCall as synchronous (internal/natives: syncFuncs), so
 // writing to os.Stdout does not make callers async. A host fs with Node's
@@ -1686,6 +1727,12 @@ const fsCalls = [
 ];
 
 let theFS: any = null;
+
+// hostValue gives package syscall the host's fs, process and path
+// (patch/syscall/fs_js.go). v is the js.Value to set.
+export function native$syscall$hostValue(v: any, name: string): void {
+  v.ref = toRef(name === "fs" ? hostFS() : name === "path" ? hostPath() : (globalThis as any).process ?? hostProcess());
+}
 
 // hostPath is node:path for syscall's jsPath.resolve, as wasm_exec_node.js
 // provides it; without one (browsers) paths stay as they are.
