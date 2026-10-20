@@ -65,6 +65,16 @@ resolved <nil>
 7 <nil>
 true JavaScript error: cancelled
 true JavaScript error: plain reason
+true 1024 true
+ガ1fi 3
+-2 3 3
+(?<=¥)(\d+)(?!\d*円) true false
+["1200" "1200"]
+["b" "" "b"]
+["ああ" "いい" "oo"] ["ああ"]
+true ["" "xx" ""]
+10/2026 と 01/2027
+true
 recovered: goesm: main.laterNotAwaited imported from "./lib.ts" returned a Promise; mark its //goesm:import directive with await
 recovered: goesm: main.rejectNotAwaited imported from "./lib.ts" returned a Promise; mark its //goesm:import directive with await
 JavaScript error: plain string plain string
