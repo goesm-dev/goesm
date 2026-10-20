@@ -8,6 +8,10 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 Changes on `main` since v0.0.1-beta.7: [v0.0.1-beta.7...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...main).
 
+### JS calling ABI
+
+- An entry whose exported functions take a pointer to a struct type of another package, whose methods return a pointer to the same type, gave that type its JS methods twice, which esbuild rejected ("The symbol ... has already been declared"). It gives them once.
+
 ### regexp
 
 - A constant pattern is matched with the engine's `RegExp` also when a search by backtracking can take time quadratic in the input, instead of only linear: a pattern that can start anywhere and rescans, such as `\d+x` or `(\w+)@(\w+)`, and one that tries each split of a run once, such as `^(\S+)\s+(.*)$` or `unicode-range:\s*([^;]+);`. A program whose patterns are all of this kind no longer keeps Go's parser and engines, about 55 KB gzip. Patterns that can take longer, such as `(a+)+b` or `\d+\d+$`, still keep them. The Image app of richinosan/toolbox, with its 14 patterns compiled by `regexp.MustCompile` instead of its own wrapper of JS `RegExp`, goes from 120.0 KB to 81.9 KB gzip (79.2 KB with the wrapper).
