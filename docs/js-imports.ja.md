@@ -24,7 +24,7 @@ func Label(price int) string {
 
 ## ディレクティブ
 
-`//goesm:import` は、本体のない関数宣言か、値のないパッケージ変数の宣言の直前に書きます。
+`//goesm:import` は、本体のない関数宣言か、値のないパッケージ変数の宣言の直前に書きます。関数には goesm が無視する本体を書くこともできます ([制限](#制限) を参照)。
 
 ```go
 //goesm:import "<モジュール>" [<エクスポート名>] [await]
@@ -100,7 +100,7 @@ if errors.As(err, &jerr) {
 
 ## 制限
 
-- `//goesm:import` を含むパッケージは goesm でしかビルドできません。`go build` と `go vet` は本体のない関数をエラー (`missing function body`) にします。パッケージに空のアセンブリファイル (`goesm.s` など) を置くと、標準ライブラリのアセンブリで実装された関数と同じように、どちらも受け付けます。gopls はどちらの場合も受け付けます。
+- `go build` と `go vet` は本体のない関数をエラー (`missing function body`) にします。そのため、取り込む関数には本体を書くこともできます。goesm はその本体を取り込んだ関数に置き換えます。本体は `{ panic("goesm:import") }` のように書きます。この場合、`go vet` はパッケージをそのまま検査できます。パッケージに空のアセンブリファイル (`goesm.s` など) を置いても、標準ライブラリのアセンブリで実装された関数と同じように、どちらも本体のない関数を受け付けます。gopls はどちらの書き方も受け付けます。
 - `goesm build` は esbuild でバンドルするので、`.ts`、`.js`、`.mjs` は扱えますが `.vue` は扱えません。Vue コンポーネントは、Vite でビルドする gosfc から使います。
 - Go に返された JavaScript の関数は `js.Value` になり、`Invoke` で呼びます。
 - JavaScript に渡した Go の関数がブロックする場合、つまりスリープやチャネルの待機、`await` を付けた import の呼び出しを含む場合、その関数は JavaScript に Promise を返します。`xs.map(f)` のように結果を await せずに呼ぶ JavaScript のコードは、値の代わりに Promise を受け取ります。

@@ -29,10 +29,10 @@ const a = await import(process.argv[1]);
 const b = await import(process.argv[2]);
 const box = a.Lookup();
 box.Set(7);
-console.log([a.Add(2), a.Add(3), b.Count(), await b.Wait(), box.Get(), b.AddTwice([1, 1]), b.Doubled(), b.Age(), a.Counter$Label(a.NewCounter(), "あ")[0], a.NewCounter().Label("m")[0], b.Labelled(), await a.Relay(), b.Summed()].join(","));
+console.log([a.Add(2), a.Add(3), b.Count(), await b.Wait(), box.Get(), b.AddTwice([1, 1]), b.Doubled(), b.Age(), a.Counter$Label(a.NewCounter(), "あ")[0], a.NewCounter().Label("m")[0], b.Labelled(), await a.Relay(), b.Summed(), b.Key(a.NewCounter().Copy())].join(","));
 `
 	got := strings.TrimSpace(string(runNode(t, "--input-type=module", "-e", script, mod("a"), mod("b"))))
-	if want := "2,5,5,5,7,72,6,16,あ4,m4,b1,5,6"; got != want {
+	if want := "2,5,5,5,7,72,6,16,あ4,m4,b1,5,6,4"; got != want {
 		t.Errorf("got %s, want %s", got, want)
 	}
 

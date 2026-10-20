@@ -1832,6 +1832,16 @@ export function native$syscall$runtimeSetenv(_k: string, _v: string): void {}
 export function native$syscall$runtimeUnsetenv(_k: string): void {}
 export function native$syscall$runtimeClearenv(): void {}
 
+// fmt's printStd (patch fmt/print.go): Print and Println without os.File.
+export function native$fmt$writeStd(fd: number, s: string): string {
+  try {
+    writeStd(fd, s);
+    return "";
+  } catch (e: any) {
+    return e?.code === "EBADF" ? "file already closed" : String(e?.message ?? e);
+  }
+}
+
 // ---- internal/godebug and runtime/debug ----
 
 // GODEBUG settings come from the host's environment at start-up; goesm has

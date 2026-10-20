@@ -24,7 +24,7 @@ func Label(price int) string {
 
 ## The directive
 
-`//goesm:import` precedes a function declared without a body, or a package variable declared without a value:
+`//goesm:import` precedes a function declared without a body (or with one goesm ignores, see [Limitations](#limitations)), or a package variable declared without a value:
 
 ```go
 //goesm:import "<module>" [<export>] [await]
@@ -100,7 +100,7 @@ Node.js 22 on a 4 vCPU Intel Xeon 2.10 GHz cloud VM, the median of 7 runs. On Bu
 
 ## Limitations
 
-- A package with `//goesm:import` declarations builds only with goesm: `go build` and `go vet` report the functions without bodies (`missing function body`). An empty assembly file in the package, such as `goesm.s`, makes both accept them, as it does for the standard library's functions implemented in assembly; gopls accepts them either way.
+- `go build` and `go vet` report a function without a body (`missing function body`). An imported function may therefore have a body, which goesm replaces with the import, such as `{ panic("goesm:import") }`; `go vet` then checks the package as it is. An empty assembly file in the package, such as `goesm.s`, also makes both accept functions without bodies, as it does for the standard library's functions implemented in assembly. gopls accepts both forms.
 - `goesm build` bundles with esbuild, which handles `.ts`, `.js` and `.mjs` files but not `.vue`; Vue components are used through gosfc, which builds with Vite.
 - A JavaScript function returned to Go is a `js.Value`, called with `Invoke`.
 - A Go function passed to JavaScript that blocks, for example by sleeping, waiting on a channel or calling an `await` import, returns a Promise to JavaScript. JavaScript code that calls it without awaiting the result, such as `xs.map(f)`, gets Promises instead of values.

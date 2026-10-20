@@ -310,8 +310,9 @@ func (pe *pkgEmitter) emitStdFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	pe.prog.Diags = pe.prog.Diags[:n]
 	fn := pe.info.Defs[fd.Name].(*types.Func)
 	pe.prog.Warns = append(pe.prog.Warns, Diagnostic{
-		Pos: pe.prog.Fset.Position(fd.Pos()),
-		Msg: fmt.Sprintf("%s is not lowered and panics if called: %s", fn.FullName(), first.Msg),
+		Pos:  pe.prog.Fset.Position(fd.Pos()),
+		Msg:  fmt.Sprintf("%s is not lowered and panics if called: %s", fn.FullName(), first.Msg),
+		Func: fn.FullName(),
 	})
 	name := pe.funcDeclName(fd, fn)
 	if fd.Name.Name == "init" {

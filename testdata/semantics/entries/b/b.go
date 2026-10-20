@@ -53,3 +53,7 @@ func Summed() int {
 	a.Each([]int{1, 2, 3}, func(n int) { s += n })
 	return s
 }
+
+// Key takes a handle of entry a's type, whose methods b's module gives it
+// once, although *a.Counter appears both here and in Counter.Copy.
+func Key(c *a.Counter) int { return c.N }

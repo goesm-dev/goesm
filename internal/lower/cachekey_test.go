@@ -25,7 +25,7 @@ var covered = map[string]bool{
 	"boxed":     true,
 	"linkPulls": true, "linkProvides": true,
 	"std": true, "Deps": true,
-	"TracksGoroutines": true, "awaitMain": true, "usesPull": true,
+	"TracksGoroutines": true, "awaitMain": true, "usesPull": true, "StdFixed": true,
 	"CallBlocks": true, "CallAlwaysAsync": true, "RangeBlocks": true, "WaitLock": true, "WaitLockVal": true,
 	"DynMethod": true, "CalledMethod": true, "BoxOf": true,
 	// What PureEmitter answers depends on the files of an imported

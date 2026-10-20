@@ -59,6 +59,9 @@ func (pe *pkgEmitter) importedHandles() []*types.Named {
 func handleTypes(pkg *types.Package) []*types.Named {
 	var found []*types.Named
 	seen := map[types.Type]bool{}
+	// Pointer types are not canonical: *T in a parameter and in a result
+	// are different types.Type values.
+	seenNamed := map[*types.Named]bool{}
 	var walk func(t types.Type)
 	walkSig := func(sig *types.Signature) {
 		for i := 0; i < sig.Params().Len(); i++ {
@@ -80,9 +83,10 @@ func handleTypes(pkg *types.Package) []*types.Named {
 				return
 			}
 			n, ok := types.Unalias(p.Elem()).(*types.Named)
-			if !ok || n.TypeArgs().Len() > 0 {
+			if !ok || n.TypeArgs().Len() > 0 || seenNamed[n] {
 				return
 			}
+			seenNamed[n] = true
 			found = append(found, n)
 			for _, fn := range handleMethods(n) {
 				walkSig(fn.Signature())

@@ -41,6 +41,12 @@ func ownKeys(m map[string]int) string
 //goesm:import "node:path" basename
 func basename(p string) string
 
+// A body, which go build and go vet need without an assembly file, is
+// replaced by the import.
+//
+//goesm:import "node:path" extname
+func extname(p string) string { panic("goesm:import") }
+
 //goesm:import "./lib.ts" later
 func laterNotAwaited(ms int, v string) string
 
@@ -204,6 +210,7 @@ func main() {
 	fmt.Println(ownKeys(map[string]int{"__proto__": 1, "a": 2}))
 
 	fmt.Println(basename("/a/b/c.txt"))
+	fmt.Println(extname("/a/b/c.txt"))
 
 	syscallJS()
 

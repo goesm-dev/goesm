@@ -11,12 +11,15 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+
+	"golang.org/x/tools/go/packages"
 )
 
 // //goesm:import: Go calling JavaScript and TypeScript.
 //
-// A function declared without a body, or a package variable declared
-// without a value, imports an export of an ES module:
+// A function declared without a body (or with one, which goesm drops so
+// that go vet accepts the package), or a package variable declared without
+// a value, imports an export of an ES module:
 //
 //	//goesm:import "./format.ts" formatPrice
 //	func formatPrice(yen int) string
@@ -88,6 +91,22 @@ func parseJSImport(s string) (*jsImport, error) {
 		return nil, fmt.Errorf("//goesm:import takes a module, an export name and await, got %q", s)
 	}
 	return d, nil
+}
+
+// dropJSImportBodies removes the bodies of the functions of pkg that import
+// a JS function. The JS function replaces the body, which a declaration may
+// have so that go build and go vet accept the package without an assembly
+// file: panic("goesm:import"), say.
+func dropJSImportBodies(pkg *packages.Package) {
+	for _, f := range pkg.Syntax {
+		for _, d := range f.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil && fd.Recv == nil {
+				if d, _, err := jsImportDirective(fd.Doc); d != nil && err == nil {
+					fd.Body = nil
+				}
+			}
+		}
+	}
 }
 
 // funcJSImport returns the directive of a function declaration that imports
