@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 
 	"github.com/goesm-dev/goesm/internal/build"
 	"github.com/goesm-dev/goesm/internal/lower"
@@ -133,8 +134,9 @@ func readOverlay(file string) map[string][]byte {
 	return m
 }
 
-// warn summarises the standard library and dependency functions that panic
-// if called.
+// warn names the standard library and dependency functions that the
+// program may call but goesm cannot lower yet: they panic if called. -v
+// gives each one's position and reason.
 func warn(warnings []string, verbose bool) {
 	if len(warnings) == 0 {
 		return
@@ -146,7 +148,15 @@ func warn(warnings []string, verbose bool) {
 	}
 	fmt.Fprintf(os.Stderr, "goesm: %d standard library and dependency functions are not supported yet and panic if called", len(warnings))
 	if !verbose {
-		fmt.Fprint(os.Stderr, " (-v lists them)")
+		// A warning is "<pos>: <function> is not lowered and panics if called: <reason>".
+		var names []string
+		for _, w := range warnings {
+			if i := strings.Index(w, " is not lowered"); i >= 0 {
+				head := w[:i]
+				names = append(names, head[strings.LastIndex(head, ": ")+2:])
+			}
+		}
+		fmt.Fprintf(os.Stderr, ": %s (-v says why)", strings.Join(names, ", "))
 	}
 	fmt.Fprintln(os.Stderr)
 }

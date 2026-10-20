@@ -489,8 +489,8 @@ func (pe *pkgEmitter) emitFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 		case err != nil:
 			pe.errorf(pos, "%v", err)
 			return
-		case d != nil && (fd.Body != nil || fd.Recv != nil):
-			pe.errorf(pos, "//goesm:import must precede a function declared without a body")
+		case d != nil && fd.Recv != nil:
+			pe.errorf(pos, "//goesm:import must precede a function declaration, not a method")
 			return
 		case d != nil:
 			pe.emitJSImportFunc(fd, fn, d, name)
