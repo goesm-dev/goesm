@@ -325,6 +325,7 @@ goesm は、Go 風の言語、WebAssembly ランタイム、パッケージマ�
 - [docs/concurrency.ja.md](docs/concurrency.ja.md): goroutine が 1 本の JavaScript スレッドで動く仕組み、データ競合とメモリ安全性の Go との違い
 - [docs/js-imports.ja.md](docs/js-imports.ja.md): `//goesm:import` で Go から JavaScript と TypeScript を呼ぶ
 - [docs/dom.ja.md](docs/dom.ja.md): `syscall/js` と型付きの DOM ライブラリで Go から DOM を使う
+- [docs/go-and-js.ja.md](docs/go-and-js.ja.md): Go と JavaScript で計算結果が変わる処理 (正規表現、正規化、丸め、文字列の位置) とパッケージ `jscompat`
 - [docs/example-output.ja.md](docs/example-output.ja.md): 生成される TypeScript と JavaScript
 - [docs/conformance.ja.md](docs/conformance.ja.md): Go 自身のテストスイートを goesm で実行する
 - [docs/otelc.ja.md](docs/otelc.ja.md): OpenTelemetry の compile-time instrumentation である otelc を goesm で使う

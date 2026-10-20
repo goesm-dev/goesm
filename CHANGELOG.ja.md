@@ -20,6 +20,7 @@ v0.0.1-beta.7 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 - `Get`、`Index`、`Length`、`Call` は、真偽値、数値、文字列に対して panic せず、JavaScript のプロパティアクセスと同じように動くようになりました (`js.ValueOf("abc").Length()` は 3)。`undefined` と `null` に対しては、これまでどおり `*js.ValueError` で panic します。
 - Promise を待つパッケージ `github.com/goesm-dev/goesm/promise` を追加しました。`promise.Await(p)` は Promise の値を返し、拒否された場合は拒否の理由を `js.Error` として返します。そのため、`errors.As` で `AbortError` を取り出せます。goesm はこの関数を `await` に変換し、Go の WebAssembly 版では `then` のコールバックで待ちます ([docs/dom.ja.md](docs/dom.ja.md#promise))。
+- パッケージ `github.com/goesm-dev/goesm/jscompat` を追加しました。Go と JavaScript で振る舞いが違う処理について、Go のコードに JavaScript と同じ振る舞いを提供します。JavaScript の構文 (先読み、後読み、後方参照) のパターンを扱う `RegExp`、`Normalize` (NFC、NFD、NFKC、NFKD)、`Math.round` と同じく丸める `Round`、エンジンの `Cos`、`Sin` などの `Math` の関数、`selectionStart` などの UTF-16 の位置を変換する `UTF16Offset`、`ByteOffset`、`UTF16Len` があります ([docs/go-and-js.ja.md](docs/go-and-js.ja.md))。
 
 ### ツール
 

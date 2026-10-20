@@ -324,6 +324,7 @@ It is not a Go-inspired language, a WebAssembly runtime, a package manager, a re
 - [docs/concurrency.md](docs/concurrency.md): how goroutines run on one JavaScript thread, data races and memory safety compared with Go
 - [docs/js-imports.md](docs/js-imports.md): calling JavaScript and TypeScript from Go with `//goesm:import`
 - [docs/dom.md](docs/dom.md): using the DOM from Go with `syscall/js` and typed DOM libraries
+- [docs/go-and-js.md](docs/go-and-js.md): where Go and JavaScript compute differently (regular expressions, normalization, rounding, string offsets) and package `jscompat`
 - [docs/example-output.md](docs/example-output.md): generated TypeScript and JavaScript
 - [docs/conformance.md](docs/conformance.md): running Go's own test suite through goesm
 - [docs/otelc.md](docs/otelc.md): OpenTelemetry compile-time instrumentation (otelc) with goesm
