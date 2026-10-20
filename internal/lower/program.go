@@ -121,6 +121,10 @@ type Program struct {
 	// literals that are sequences then have generators (seqgen.go).
 	usesPull bool
 
+	// stdWritten are the names of os.Stdout and os.Stderr if the program
+	// changes them (printcall.go).
+	stdWritten map[string]bool
+
 	// //go:linkname pulls (bodyless functions) and the functions providing
 	// their symbols (see linkname.go).
 	linkPulls    map[*types.Func]string
@@ -393,6 +397,7 @@ type unit struct {
 func (p *Program) analyzeBlocking() {
 	p.findPullCalls()
 	p.usesPull = p.usesPullFuncs()
+	p.stdWritten = findStdWrites(p.Pkgs)
 	p.encls = map[ast.Node]*types.Func{}
 	p.findFuncVars()
 	var units []*unit

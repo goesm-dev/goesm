@@ -1388,6 +1388,9 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 	if s, ok := fe.sprintf(e); ok {
 		return s
 	}
+	if s, ok := fe.printCall(e); ok {
+		return s
+	}
 	if s, ok := fe.jsonCall(e); ok {
 		return s
 	}

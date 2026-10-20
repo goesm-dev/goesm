@@ -19,6 +19,7 @@ v0.0.1-beta.7 以降に `main` に入った変更です。差分は [v0.0.1-beta
 - `syscall` は host の `fs`、`process`、`path` を runtime から 1 回だけ受け取り、`js.Value.Get` は単なるプロパティの読み出しになりました。これまでは `Get` のたびにこの 3 つの名前を確認していました。
 - `time` は、`time.LoadLocation` などでタイムゾーンのデータを読み込むプログラムにだけ、タイムゾーンの規則の文字列 (最後の遷移より後の TZ 文字列) の parser を残すようになりました。
 - bitSize が 64 で書式が定数の `'e'`、`'E'`、`'f'`、`'g'`、`'G'` である `strconv.FormatFloat` と `AppendFloat` の呼び出し、および bitSize が 64 の `strconv.ParseFloat` の呼び出しは、engine の数値の書式化と解析で変換し、Go と同じ結果を返すようになりました (約 17,000 件で Go と比較しました)。こうした float だけを変換するプログラムに、`strconv` の float 変換とその表 (minify 後約 25 KB) が残らなくなりました。
+- `fmt.Print`、`Println`、`Printf` と、`os.Stdout` か `os.Stderr` に書く `Fprint`、`Fprintln`、`Fprintf` は、プログラムがこれらの変数に代入せず、アドレスも取らず、閉じもしない場合、`*os.File`、`internal/poll`、`syscall` のファイルの表を通さずに、書式化した文字列を host の標準出力か標準エラーに直接書くようになりました。文字列、bool、事前宣言された型の数値の `Println` と `Print` は、`Sprintf` と同じく文字列の連結になります。`fmt.Println("n =", n)` を呼ぶパッケージは gzip 後 49.4 KB から 30.7 KB になりました。
 - `strings.Replacer` は、古い文字列を並べた 1 つの JS の `RegExp` になりました。空の古い文字列を含め、照合の順序は Go と同じです。これを使うプログラムに Go の trie と byte の replacer が残らなくなりました。
 
 これらにより、richinosan/toolbox の Image アプリは gzip 後 92.1 KB から 79.3 KB に、Calendar アプリは 31.5 KB から 30.4 KB になりました。

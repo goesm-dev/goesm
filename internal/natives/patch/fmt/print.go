@@ -17,6 +17,7 @@
 package fmt
 
 import (
+	"errors"
 	"reflect"
 	"strconv"
 	"unicode/utf8"
@@ -353,3 +354,22 @@ func padded(s string, wid int, minus bool) string {
 	}
 	return pad[:n] + s
 }
+
+// printStd writes s to standard output (fd 1) or standard error (fd 2), as
+// Fprint does to os.Stdout or os.Stderr. goesm lowers Print, Println and
+// Printf, and Fprint, Fprintln and Fprintf to those files, to it when the
+// program never changes them (internal/lower/printcall.go), so that they
+// leave out os.File.
+func printStd(fd int, s string) (n int, err error) {
+	if msg := writeStd(fd, s); msg != "" {
+		name := "/dev/stdout"
+		if fd == 2 {
+			name = "/dev/stderr"
+		}
+		return 0, errors.New("write " + name + ": " + msg)
+	}
+	return len(s), nil
+}
+
+// writeStd writes s to the host's fd, or returns the error.
+func writeStd(fd int, s string) string
