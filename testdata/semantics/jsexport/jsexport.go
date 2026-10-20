@@ -265,3 +265,23 @@ func Lookup(name string) any {
 	}
 	return nil
 }
+
+// Renamed names its fields with js tags, which take precedence over json
+// tags.
+type Renamed struct {
+	ID   int    `json:"id" js:"ID"`
+	Name string `json:"name"`
+	Skip int    `js:"-"`
+	Note string `json:"n" js:"note,omitempty"`
+}
+
+func Rename(r Renamed) Renamed {
+	r.ID++
+	r.Skip++
+	return r
+}
+
+// NilParts returns nil slices and maps, which JavaScript gets empty.
+func NilParts() ([]int, []string, []byte, map[string]int, map[int]int) {
+	return nil, nil, nil, nil, nil
+}

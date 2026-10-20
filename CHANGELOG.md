@@ -13,6 +13,8 @@ Changes on `main` since v0.0.1-beta.7: [v0.0.1-beta.7...main](https://github.com
 - A `//goesm:import` function may have a body, such as `{ panic("goesm:import") }`, which goesm replaces with the import, so that `go build` and `go vet` accept the package without an empty assembly file.
 - An entry whose exported functions take a pointer to a struct type of another package, whose methods return a pointer to the same type, gave that type its JS methods twice, which esbuild rejected ("The symbol ... has already been declared"). It gives them once.
 - `//goesm:import "<module>" <export> lazy` imports the module with a dynamic `import()` on the first call of the function, so that a bundler splits it into a chunk of its own. The function blocks like an `await` import ([docs/js-imports.md](docs/js-imports.md#the-directive)).
+- A nil slice or map that Go passes to JavaScript, as an exported function's result or a `//goesm:import` function's argument, is an empty array, `Uint8Array`, object or `Map` instead of `null`, as JavaScript code would return, and result types no longer include `| null`. JavaScript may still pass `null` for one.
+- A `js` struct tag names a field in JavaScript ahead of its `json` tag: `` ID int `json:"id" js:"ID"` `` is `ID` in JavaScript, and `js:"-"` leaves a field out.
 
 ### syscall/js
 
@@ -21,6 +23,7 @@ Changes on `main` since v0.0.1-beta.7: [v0.0.1-beta.7...main](https://github.com
 
 ### Tools
 
+- `goesm emit-ts -dts` also writes a declaration file of each built package's exports, `<package>.d.ts`, which imports no other file ([docs/js-exports.md](docs/js-exports.md#typescript)).
 - The warning about functions goesm cannot lower yet lists only those that code reachable from the program's roots may call, and names them without `-v`, which adds each one's position and reason. A program printing with `fmt` was warned about 19 functions of `internal/abi` and `internal/bytealg` it never calls.
 
 ### regexp

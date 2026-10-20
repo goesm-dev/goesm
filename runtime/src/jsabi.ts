@@ -10,10 +10,11 @@
 //	| string                           | string                             |
 //	| js.Value, js.Func                | the value itself                   |
 //	| []byte                           | Uint8Array (a copy)                |
-//	| other slices and arrays          | Array (a copy)                     |
-//	| map[string]T                     | plain object (a copy)              |
+//	| other slices and arrays          | Array (a copy; nil is empty)       |
+//	| map[string]T                     | plain object (a copy; nil is {})   |
 //	| struct, *struct                  | plain object of the exported       |
-//	|                                  | fields named as encoding/json does |
+//	|                                  | fields named by their js tag or as |
+//	|                                  | encoding/json does                 |
 //	| func (Go to JS only)             | function                           |
 //	| any                              | the dynamic value's conversion; to |
 //	|                                  | Go, JSON-shaped values             |
@@ -73,7 +74,8 @@ export function goToJS(t: Type, v: any, ex = false): any {
     case Kind.String:
       return toJSString(v);
     case Kind.Slice: {
-      if (v === null) return null;
+      // A nil slice is an empty array, as JavaScript code would return.
+      if (v === null) return t.elem!.kind === Kind.Uint8 ? new Uint8Array(0) : [];
       const s = v as Slice<any>, a = s.$array, o = s.$offset, n = s.$length;
       if (t.elem!.kind === Kind.Uint8) {
         if (a instanceof Uint8Array) return a.slice(o, o + n);
@@ -89,15 +91,14 @@ export function goToJS(t: Type, v: any, ex = false): any {
     case Kind.Array:
       return plain(t.elem!) ? (v as any[]).slice() : (v as any[]).map((x) => goToJS(t.elem!, x, ex));
     case Kind.Map: {
-      if (v === null) return null;
       if (t.key!.kind !== Kind.String) {
         if (!ex) plainPanic(`goesm: a ${t.str} cannot be passed to JavaScript`);
         const m = new Map();
-        for (const [k, x] of mapRange(v as GoMap<any, any>)) m.set(goToJS(t.key!, k, ex), goToJS(t.elem!, x, ex));
+        if (v !== null) for (const [k, x] of mapRange(v as GoMap<any, any>)) m.set(goToJS(t.key!, k, ex), goToJS(t.elem!, x, ex));
         return m;
       }
       const o: Record<string, any> = {};
-      for (const [k, x] of mapRange(v as GoMap<any, any>)) setProp(o, toJSString(k), goToJS(t.elem!, x, ex));
+      if (v !== null) for (const [k, x] of mapRange(v as GoMap<any, any>)) setProp(o, toJSString(k), goToJS(t.elem!, x, ex));
       return o;
     }
     case Kind.Struct: {
@@ -184,15 +185,15 @@ function isHandle(t: Type): boolean {
 // slices of booleans and numbers other than bytes, and of strings. Export
 // wrappers call them directly, so that a bundle that converts no more
 // leaves the rest of this module out.
-export function plainSliceToJS(s: Slice<any> | null): any[] | null {
-  if (s === null) return null;
+export function plainSliceToJS(s: Slice<any> | null): any[] {
+  if (s === null) return [];
   const a = s.$array, o = s.$offset, n = s.$length, out = new Array(n);
   for (let i = 0; i < n; i++) out[i] = a[o + i];
   return out;
 }
 
-export function stringsToJS(s: Slice<string> | null): string[] | null {
-  if (s === null) return null;
+export function stringsToJS(s: Slice<string> | null): string[] {
+  if (s === null) return [];
   const a = s.$array, o = s.$offset, n = s.$length, out = new Array<string>(n);
   for (let i = 0; i < n; i++) out[i] = toJSString(a[o + i]);
   return out;
@@ -245,8 +246,8 @@ interface JSField {
 }
 
 // jsFields are the fields of struct type t that cross the boundary: the
-// exported ones, named as encoding/json names them (a json tag name, or
-// the Go name), without those tagged json:"-". An embedded struct or
+// exported ones, named by their js tag, or else as encoding/json names them
+// (a json tag name, or the Go name), without those tagged "-". An embedded struct or
 // pointer to struct, exported or not, promotes its fields.
 type JSFields = JSField[] & { direct: Set<string> }; // direct: the names of the fields not flattened
 
@@ -260,7 +261,7 @@ function jsFields(t: Type): JSFields {
     const e = f.type.kind === Kind.Pointer ? f.type.elem! : f.type;
     const promotes = f.embedded && e.kind === Kind.Struct;
     if (f.pkgPath !== "" && !promotes) continue;
-    const m = /json:"([^"]*)"/.exec(f.tag);
+    const m = /(?:^|\s)js:"([^"]*)"/.exec(f.tag) ?? /(?:^|\s)json:"([^"]*)"/.exec(f.tag);
     const tagName = m ? m[1].split(",")[0] : "";
     if (tagName === "-") continue;
     fs.push({ prop: f.prop, name: tagName || f.name, type: f.type, flatten: promotes && !tagName });

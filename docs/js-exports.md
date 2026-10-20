@@ -40,11 +40,11 @@ One program can start from several packages: `goesm emit-ts ./cart ./checkout` (
 | `bool`, `int`, `float64` and the other numbers | boolean, number, passed as they are |
 | `int64`, `uint64` | bigint; an argument may also be a number |
 | `string` | string |
-| `[]byte` | `Uint8Array`; an argument may also be an array of numbers |
-| other slices and arrays | array |
-| `map[string]T` | plain object |
-| other maps | `Map` |
-| struct | plain object with the exported fields, named as `encoding/json` names them (the `json` tag name, or the field name); an embedded struct contributes its fields. Fields an argument leaves out are zero. |
+| `[]byte` | `Uint8Array`; an argument may also be an array of numbers. A nil slice is an empty `Uint8Array`, and an argument may be `null` |
+| other slices and arrays | array. A nil slice is an empty array, and an argument may be `null` |
+| `map[string]T` | plain object. A nil map is an empty object, and an argument may be `null` |
+| other maps | `Map`. A nil map is an empty `Map`, and an argument may be `null` |
+| struct | plain object with the exported fields, named by their `js` tag, or else as `encoding/json` names them (the `json` tag name, or the field name); an embedded struct contributes its fields. Fields an argument leaves out are zero. |
 | pointer to a struct type with methods | the Go object itself, a handle (below) |
 | other pointers | the value pointed to, converted; `null` for nil. An argument is a pointer to a converted copy |
 | `error` | a final `error` result is thrown (below); elsewhere a `GoError` or `null` |
@@ -124,6 +124,20 @@ export default { fetch: Handler() };
 ## TypeScript
 
 The exports are typed with the JavaScript types of the table: `Total(items: Array<{ name?: string; price?: number }> | null): number`, a handle with its class, a blocking function with a Promise. TypeScript reports a call with a wrong argument type.
+
+`goesm emit-ts -dts` also writes a declaration file of the exports next to each module, such as `goesm-ts/example.com/app/shop.d.ts` for `shop.ts`. It declares the exported functions with their Go parameter names and the classes of the handles with their methods, and imports no other file, so tools that do not read the generated modules, such as gosfc's `go:` imports, can use it:
+
+```ts
+export class Cart {
+  private constructor();
+  Add(it: { name?: string; price?: number }): void;
+  Items(): Array<{ name: string; price: number }>;
+}
+export function NewCart(): Cart | null;
+export function Total(items: Array<{ name?: string; price?: number }> | null): number;
+```
+
+A result that is a slice or a map is typed without `null`, since a nil one is empty in JavaScript. A field with a `js` tag is named by it: `` ID int `json:"id" js:"ID"` `` is `ID` in JavaScript and `id` in JSON, and `js:"-"` leaves a field out.
 
 ## Performance
 
