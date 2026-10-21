@@ -212,13 +212,47 @@ func (pe *pkgEmitter) typeDesc(t types.Type, tp tpScope) string {
 		pe.consts.ln("const %s = /* @__PURE__ */ (() => %s)();", name, expr)
 		return name
 	}
-	pe.consts.ln("const %s = %s;", name, expr)
-	{
-		// After the const, so method signatures may refer to t itself.
-		entries := pe.methodEntries(t, nil, tp)
-		pe.consts.ln("$rt.addMethods(%s, {%s});", name, strings.Join(entries, ", "))
+	// The method table is set up in the const's pure initializer, so that
+	// bundlers drop the type with the methods it keeps if nothing refers to
+	// it, unless a method signature refers to t itself: the table then
+	// follows the const.
+	consts := pe.consts
+	pe.consts = newWriter(consts.tab)
+	entries := ""
+	if pe.prog.StoredType(t) {
+		entries = strings.Join(pe.methodEntries(t, nil, tp), ", ")
 	}
+	sigs := pe.consts
+	pe.consts = consts
+	if mentions(sigs.String(), name) || mentions(entries, name) {
+		consts.ln("const %s = %s;", name, expr)
+		consts.append(sigs)
+		consts.ln("$rt.addMethods(%s, {%s});", name, entries)
+		return name
+	}
+	consts.append(sigs)
+	consts.ln("const %s = /* @__PURE__ */ (() => $rt.withMethods(%s, {%s}))();", name, expr, entries)
 	return name
+}
+
+// mentions reports whether the JS code s refers to the identifier name.
+func mentions(s, name string) bool {
+	for i := 0; ; {
+		j := strings.Index(s[i:], name)
+		if j < 0 {
+			return false
+		}
+		i += j + len(name)
+		if i == len(s) || !isIdentByte(s[i]) {
+			if k := i - len(name); k == 0 || !isIdentByte(s[k-1]) {
+				return true
+			}
+		}
+	}
+}
+
+func isIdentByte(c byte) bool {
+	return c == '_' || c == '$' || '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
 }
 
 func (pe *pkgEmitter) namedDesc(named *types.Named) string {
