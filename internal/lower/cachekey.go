@@ -120,6 +120,7 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 					if fn, isFn := pkg.TypesInfo.Defs[fd.Name].(*types.Func); isFn {
 						add("dynMethod", fn, strconv.FormatBool(p.DynMethod(fn)))
 						add("calledMethod", fn, strconv.FormatBool(p.CalledMethod(fn)))
+						add("storedMethod", fn, strconv.FormatBool(p.storedMethods[fn]))
 					}
 				}
 			}
@@ -129,9 +130,9 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 	// (effects.go).
 	for _, pkg := range p.Pkgs {
 		for _, in := range pkg.TypesInfo.InitOrder {
-			if len(in.Lhs) == 1 {
-				add("lazyVar", in.Lhs[0], strconv.FormatBool(p.LazyVar(in.Lhs[0])))
-				add("varReached", in.Lhs[0], strconv.FormatBool(p.VarReached(in.Lhs[0], in.Rhs)))
+			if v := initVar(in); v != nil {
+				add("lazyVar", v, strconv.FormatBool(p.LazyVar(v)))
+				add("varReached", v, strconv.FormatBool(p.VarReached(v, in.Rhs)))
 			}
 		}
 		for _, f := range pkg.Syntax {

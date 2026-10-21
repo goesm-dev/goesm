@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -677,13 +678,14 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 	// (VarReached), as it may call methods compiled as never called.
 	pure, unused := map[*types.Var]bool{}, map[*types.Var]bool{}
 	for _, in := range pe.info.InitOrder {
-		if len(in.Lhs) != 1 || embeds[in.Lhs[0]] != nil {
+		v := initVar(in)
+		if v == nil || embeds[v] != nil {
 			continue
 		}
-		if !pe.prog.VarReached(in.Lhs[0], in.Rhs) {
-			unused[in.Lhs[0]] = true
-		} else if in.Lhs[0].Name() != "_" && (pe.pureExpr(in.Rhs) || pe.prog.LazyVar(in.Lhs[0])) {
-			pure[in.Lhs[0]] = true
+		if !pe.prog.VarReached(v, in.Rhs) {
+			unused[v] = true
+		} else if v.Name() != "_" && (pe.pureExpr(in.Rhs) || pe.prog.LazyVar(v)) {
+			pure[v] = true
 		}
 	}
 	for _, name := range scope.Names() {
@@ -742,8 +744,22 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 			continue
 		}
 		// f() or a comma-ok form (v, ok = m[k], <-ch, x.(T)).
+		v := initVar(in)
+		if unused[v] {
+			continue
+		}
 		e, tt, regs := fe.multiSrc(in.Rhs)
 		t := fe.tmp()
+		if pure[v] {
+			// var v, _ = f()
+			i := slices.Index(in.Lhs, v)
+			val := fe.tupleValue(in.Rhs, tupleElem(t, i, regs), tupleAt(tt, i), v.Type())
+			if pe.prog.boxed[v] {
+				val = "$rt.cell(" + val + ")"
+			}
+			pe.vars.ln("%slet %s: %s = /* @__PURE__ */ (() => { const %s = %s; return %s; })();", mark, fe.nameOf(v), pe.varTSType(v), t, e, val)
+			continue
+		}
 		pe.vars.ln("%sconst %s = %s;", mark, t, e)
 		for i, v := range in.Lhs {
 			if v.Name() == "_" {

@@ -27,7 +27,7 @@ var covered = map[string]bool{
 	"std": true, "Deps": true,
 	"TracksGoroutines": true, "awaitMain": true, "usesPull": true, "StdFixed": true,
 	"CallBlocks": true, "CallAlwaysAsync": true, "RangeBlocks": true, "WaitLock": true, "WaitLockVal": true,
-	"DynMethod": true, "CalledMethod": true, "BoxOf": true,
+	"DynMethod": true, "CalledMethod": true, "StoredType": true, "BoxOf": true,
 	"LazyVar": true, "InitCalled": true, "VarReached": true,
 	// What PureEmitter answers depends on the files of an imported
 	// package, which are part of its importers' module keys.
