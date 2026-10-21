@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/goesm-dev/goesm/internal/build"
 )
 
 // The use cases goesm supports (docs/use-cases.md), as programs under
@@ -360,5 +362,70 @@ const worker :Workerd.Worker = (
 		for len(logs) > 0 {
 			t.Log("workerd:", <-logs)
 		}
+	}
+}
+
+// TestUseCaseWorker serves Connect requests with the smallest Connect
+// backend for Workers, one service behind net/http as a fetch handler, and
+// bounds its minified bundle: 4.5 MB when every package of the module was
+// reachable (with the service's client, net/http's client and TLS),
+// package initializers kept TLS, X.509 and elliptic curves, and an io.Pipe
+// of that client code made fmt async.
+func TestUseCaseWorker(t *testing.T) {
+	requireNode(t)
+	const max = 2_000_000
+	out := t.TempDir()
+	res, err := build.Build(build.Options{Dir: testdata("usecases"), Patterns: []string{"./worker"}, OutDir: out, Minify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := ""
+	for _, o := range res.Outputs {
+		if filepath.Ext(o) == ".js" {
+			bundle = o
+		}
+	}
+	fi, err := os.Stat(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("./worker: %d bytes", fi.Size())
+	if fi.Size() > max {
+		t.Errorf("./worker: bundle is %d bytes, more than %d", fi.Size(), max)
+	}
+	// A unary call, its error, and a server stream, in Connect's JSON
+	// encoding (protojson's whitespace varies by design).
+	const script = `
+const { Handler } = await import(process.argv[1]);
+const fetch = Handler();
+const url = "http://worker.test/greet.v1.GreetService/";
+const norm = (s) => JSON.stringify(JSON.parse(s));
+const out = [];
+for (const name of ["Ada", ""]) {
+  const res = await fetch(new Request(url + "Greet", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, nums: [1, 2, 3] }) }));
+  out.push(res.status + " " + norm(await res.text()));
+}
+const msg = new TextEncoder().encode(JSON.stringify({ name: "Bo", nums: [4, 5] }));
+const env = new Uint8Array(5 + msg.length);
+new DataView(env.buffer).setUint32(1, msg.length);
+env.set(msg, 5);
+const res = await fetch(new Request(url + "Count", { method: "POST", headers: { "content-type": "application/connect+json" }, body: env }));
+const b = new Uint8Array(await res.arrayBuffer());
+for (let i = 0; i < b.length; ) {
+  const n = new DataView(b.buffer, b.byteOffset + i + 1, 4).getUint32(0);
+  out.push(b[i] + " " + norm(new TextDecoder().decode(b.subarray(i + 5, i + 5 + n))));
+  i += 5 + n;
+}
+console.log(out.join("\n"));
+`
+	got := string(runNode(t, "--input-type=module", "-e", script, bundle))
+	want := `200 {"greeting":"Hello, Ada!","sum":"6"}
+400 {"code":"invalid_argument","message":"name is required"}
+0 {"greeting":"Bo"}
+0 {"greeting":"Bo","sum":"5"}
+2 {}
+`
+	if got != want {
+		t.Errorf("Connect calls:\n--- goesm\n%s--- want\n%s", got, want)
 	}
 }

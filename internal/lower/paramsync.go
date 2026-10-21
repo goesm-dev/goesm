@@ -810,6 +810,9 @@ func (p *Program) paramBlocks(fn *types.Func, idx int, sig *types.Signature, see
 		return true
 	}
 	for _, r := range p.sitesOf[fn] {
+		if p.live != nil && r.owner != nil && !p.live(r.owner) {
+			continue // a call that never runs
+		}
 		arg := siteArg(r.s, idx)
 		if arg == nil {
 			return true
