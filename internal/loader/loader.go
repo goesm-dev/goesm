@@ -97,6 +97,16 @@ func LoadOverlay(dir string, overlay map[string][]byte, patterns ...string) (*Pr
 // load is LoadOverlay for the given GOROOT and GOMODCACHE.
 func load(dir, root, modcache string, overlay map[string][]byte, patterns ...string) (*Program, error) {
 	fset := token.NewFileSet()
+	if extra := patchImports(root); len(extra) > 0 {
+		all := map[string][]byte{}
+		for f, data := range extra {
+			all[f] = data
+		}
+		for f, data := range overlay {
+			all[f] = data
+		}
+		overlay = all
+	}
 	goOverlay, mem := splitOverlay(overlay, modcache)
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
@@ -165,6 +175,63 @@ func load(dir, root, modcache string, overlay map[string][]byte, patterns ...str
 		}
 	}
 	return &Program{Fset: fset, Roots: roots, All: all, Std: std, Deps: deps}, nil
+}
+
+// patchImports returns overlay entries for the standard library files
+// whose patches (internal/natives) import packages the files do not: the go
+// command lists the imports of a package from its files, and go/packages
+// type-checks it against those only, so each such file gets blank imports of
+// the packages its patch adds. (A GOROOT beneath GOMODCACHE, a toolchain the
+// go command downloaded, takes the part of the overlay goesm applies itself;
+// see splitOverlay.)
+func patchImports(goroot string) map[string][]byte {
+	if goroot == "" {
+		return nil
+	}
+	var overlay map[string][]byte
+	for _, pf := range natives.PatchedFiles() {
+		p, _ := natives.Patch(pf[0], pf[1])
+		patchFile, err := parser.ParseFile(token.NewFileSet(), p.Name, p.Src, parser.ImportsOnly)
+		if err != nil {
+			continue // reported when the patch is applied
+		}
+		name := filepath.Join(goroot, "src", filepath.FromSlash(pf[0]), pf[1])
+		src, err := os.ReadFile(name)
+		if err != nil {
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), name, src, parser.ImportsOnly)
+		if err != nil {
+			continue
+		}
+		have := map[string]bool{}
+		for _, is := range f.Imports {
+			have[is.Path.Value] = true
+		}
+		var add []string
+		for _, is := range patchFile.Imports {
+			if !have[is.Path.Value] {
+				have[is.Path.Value] = true
+				add = append(add, "import _ "+is.Path.Value+"\n")
+			}
+		}
+		if len(add) == 0 {
+			continue
+		}
+		// After the package clause, where imports may go.
+		end := int(f.Name.End()) - 1
+		line := bytes.IndexByte(src[end:], '\n')
+		if line < 0 {
+			continue
+		}
+		at := end + line + 1
+		data := append(append(append([]byte{}, src[:at]...), strings.Join(add, "")...), src[at:]...)
+		if overlay == nil {
+			overlay = map[string][]byte{}
+		}
+		overlay[name] = data
+	}
+	return overlay
 }
 
 // goEnv returns GOROOT and GOMODCACHE for the target.

@@ -71,6 +71,19 @@ func Patch(importPath, base string) (f File, ok bool) {
 	return File{Name: path.Join("goesm/natives", name), Src: src}, true
 }
 
+// PatchedFiles lists the standard library files that have patches, each as
+// its package's import path and its base name.
+func PatchedFiles() [][2]string {
+	var files [][2]string
+	fs.WalkDir(patches, "patch", func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".go") {
+			files = append(files, [2]string{strings.TrimPrefix(path.Dir(p), "patch/"), path.Base(p)})
+		}
+		return err
+	})
+	return files
+}
+
 var patched = sync.OnceValue(func() map[string]map[string]bool {
 	m := map[string]map[string]bool{}
 	fs.WalkDir(patches, "patch", func(p string, d fs.DirEntry, err error) error {

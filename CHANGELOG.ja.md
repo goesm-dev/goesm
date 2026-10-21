@@ -20,6 +20,11 @@ v0.0.1-beta.8 以降に `main` に入った変更です。差分は [v0.0.1-beta
   - 到達可能なコードが interface の値に格納しない型のメソッド表は空になりました。型アサーション、interface 経由の呼び出し、reflection のいずれもその表を参照しません。メソッドのシグネチャが、そこに現れる型を残していました。
   - 埋め込みによるメソッドを持つ名前のない struct 型のメソッド表は、副作用のない初期化式の中で設定するようになりました。その型を使うコードがなければ、バンドラーは型とメソッドをまとめて削除します。encoding/json/v2 の `Marshaler` などのラッパーが常に残っていました。
   - `var x, _ = f()` の形の初期化式も、`x` の計算以外に効果を持たず、到達可能なコードが `x` を使わなければ、値が 1 つの初期化式と同じく出力しません。edwards25519 の基点が残っていました。
+- 同じ Worker のバンドルは、minify 後 1.52 MB (gzip で 369 KB) になりました。runtime が自身で処理しない値の `encoding/json` の `Marshal` と `Unmarshal` は、encoding/json 自身の実装 (`GOEXPERIMENT=nojsonv2`) の encoder と decoder で処理するようになりました。Go 1.27 の既定である json v2 を v1 の option で使った場合と同じ結果を返すよう変えてあり、エラー、途中までの結果、map の key、struct tag の名前、出力が一致します。json v2、jsontext とその表は出力しません (Worker の JSON のコードは約 190 KB から 47 KB になりました)。ただし、json v2 だけが呼ぶ `MarshalJSONTo` か `UnmarshalJSONFrom` という名前のメソッドを宣言するプログラムは json v2 を使います。`testdata/programs/jsonlegacy` が 5,000 件のランダムな例で native Go と比べます。
+
+### 修正
+
+- 名前のない struct 型の `reflect.Type` の `String` は、Go と同じく field の tag を表示するようになりました (`struct { F int "json:\"f\"" }`)。空の struct では `struct {}` です。
 
 ### ブロッキング解析
 

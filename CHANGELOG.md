@@ -20,6 +20,11 @@ Changes on `main` since v0.0.1-beta.8: [v0.0.1-beta.8...main](https://github.com
   - The method table of a type that reachable code never stores in an interface value is empty: no type assertion, interface call or reflection looks it up, and the signatures of its methods kept the types they mention.
   - The method table of an unnamed struct type with promoted methods is set up in a pure initializer, so that bundlers drop the type with the methods it keeps when nothing uses it: encoding/json/v2's wrappers of `Marshaler` and the like were always kept.
   - Initializers of the form `var x, _ = f()` with no effect besides computing `x` are left out when reachable code does not use `x`, as single-value ones are: edwards25519's base points.
+- The same Worker bundles to 1.52 MB minified (369 KB gzipped): `encoding/json`'s `Marshal` and `Unmarshal`, for the values the runtime does not handle itself, run the encoder and decoder of encoding/json's own implementation (`GOEXPERIMENT=nojsonv2`), changed to return what Go 1.27's default, json v2 with v1 options, returns: the same errors, partial results, map keys, struct tag names and output. json v2, jsontext and their tables are left out (the json code of the Worker shrinks from about 190 KB to 47 KB), unless the program declares a method named `MarshalJSONTo` or `UnmarshalJSONFrom`, which only json v2 calls. `testdata/programs/jsonlegacy` compares 5,000 random cases with native Go.
+
+### Fixes
+
+- `reflect.Type`'s `String` of an unnamed struct type shows the fields' tags, as Go does (`struct { F int "json:\"f\"" }`), and is `struct {}` for an empty one.
 
 ### Blocking analysis
 

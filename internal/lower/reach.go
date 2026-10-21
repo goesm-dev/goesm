@@ -100,9 +100,13 @@ var regexpLeftOut = map[string]bool{"regexp.compileGo": true, "(*regexp.Regexp).
 // without what that leaves out, whose panics, for one, would make the
 // runtime call Error methods.
 func (p *Program) reach() {
-	p.reachFrom(nil)
+	left := p.jsonLeftOut()
+	p.reachFrom(left)
 	if !p.regexpGo && len(p.regexpPatterns) > 0 {
-		p.reachFrom(regexpLeftOut)
+		for name := range regexpLeftOut {
+			left[name] = true
+		}
+		p.reachFrom(left)
 	}
 }
 
