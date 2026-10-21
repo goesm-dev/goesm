@@ -18,13 +18,23 @@ import "go/types"
 // program that enumerates methods by reflection (reflect's Method,
 // MethodByName and NumMethod of Type and Value, used outside reflect, or a
 // method of the program's own interface with the signature of Method or
-// MethodByName) keeps every exported method, as Go's linker does.
+// MethodByName) lists every exported method, as Go's linker does; reachable
+// code calling them (reach.go) keeps the functions of the exported methods
+// of the types stored in interface values, or only of those of the names
+// it passes to MethodByName as constants.
 //
 // A method that an interface has but that the program never calls through
 // one (CalledMethod, reach.go), such as the Dump method of every node of a
 // Markdown parser's syntax tree, keeps its entry, so that type assertions
 // and conversions to the interface still see it, but not its function: the
 // entry holds $rt.uncalled instead.
+
+// reflectEnum are reflect's methods that enumerate a type's methods or look
+// them up by name.
+var reflectEnum = map[string]bool{
+	"(reflect.Type).Method": true, "(reflect.Type).MethodByName": true, "(reflect.Type).NumMethod": true,
+	"(reflect.Value).Method": true, "(reflect.Value).MethodByName": true, "(reflect.Value).NumMethod": true,
+}
 
 // findDynMethods collects the interface methods of the program.
 func (p *Program) findDynMethods() {
@@ -48,10 +58,6 @@ func (p *Program) findDynMethods() {
 	str := types.NewFunc(0, nil, "String", types.NewSignatureType(nil, nil, nil, nil, types.NewTuple(types.NewParam(0, nil, "", types.Typ[types.String])), false))
 	p.ifaceMethods["String"] = append(p.ifaceMethods["String"], ifaceMethod{str, str.Signature(), false})
 
-	reflectEnum := map[string]bool{
-		"(reflect.Type).Method": true, "(reflect.Type).MethodByName": true, "(reflect.Type).NumMethod": true,
-		"(reflect.Value).Method": true, "(reflect.Value).MethodByName": true, "(reflect.Value).NumMethod": true,
-	}
 	for _, pkg := range p.Pkgs {
 		info := pkg.TypesInfo
 		for _, tv := range info.Types {
@@ -129,11 +135,17 @@ func matchMethod(ms []ifaceMethod, fn *types.Func) bool {
 // without its function.
 func (p *Program) CalledMethod(fn *types.Func) bool {
 	fn = fn.Origin()
-	if p.allMethods && fn.Exported() || p.anyHandleMethods()[fn] {
+	if p.anyHandleMethods()[fn] {
 		return true
 	}
 	p.reachOnce.Do(p.reach)
-	return p.printedMethods[fn] || p.storedMethods[fn] && matchMethod(p.calledMethods[fn.Name()], fn)
+	return p.printedMethods[fn] || p.storedMethods[fn] && (matchMethod(p.calledMethods[fn.Name()], fn) || p.reflected(fn))
+}
+
+// reflected reports whether reachable code may call method fn by
+// reflection (reach.go), if its type is stored in an interface value.
+func (p *Program) reflected(fn *types.Func) bool {
+	return fn.Exported() && (p.reflectAll || p.reflectNames[fn.Name()])
 }
 
 type ifaceMethod struct {

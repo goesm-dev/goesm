@@ -17,11 +17,14 @@ import (
 // reachable code calls (CalledMethod). Go's linker prunes method tables the
 // same way.
 //
-// Reachable code starts from the roots: every function of the packages of
-// the program's own module (neither standard library nor third-party, with
-// the entry packages always among them), package initialization, the
-// functions provided to //go:linkname pulls, and the methods JavaScript
-// calls on handles (jsexport.go). A reference to a function or a concrete
+// Reachable code starts from the roots: every function of the entry
+// packages (of every package of the program's own module, neither standard
+// library nor third-party, when no entries are given), package
+// initialization, the functions provided to //go:linkname pulls, and the
+// methods JavaScript calls on handles (jsexport.go). Other packages of the
+// module are reached through the entries' imports: the generated
+// connect-go package of a service a Worker serves also holds the
+// service's client, which pulls in net/http's client and TLS. A reference to a function or a concrete
 // method makes it reachable; a call, method value or method expression of
 // an interface method or a type parameter's method (also one promoted
 // through an embedded interface) marks that method called, which makes
@@ -106,19 +109,49 @@ func (p *Program) reach() {
 func (p *Program) reachFrom(leftOut map[string]bool) {
 	p.findStoredMethods()
 	p.calledMethods = map[string][]ifaceMethod{}
+	p.reflectAll, p.reflectNames = false, map[string]bool{}
+	p.reachedInits = map[*types.Func]bool{}
+	p.effectsOnce.Do(p.findEffects)
 	p.printedMethods = map[*types.Func]bool{}
 	p.unicodeClasses, p.regexpGo = false, false
 	p.reachedFuncs = map[string]bool{}
+	p.reachedBodies = map[*types.Func]bool{}
+	p.reachedVarInits = map[ast.Node]bool{}
 	type body struct {
 		node ast.Node
 		info *types.Info
 		pkg  string
+		sig  *types.Signature // of a function's body
+		lhs  []*types.Var     // of a package variable initializer
+		fn   *types.Func      // whose body it is
 	}
 	decls := map[*types.Func]body{}
 	byName := map[string][]*types.Func{} // concrete methods with bodies
 	var queue []body
+	// Package variables whose initializers have no effect are reached when
+	// reachable code uses them, init functions that only assign package
+	// variables when it uses one of those (effects.go). The initializers of
+	// the others are left out (VarReached): the TypeScript of a package run
+	// without a bundler would evaluate them, calling methods compiled as
+	// never called or reading variables of init functions that do not run.
+	lazyVars := map[*types.Var]body{}
+	initsOf := map[*types.Var][]*types.Func{}
+	initBodies := map[*types.Func]body{}
+	type typeDecl struct {
+		d    *ast.GenDecl
+		info *types.Info
+	}
+	var typeDecls []typeDecl
 	for _, pkg := range p.Pkgs {
-		root := !p.std[pkg] && !p.Deps[pkg] || p.Entries[pkg.PkgPath]
+		root := p.Entries[pkg.PkgPath] || len(p.Entries) == 0 && !p.std[pkg] && !p.Deps[pkg]
+		for _, in := range pkg.TypesInfo.InitOrder {
+			b := body{in.Rhs, pkg.TypesInfo, pkg.PkgPath, nil, in.Lhs, nil}
+			if len(in.Lhs) == 1 && p.lazyVars[in.Lhs[0]] {
+				lazyVars[in.Lhs[0]] = b
+			} else {
+				queue = append(queue, b)
+			}
+		}
 		for _, f := range pkg.Syntax {
 			for _, d := range f.Decls {
 				switch d := d.(type) {
@@ -126,8 +159,21 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 					if d.Body == nil {
 						continue
 					}
-					b := body{d.Body, pkg.TypesInfo, pkg.PkgPath}
 					fn, _ := pkg.TypesInfo.Defs[d.Name].(*types.Func)
+					b := body{d.Body, pkg.TypesInfo, pkg.PkgPath, nil, nil, fn}
+					if fn != nil {
+						b.sig = fn.Signature()
+					}
+					if d.Recv == nil && d.Name.Name == "init" && fn != nil {
+						if vars, ok := p.lazyInits[fn]; ok {
+							initBodies[fn] = b
+							for _, v := range vars {
+								initsOf[v] = append(initsOf[v], fn)
+							}
+							continue
+						}
+						p.reachedInits[fn] = true
+					}
 					if root || fn == nil || d.Recv == nil && d.Name.Name == "init" {
 						queue = append(queue, b)
 						continue
@@ -137,14 +183,30 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 						byName[fn.Name()] = append(byName[fn.Name()], fn)
 					}
 				case *ast.GenDecl:
-					if d.Tok == token.VAR {
-						queue = append(queue, body{d, pkg.TypesInfo, pkg.PkgPath})
+					if d.Tok == token.VAR || d.Tok == token.TYPE {
+						typeDecls = append(typeDecls, typeDecl{d, pkg.TypesInfo})
 					}
 				}
 			}
 		}
 	}
 
+	seenVars := map[*types.Var]bool{}
+	useVar := func(v *types.Var) {
+		if seenVars[v] {
+			return
+		}
+		seenVars[v] = true
+		if b, ok := lazyVars[v]; ok {
+			queue = append(queue, b)
+		}
+		for _, fn := range initsOf[v] {
+			if !p.reachedInits[fn] {
+				p.reachedInits[fn] = true
+				queue = append(queue, initBodies[fn])
+			}
+		}
+	}
 	seen := map[*types.Func]bool{}
 	use := func(fn *types.Func) {
 		fn = fn.Origin()
@@ -198,13 +260,66 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 	for fn := range p.linkProvides {
 		use(fn)
 	}
-	if p.allMethods {
-		for _, fns := range byName {
+	// Reflection calls methods by name (MethodByName with a name known at
+	// compile time) or any exported method (Method, MethodByName with
+	// another name) of the types stored in interface values, as Go's linker
+	// assumes.
+	reflectCall := func(name string) {
+		if p.reflectAll || p.reflectNames[name] {
+			return
+		}
+		if name == "" {
+			p.reflectAll = true
+		} else {
+			p.reflectNames[name] = true
+		}
+		for n, fns := range byName {
+			if name != "" && n != name {
+				continue
+			}
 			for _, fn := range fns {
-				if fn.Exported() {
+				if fn.Exported() && p.storedMethods[fn] {
 					use(fn)
 				}
 			}
+		}
+	}
+	// The types stored in interface values by reachable code (and what
+	// reflection reaches from them): an interface call reaches only their
+	// methods.
+	stored := p.newIfaceTypes(func(t types.Type, fn *types.Func) {
+		fn = fn.Origin()
+		if p.storedMethods[fn] {
+			return
+		}
+		p.storedMethods[fn] = true
+		if _, ok := decls[fn]; ok && (matchMethod(p.calledMethods[fn.Name()], fn) || p.reflected(fn)) {
+			use(fn)
+		}
+	})
+	// The instantiations in the types of package variables and in type
+	// declarations.
+	for _, td := range typeDecls {
+		info := td.info
+		for _, spec := range td.d.Specs {
+			var t ast.Expr
+			switch spec := spec.(type) {
+			case *ast.TypeSpec:
+				t = spec.Type
+			case *ast.ValueSpec:
+				t = spec.Type
+			}
+			if t == nil {
+				continue
+			}
+			ast.Inspect(t, func(n ast.Node) bool {
+				if id, ok := n.(*ast.Ident); ok {
+					if inst, ok := info.Instances[id]; ok {
+						stored.addInst(inst)
+					}
+				}
+				return true
+			})
 		}
 	}
 	for _, pkg := range p.Pkgs {
@@ -227,6 +342,22 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 	for len(queue) > 0 {
 		b := queue[len(queue)-1]
 		queue = queue[:len(queue)-1]
+		if b.fn != nil {
+			p.reachedBodies[b.fn] = true
+		} else if b.lhs != nil {
+			p.reachedVarInits[b.node] = true
+		}
+		p.findConversions(b.info, b.node, b.sig, stored.conv)
+		if e, ok := b.node.(ast.Expr); ok && b.lhs != nil {
+			// The initializer's value is assigned to the variables.
+			if t, ok := b.info.TypeOf(e).(*types.Tuple); ok {
+				for i := 0; i < t.Len() && i < len(b.lhs); i++ {
+					stored.conv(t.At(i).Type(), b.lhs[i].Type())
+				}
+			} else if len(b.lhs) == 1 {
+				stored.conv(b.info.TypeOf(e), b.lhs[0].Type())
+			}
+		}
 		ast.Inspect(b.node, func(n ast.Node) bool {
 			if call, ok := n.(*ast.CallExpr); ok && len(call.Args) == 1 && !runtimeCalls {
 				// The runtime prints a panic value with its Error or
@@ -273,9 +404,23 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 			if !ok {
 				return true
 			}
+			if inst, ok := b.info.Instances[id]; ok {
+				stored.addInst(inst)
+			}
+			if v, ok := b.info.Uses[id].(*types.Var); ok && isPkgVar(v) {
+				useVar(v)
+				return true
+			}
 			fn, ok := b.info.Uses[id].(*types.Func)
 			if !ok {
 				return true
+			}
+			if b.pkg != "reflect" && (reflectEnum[fn.FullName()] || reflectLike(fn)) && fn.Name() != "NumMethod" {
+				name := ""
+				if s, ok := knownPattern[id]; ok && fn.Name() == "MethodByName" {
+					name = s
+				}
+				reflectCall(name)
 			}
 			// regexp's own calls pass on its callers' patterns.
 			if patternFuncs[fn.FullName()] && !constPattern[id] && b.pkg != "regexp" && b.pkg != "regexp/syntax" {
@@ -326,26 +471,17 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 	}
 }
 
-// findStoredMethods collects storedMethods: the methods of the types that
-// the program converts to an interface type (ifaceImpls, which also has the
-// type arguments of instantiations and what reflection reaches from those),
-// of js.Error, the error the runtime makes of a JavaScript exception
-// (jsabi.ts), and of the handles that reach JavaScript, which converts them
-// to the interface type of a parameter it passes them for. An interface
-// call cannot reach the method of any other type,
-// as Go's linker prunes the methods of types never converted: a program
-// that calls some String method keeps time.Time's only if it puts a Time
-// in an interface value.
+// findStoredMethods starts storedMethods with the methods of js.Error, the
+// error the runtime makes of a JavaScript exception (jsabi.ts), and of the
+// handles that reach JavaScript, which converts them to the interface type
+// of a parameter it passes them for; reachFrom adds those of the types that
+// reachable code converts to an interface type (with the type arguments of
+// instantiations and what reflection reaches from those). An interface call
+// cannot reach the method of any other type, as Go's linker prunes the
+// methods of types never converted: a program that calls some String method
+// keeps time.Time's only if it puts a Time in an interface value.
 func (p *Program) findStoredMethods() {
-	if p.storedMethods != nil {
-		return
-	}
 	p.storedMethods = map[*types.Func]bool{}
-	for _, impls := range p.ifaceImpls {
-		for _, im := range impls {
-			p.storedMethods[im.fn.Origin()] = true
-		}
-	}
 	for _, pkg := range p.Pkgs {
 		if p.Entries[pkg.PkgPath] {
 			for _, n := range handleTypes(pkg.Types) {

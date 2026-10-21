@@ -149,11 +149,36 @@ type Program struct {
 	// library and dependencies that the code reachable from the roots uses
 	// (reach.go).
 	reachedFuncs map[string]bool
+	// reachedBodies are the declared functions whose bodies the code
+	// reachable from the roots may run (reach.go).
+	reachedBodies map[*types.Func]bool
+	// reachedVarInits are the package variable initializers that run
+	// (reach.go).
+	reachedVarInits map[ast.Node]bool
+	// live, once set (refineBlocking), reports whether the code of a unit
+	// may run: the blocking analysis then ignores the rest.
+	live func(key any) bool
 	// storedMethods are the methods of the types stored in interface
 	// values (ifaceImpls), the only ones an interface call can reach
 	// (reach.go).
 	storedMethods map[*types.Func]bool
-	reachOnce     sync.Once
+	// reflectAll is set when reachable code may call any exported method
+	// by reflection (reflect's Method, or MethodByName with a name not
+	// known at compile time); reflectNames are the names reachable code
+	// passes to MethodByName otherwise (reach.go).
+	reflectAll   bool
+	reflectNames map[string]bool
+	// reachedInits are the init functions that run: those with effects,
+	// and those that only assign package variables reachable code uses
+	// (reach.go).
+	reachedInits map[*types.Func]bool
+	reachOnce    sync.Once
+	// lazyVars are the package variables whose initializers have no
+	// effect, and lazyInits the init functions that only assign the
+	// package variables listed (effects.go).
+	lazyVars    map[*types.Var]bool
+	lazyInits   map[*types.Func][]*types.Var
+	effectsOnce sync.Once
 	// anyHandles are the exported methods of the handles that cross the
 	// entry package's JS calling ABI inside interface values (see
 	// anyHandleMethods); anyHandlesOnce computes them.
@@ -208,6 +233,7 @@ func (p *Program) SetEntries(paths []string) {
 	for _, e := range paths {
 		p.Entries[e] = true
 	}
+	p.refineBlocking()
 }
 
 // ImportedEntry reports whether the entry package path is also imported by
@@ -488,6 +514,111 @@ func (p *Program) analyzeBlocking() {
 		p.propagateBlocking()
 	}
 	p.findClones()
+}
+
+// refineBlocking redoes the blocking analysis for the code reachable from
+// the roots (reach.go), once the entries are known. The first analysis
+// takes every function of every package into account: an io.Pipe that only
+// net/http's client and connect-go's client streams use makes io.Reader's
+// Read block, and with it io.ReadAll, everything that formats with fmt
+// (through protobuf's Format methods) and every caller of those, in a
+// Worker that serves requests and never runs that code. Code that cannot run
+// cannot make other code wait: the second analysis lets a call through an
+// interface block only for the methods of the types reachable code stores
+// in interface values, a call of a function value only for the function
+// values of reachable code, and a call through a tracked parameter only for
+// the arguments of reachable calls. Unreachable code keeps what the first
+// analysis decided. The second analysis finds a subset of the first's
+// blocking functions, so what was decided from those (the package
+// initializers without effects, effects.go, which reach depends on) stays
+// sound.
+func (p *Program) refineBlocking() {
+	p.reachOnce.Do(p.reach)
+	encl := map[any]*types.Func{}
+	for _, u := range p.units {
+		if u.encl != nil && u.key != any(u.encl) {
+			encl[u.key] = u.encl
+		}
+	}
+	// The function literals of package variable initializers.
+	init := map[any]ast.Node{}
+	for _, pkg := range p.Pkgs {
+		for _, in := range pkg.TypesInfo.InitOrder {
+			ast.Inspect(in.Rhs, func(n ast.Node) bool {
+				switch n.(type) {
+				case *ast.FuncLit, *ast.RangeStmt:
+					init[n] = in.Rhs
+				}
+				return true
+			})
+		}
+	}
+	p.live = func(key any) bool {
+		if fn, ok := key.(*types.Func); ok {
+			// A function without a body (a JavaScript import or a
+			// linkname pull) is reached where it is used.
+			return p.reachedBodies[fn.Origin()] || p.reachedFuncs[fn.Origin().FullName()]
+		}
+		if fn := encl[key]; fn != nil {
+			return p.reachedBodies[fn]
+		}
+		if e := init[key]; e != nil {
+			return p.reachedVarInits[e]
+		}
+		return true
+	}
+	// Package initializers that call functions only the first analysis
+	// found blocking may turn out to have no effect (effects.go), which
+	// shrinks what is reachable: the analyses are redone until the
+	// initializers without effects stay the same, at most three times.
+	// Each round finds a subset of the previous round's blocking functions,
+	// so the initializers found without effects by the round before, which
+	// reach used, still have none.
+	async, asyncA := p.async, p.asyncA
+	for round := 0; ; round++ {
+		if round > 0 {
+			p.reach()
+		}
+		p.async, p.asyncA = map[any]bool{}, map[*types.Func]bool{}
+		for k, v := range async {
+			if v && !p.live(k) {
+				p.async[k] = true
+			}
+		}
+		for k, v := range asyncA {
+			if v && !p.live(k) {
+				p.asyncA[k] = true
+			}
+		}
+		p.cloned = nil
+		p.waitLocks, p.waitLockVals = map[*ast.CallExpr]*types.Func{}, map[*ast.SelectorExpr]*types.Func{}
+		p.propagateBlocking()
+		for p.findWaitLocks() {
+			p.propagateBlocking()
+		}
+		p.findClones()
+		if round == 2 {
+			break
+		}
+		lazyVars, lazyInits := p.lazyVars, p.lazyInits
+		p.findEffects()
+		if sameKeys(lazyVars, p.lazyVars) && sameKeys(lazyInits, p.lazyInits) {
+			break
+		}
+	}
+}
+
+// sameKeys reports whether a and b have the same keys.
+func sameKeys[K comparable, V any](a, b map[K]V) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *Program) propagateBlocking() {
@@ -840,7 +971,7 @@ func (p *Program) unitBlocksIn(u *unit, units []*unit, assume *types.Func) bool 
 // in unit u, may block: whether some function value the program has may.
 func (p *Program) dynSigBlocks(s *types.Signature, u *unit, units []*unit) bool {
 	for _, o := range units {
-		if !p.async[o.key] || o.sig == nil {
+		if !p.async[o.key] || o.sig == nil || p.live != nil && !p.live(o.key) {
 			continue
 		}
 		if p.funcValues[o.key] && p.valueSigMatch(s, u, o) {

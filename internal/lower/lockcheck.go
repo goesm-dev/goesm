@@ -219,6 +219,11 @@ func (p *Program) heldSections() []mutexCall {
 					stack = stack[:len(stack)-1]
 					return true
 				}
+				if fd, ok := n.(*ast.FuncDecl); ok && p.live != nil {
+					if fn, ok := info.Defs[fd.Name].(*types.Func); ok && !p.live(fn) {
+						return false // never runs (refineBlocking)
+					}
+				}
 				stack = append(stack, n)
 				var list []ast.Stmt
 				switch n := n.(type) {

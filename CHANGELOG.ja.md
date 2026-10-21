@@ -8,6 +8,18 @@ goesm の各バージョンの変更点を、新しい順に記載します。�
 
 v0.0.1-beta.8 以降に `main` に入った変更です。差分は [v0.0.1-beta.8...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.8...main) で確認できます。
 
+### バンドルサイズ
+
+- connect-go で Connect のサービスを 1 つ提供する Cloudflare Worker のバンドルは、minify 後 4.5 MB (gzip で 1.18 MB) から 1.9 MB (gzip で 457 KB) になりました。Node での import は 570 ms から 210 ms に、unary 呼び出しの応答は 340 µs から 215 µs になりました (`testdata/usecases/worker`、`TestUseCaseWorker`)。
+  - 変数の計算以外に効果を持たないパッケージ変数の初期化式と `init` 関数は、到達可能なコードがその変数を使わなければ出力しません。net/http の TLS の既定値、crypto/tls の表、nistec の P-256 の表、x/text の正規化の表が、TLS、X.509、楕円曲線を残していました。
+  - FIPS 140 mode でだけ実行する `crypto/internal/fips140` の自己テストが、それを渡す `init` 関数を通じてハッシュ、AES、鍵導出を残すことはなくなりました。
+  - 到達可能なコードの起点は entry パッケージだけになりました。モジュールのほかのパッケージは entry が使う部分だけを数えるので、サーバーは生成された connect-go のパッケージのクライアントと net/http のクライアントを含みません。
+  - 引数が定数の reflection の `MethodByName` は、interface の値に格納される型のその名前のメソッドだけを残すようになりました。Go のリンカーと同じ扱いです。protobuf の descriptor の整形が `Get` を呼ぶため、`http.Client.Get` が残っていました。
+
+### ブロッキング解析
+
+- entry から到達可能なコードについて、block するかどうかを判定し直すようになりました。実行されないコードが他のコードを async にすることはありません。この Worker では、connect-go と net/http のクライアントが使う `io.Pipe` のために `io.Reader` の `Read` が block し、protobuf の `Format` メソッドを通じてすべての `fmt.Sprintf` と `fmt.Errorf` が async になっていました。
+
 ## v0.0.1-beta.8
 
 2026-10-21 にタグを付けました。v0.0.1-beta.7 からの差分は [v0.0.1-beta.7...v0.0.1-beta.8](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...v0.0.1-beta.8) で確認できます。
