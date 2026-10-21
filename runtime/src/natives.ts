@@ -30,7 +30,7 @@ import {
 } from "./index.ts";
 import type { S } from "./index.ts";
 import { fmtFixed, fmtShortest, formatFloat64, mayTie, parseFloat64, roundToEven, sprintf, tieScale } from "./fmt.ts";
-import { jsonMarshal, jsonUnmarshal, registerJSONErrors, registerTypeOf } from "./json.ts";
+import { jsonMarshal, jsonSyntax, jsonUnmarshal, registerJSONErrors, registerTypeOf } from "./json.ts";
 
 // ---- runtime ----
 
@@ -411,6 +411,11 @@ export function native$encoding$json$fastMarshal(v: Iface | null): S<number> {
 }
 export function native$encoding$json$fastUnmarshal(data: S<number>, v: Iface | null): boolean {
   return jsonUnmarshal(data, v);
+}
+// encoding/json's checkValid (see the patch of v2_scanner.go): the message
+// and offset of json v2's syntax error, or "" if there is none.
+export function native$encoding$json$syntaxError(data: S<number>): [string, number] {
+  return jsonSyntax(bytesToString(data)) ?? ["", 0];
 }
 export function native$encoding$json$registerErrors(
   syntax: (msg: string, off: bigint) => Iface,

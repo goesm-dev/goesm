@@ -455,3 +455,35 @@ func freshIfaceVars(info *types.Info, body *ast.BlockStmt) map[*types.Var]bool {
 	})
 	return vars
 }
+
+// JSONv2 reports whether a package of the program outside encoding/json
+// declares a method named MarshalJSONTo or UnmarshalJSONFrom, which json
+// v2 calls (json.Number's are encoding/json's own). Without one,
+// encoding/json's Marshal and Unmarshal go to its legacy encoder and
+// decoder, and json v2 is left out (see the patch of v2_decode.go).
+func (p *Program) JSONv2() bool {
+	p.jsonV2Once.Do(func() {
+		for _, pkg := range p.Pkgs {
+			if pkg.PkgPath == "encoding/json" || strings.HasPrefix(pkg.PkgPath, "encoding/json/") {
+				continue
+			}
+			for _, obj := range pkg.TypesInfo.Defs {
+				if fn, ok := obj.(*types.Func); ok && fn.Signature().Recv() != nil && (fn.Name() == "MarshalJSONTo" || fn.Name() == "UnmarshalJSONFrom") {
+					p.jsonV2 = true
+					return
+				}
+			}
+		}
+	})
+	return p.jsonV2
+}
+
+// jsonLeftOut returns the functions of encoding/json that the program
+// never calls, by JSONv2: json v2's Marshal and Unmarshal, or the legacy
+// ones.
+func (p *Program) jsonLeftOut() map[string]bool {
+	if p.JSONv2() {
+		return map[string]bool{"encoding/json.marshalLegacy": true, "encoding/json.unmarshalLegacy": true}
+	}
+	return map[string]bool{"encoding/json.marshalV2": true, "encoding/json.unmarshalV2": true}
+}

@@ -192,6 +192,10 @@ type Program struct {
 	// not among them (RegexpJS).
 	regexpPatterns map[string]string
 	regexpGo       bool
+	// jsonV2 is set when the program has methods of json v2's own
+	// interfaces (JSONv2).
+	jsonV2     bool
+	jsonV2Once sync.Once
 
 	// pureEmitters answer returnsPure for the functions of imported
 	// packages (PureEmitter).

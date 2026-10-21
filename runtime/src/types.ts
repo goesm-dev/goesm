@@ -288,10 +288,26 @@ export function structOf(specs: (Field | FieldSpec)[], ctor: any, pkgPath = ""):
     t.fields = fields;
     t.ctor = ctor;
     registerCtor(ctor, t);
-    t.str = `struct { ${fields.map((f) => (f.embedded ? f.type.str : `${f.name} ${f.type.str}`)).join("; ")} }`;
+    t.str = fields.length === 0 ? "struct {}" : `struct { ${fields.map((f) => (f.embedded ? f.type.str : `${f.name} ${f.type.str}`) + (f.tag === "" ? "" : " " + quoteTag(f.tag))).join("; ")} }`;
     t.zero = structZero(t);
     return t;
   });
+}
+
+// quoteTag is strconv.Quote of a struct tag (bytes from 0x80 are kept, as
+// strconv.Quote keeps printable UTF-8).
+function quoteTag(tag: string): string {
+  let q = '"';
+  for (let i = 0; i < tag.length; i++) {
+    const c = tag.charCodeAt(i);
+    if (c === 0x22 || c === 0x5c) q += "\\" + tag[i];
+    else if (c >= 0x20 && c !== 0x7f) q += tag[i];
+    else {
+      const k = "\x07\b\f\n\r\t\v".indexOf(tag[i]);
+      q += k >= 0 ? "\\" + "abfnrtv"[k] : "\\x" + c.toString(16).padStart(2, "0");
+    }
+  }
+  return q + '"';
 }
 
 // The struct type of the objects a class makes, for unsafe pointer
