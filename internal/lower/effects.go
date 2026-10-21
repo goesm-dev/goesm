@@ -260,8 +260,8 @@ func (p *Program) findEffects() {
 		info := pkg.TypesInfo
 		embeds := embedDirectives(pkg.Syntax, info)
 		for _, in := range info.InitOrder {
-			v := in.Lhs[0]
-			if len(in.Lhs) != 1 || embeds[v] != nil {
+			v := initVar(in)
+			if v == nil || embeds[v] != nil {
 				continue
 			}
 			n := a.nodeOf(in.Rhs, info, nil, in.Rhs, "var "+v.Pkg().Path()+"."+v.Name())
@@ -345,6 +345,24 @@ func (a *effAnalysis) debug(n *effNode) {
 		}
 		x = next
 	}
+}
+
+// initVar returns the variable initializer in assigns, if it assigns only
+// one (var v, _ = f() included), or nil.
+func initVar(in *types.Initializer) *types.Var {
+	if len(in.Lhs) == 1 {
+		return in.Lhs[0]
+	}
+	var v *types.Var
+	for _, l := range in.Lhs {
+		if l.Name() != "_" {
+			if v != nil {
+				return nil
+			}
+			v = l
+		}
+	}
+	return v
 }
 
 // LazyVar reports whether the initializer of package-level variable v has

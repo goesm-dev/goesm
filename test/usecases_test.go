@@ -370,10 +370,12 @@ const worker :Workerd.Worker = (
 // bounds its minified bundle: 4.5 MB when every package of the module was
 // reachable (with the service's client, net/http's client and TLS),
 // package initializers kept TLS, X.509 and elliptic curves, and an io.Pipe
-// of that client code made fmt async.
+// of that client code made fmt async; 1.87 MB when the code serving a fetch
+// could store a *http.Server in a context, whose type descriptor kept TLS
+// and X.509.
 func TestUseCaseWorker(t *testing.T) {
 	requireNode(t)
-	const max = 2_000_000
+	const max = 1_800_000
 	out := t.TempDir()
 	res, err := build.Build(build.Options{Dir: testdata("usecases"), Patterns: []string{"./worker"}, OutDir: out, Minify: true})
 	if err != nil {

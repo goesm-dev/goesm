@@ -142,6 +142,24 @@ func (p *Program) CalledMethod(fn *types.Func) bool {
 	return p.printedMethods[fn] || p.storedMethods[fn] && (matchMethod(p.calledMethods[fn.Name()], fn) || p.reflected(fn))
 }
 
+// StoredType reports whether reachable code may store a value of type T
+// (a defined type or a pointer to one) in an interface value: whether one
+// of the methods of T is a method of a stored type. The method table of a
+// type never stored is left empty, as the dynamic type of no interface value
+// is ever T: type assertions, interface calls and reflection never look it
+// up, and the signatures of its methods do not keep the types they mention.
+// A type that has methods still gets an empty table ($rt.hasMethods).
+func (p *Program) StoredType(T types.Type) bool {
+	p.reachOnce.Do(p.reach)
+	ms := p.msets.MethodSet(T)
+	for i := 0; i < ms.Len(); i++ {
+		if p.storedMethods[ms.At(i).Obj().(*types.Func).Origin()] {
+			return true
+		}
+	}
+	return false
+}
+
 // reflected reports whether reachable code may call method fn by
 // reflection (reach.go), if its type is stored in an interface value.
 func (p *Program) reflected(fn *types.Func) bool {
