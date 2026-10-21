@@ -158,6 +158,9 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 		if pkg.PkgPath == "regexp/syntax" {
 			fmt.Fprintf(h, "unicodeClasses %v\n", p.UnicodeClasses())
 		}
+		if pkg.PkgPath == "encoding/json" {
+			fmt.Fprintf(h, "jsonV2 %v\n", p.JSONv2())
+		}
 		if pkg.PkgPath == "regexp" {
 			pats := p.RegexpJS()
 			exprs := make([]string, 0, len(pats))

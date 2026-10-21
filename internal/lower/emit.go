@@ -263,6 +263,8 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 // and MustCompile does not quote a pattern.
 func (pe *pkgEmitter) leftOut(fd *ast.FuncDecl) bool {
 	switch pe.pkg.PkgPath {
+	case "encoding/json":
+		return fd.Recv == nil && pe.prog.jsonLeftOut()["encoding/json."+fd.Name.Name]
 	case "regexp/syntax":
 		return fd.Recv == nil && fd.Name.Name == "unicodeTable" && !pe.prog.UnicodeClasses()
 	case "regexp":
@@ -281,6 +283,12 @@ func (pe *pkgEmitter) emitStdFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 	if pe.leftOut(fd) {
 		fn := pe.info.Defs[fd.Name].(*types.Func)
 		pe.funcs.ln("%sfunction %s(...a: any[]): any { $rt.plainPanic(%s); }", pe.tab.mark(fd.Pos()), pe.funcDeclName(fd, fn), jsString("goesm: "+fn.FullName()+" was left out as never called"))
+		return
+	}
+	if pe.pkg.PkgPath == "encoding/json" && fd.Recv == nil && fd.Name.Name == "jsonV2" {
+		// A constant (JSONv2, json.go).
+		fn := pe.info.Defs[fd.Name].(*types.Func)
+		pe.funcs.ln("%sfunction %s(): boolean { return %v; }", pe.tab.mark(fd.Pos()), pe.funcDeclName(fd, fn), pe.prog.JSONv2())
 		return
 	}
 	if pe.pkg.PkgPath == "regexp" && fd.Recv == nil && fd.Name.Name == "jsPattern" {
