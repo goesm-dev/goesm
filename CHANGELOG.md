@@ -15,6 +15,11 @@ Changes on `main` since v0.0.1-beta.8: [v0.0.1-beta.8...main](https://github.com
   - The self-tests of `crypto/internal/fips140`, which run only in FIPS 140 mode, no longer keep the hashes, AES and the key derivations through the `init` functions that pass them.
   - Only the entry packages are roots of reachable code: the other packages of the module count for what the entries use, so a server leaves out the client of its generated connect-go package, with net/http's client.
   - Reflection's `MethodByName` with a constant name keeps the methods of that name only of the types stored in interface values, as Go's linker does: protobuf's descriptor formatting calling `Get` kept `http.Client.Get`.
+- The same Worker bundles to 1.70 MB minified (413 KB gzipped):
+  - A program that serves requests only through `fetchHandler` no longer stores a `*http.Server` in an interface value, whose type descriptor kept crypto/tls, crypto/x509 and math/big for reflection.
+  - The method table of a type that reachable code never stores in an interface value is empty: no type assertion, interface call or reflection looks it up, and the signatures of its methods kept the types they mention.
+  - The method table of an unnamed struct type with promoted methods is set up in a pure initializer, so that bundlers drop the type with the methods it keeps when nothing uses it: encoding/json/v2's wrappers of `Marshaler` and the like were always kept.
+  - Initializers of the form `var x, _ = f()` with no effect besides computing `x` are left out when reachable code does not use `x`, as single-value ones are: edwards25519's base points.
 
 ### Blocking analysis
 

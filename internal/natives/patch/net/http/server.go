@@ -42,7 +42,7 @@ func hostHandlerOf(v js.Value) Handler
 // Server, as ListenAndServe's host server passes it. It returns the
 // Response, or an Error if the handler panicked before it wrote the header.
 func hostServeJS(this js.Value, args []js.Value) any {
-	var s *Server
+	var s *hostServer
 	remote := ""
 	signal := true
 	if len(args) > 2 && args[2].Truthy() {
@@ -62,13 +62,10 @@ func hostServeJS(this js.Value, args []js.Value) any {
 // streaming RPCs) gets a streamed body, the others one buffered body. The
 // request body is read in full before the handler runs. With signal, the
 // request's context is canceled when req.signal aborts.
-func hostServe(s *Server, h Handler, req js.Value, remote string, signal bool) js.Value {
+func hostServe(s *hostServer, h Handler, req js.Value, remote string, signal bool) js.Value {
 	ctx, cancel := context.WithCancel(context.Background())
 	if s != nil {
-		if s.BaseContext != nil {
-			ctx, cancel = context.WithCancel(s.BaseContext(hostListenerOf(s)))
-		}
-		ctx = context.WithValue(ctx, ServerContextKey, s)
+		ctx, cancel = context.WithCancel(s.context())
 	}
 	if signal {
 		if sig := req.Get("signal"); sig.Truthy() {
@@ -356,9 +353,18 @@ func hostBytes(b []byte) js.Value {
 // host server passes to hostServeJS.
 var (
 	hostMu      sync.Mutex
-	hostServers = map[int]*Server{}
+	hostServers = map[int]*hostServer{}
 	hostNext    = 1
 )
+
+// hostServer is what hostServe needs of a Server. Its functions are set by
+// ListenAndServe, so that a program that only serves through fetchHandler
+// (a Worker) does not store a *Server in an interface value: reflection
+// could reach everything a Server refers to, down to tls.Config and x509.
+type hostServer struct {
+	context func() context.Context // the base context of a request
+	logf    func(format string, args ...any)
+}
 
 // ListenAndServe listens on the TCP network address s.Addr with the host's
 // HTTP server (node:http under Node.js, Bun.serve, Deno.serve) and serves
@@ -386,7 +392,16 @@ func (s *Server) ListenAndServe() error {
 	hostMu.Lock()
 	id := hostNext
 	hostNext++
-	hostServers[id] = s
+	hostServers[id] = &hostServer{
+		context: func() context.Context {
+			ctx := context.Background()
+			if s.BaseContext != nil {
+				ctx = s.BaseContext(hostListenerOf(s))
+			}
+			return context.WithValue(ctx, ServerContextKey, s)
+		},
+		logf: s.logf,
+	}
 	hostMu.Unlock()
 	l := &hostListener{id: id, done: make(chan error, 1), addr: &net.TCPAddr{Port: p}}
 	var ln net.Listener = l

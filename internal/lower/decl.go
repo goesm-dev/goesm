@@ -111,7 +111,11 @@ func (pe *pkgEmitter) methodTables(w *writer, desc string, named *types.Named, t
 			T = types.NewPointer(named)
 			target = "$rt.ptrTo(" + desc + ")"
 		}
-		if entries := pe.methodEntries(T, named, tp); len(entries) > 0 {
+		var entries []string
+		if pe.prog.StoredType(T) {
+			entries = pe.methodEntries(T, named, tp)
+		}
+		if len(entries) > 0 {
 			w.ln("$rt.addMethods(%s, {", target)
 			w.indent++
 			for _, e := range entries {

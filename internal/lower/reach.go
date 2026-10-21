@@ -146,8 +146,8 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 		root := p.Entries[pkg.PkgPath] || len(p.Entries) == 0 && !p.std[pkg] && !p.Deps[pkg]
 		for _, in := range pkg.TypesInfo.InitOrder {
 			b := body{in.Rhs, pkg.TypesInfo, pkg.PkgPath, nil, in.Lhs, nil}
-			if len(in.Lhs) == 1 && p.lazyVars[in.Lhs[0]] {
-				lazyVars[in.Lhs[0]] = b
+			if v := initVar(in); v != nil && p.lazyVars[v] {
+				lazyVars[v] = b
 			} else {
 				queue = append(queue, b)
 			}
