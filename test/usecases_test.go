@@ -375,7 +375,7 @@ const worker :Workerd.Worker = (
 // and X.509.
 func TestUseCaseWorker(t *testing.T) {
 	requireNode(t)
-	const max = 1_800_000
+	const max = 1_600_000
 	out := t.TempDir()
 	res, err := build.Build(build.Options{Dir: testdata("usecases"), Patterns: []string{"./worker"}, OutDir: out, Minify: true})
 	if err != nil {
