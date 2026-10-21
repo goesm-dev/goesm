@@ -143,6 +143,7 @@ func handleTypes(pkg *types.Package) []*types.Named {
 // method tables list these methods, with their functions, and the runtime
 // gives such a handle its JS methods from its table (withJSMethods in
 // runtime/src/jsabi.ts). The methods are keyed by their origin.
+
 func (p *Program) anyHandleMethods() map[*types.Func]bool {
 	p.anyHandlesOnce.Do(func() {
 		p.anyHandles = map[*types.Func]bool{}
@@ -184,59 +185,74 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 				changed = true
 			}
 		}
-		// visit finds the handles a value of type t holds as goToJS
-		// (runtime/src/jsabi.ts) converts it: itself and what its methods
-		// take and return, or the elements, keys and fields it converts,
-		// what a pointer that is not a handle points to, and what a
-		// function takes and returns.
-		var seen typeutil.Map
-		var visit func(t types.Type)
-		visit = func(t types.Type) {
+		// visit finds the handles JavaScript gets from a value of type t
+		// that goes to JavaScript (out) as goToJS (runtime/src/jsabi.ts)
+		// converts it: itself and what its methods return, or the
+		// elements, keys and fields it converts, what a pointer that is
+		// not a handle points to, and what a function returns; and what a
+		// function value takes that goes the other way, from JavaScript
+		// to Go, whose arguments Go passes to JavaScript. JavaScript calls
+		// methods only on the handles it gets: a handle it passes to Go
+		// came from Go before.
+		var seen, seenIn typeutil.Map
+		var visit func(t types.Type, out bool)
+		visit = func(t types.Type, out bool) {
 			t = types.Unalias(t)
-			if seen.At(t) != nil || isJSValue(t) {
+			s := &seen
+			if !out {
+				s = &seenIn
+			}
+			if s.At(t) != nil || isJSValue(t) {
 				return
 			}
-			seen.Set(t, true)
+			s.Set(t, true)
 			if tp, ok := t.(*types.TypeParam); ok {
-				mark(tparam{canon(tp), false})
+				if out {
+					mark(tparam{canon(tp), false})
+				}
 				return
 			}
 			switch u := t.Underlying().(type) {
 			case *types.Pointer:
 				e := types.Unalias(u.Elem())
 				if tp, ok := e.(*types.TypeParam); ok {
-					mark(tparam{canon(tp), true})
+					if out {
+						mark(tparam{canon(tp), true})
+					}
 					return
 				}
 				if n, ok := e.(*types.Named); ok && isHandleType(t) {
 					// JavaScript calls the methods, whose arguments and
 					// results convert as well.
-					for _, fn := range handleMethods(n) {
-						p.anyHandles[fn.Origin()] = true
-						visit(fn.Signature())
+					if out {
+						for _, fn := range handleMethods(n) {
+							p.anyHandles[fn.Origin()] = true
+							visit(fn.Signature(), true)
+						}
 					}
 					return
 				}
-				visit(e)
+				visit(e, out)
 			case *types.Slice:
-				visit(u.Elem())
+				visit(u.Elem(), out)
 			case *types.Array:
-				visit(u.Elem())
+				visit(u.Elem(), out)
 			case *types.Map:
-				visit(u.Key())
-				visit(u.Elem())
+				visit(u.Key(), out)
+				visit(u.Elem(), out)
 			case *types.Struct:
 				for i := 0; i < u.NumFields(); i++ {
 					if f := u.Field(i); f.Exported() || promotes(f) {
-						visit(f.Type())
+						visit(f.Type(), out)
 					}
 				}
 			case *types.Signature:
+				// Called by the side the function goes to.
 				for i := 0; i < u.Params().Len(); i++ {
-					visit(u.Params().At(i).Type())
+					visit(u.Params().At(i).Type(), !out)
 				}
 				for i := 0; i < u.Results().Len(); i++ {
-					visit(u.Results().At(i).Type())
+					visit(u.Results().At(i).Type(), out)
 				}
 			}
 		}
@@ -247,7 +263,7 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 			info := pkg.TypesInfo
 			conv := func(src, dst types.Type) {
 				if src != nil && dst != nil && isIface(dst) && !isIface(src) {
-					visit(src)
+					visit(src, true)
 				}
 			}
 			for _, f := range pkg.Syntax {
@@ -294,10 +310,10 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 			changed = false
 			for _, ia := range insts {
 				if boxed[tparam{ia.tp, false}] {
-					visit(ia.arg)
+					visit(ia.arg, true)
 				}
 				if boxed[tparam{ia.tp, true}] {
-					visit(types.NewPointer(ia.arg))
+					visit(types.NewPointer(ia.arg), true)
 				}
 			}
 		}
@@ -362,17 +378,32 @@ func abiCarriesIface(pkg *types.Package) bool {
 		}
 		return false
 	}
+	// The wrappers of the package's functions and methods return an
+	// http.Handler as a fetch handler (exportOut), not as a handle.
+	exported := func(sig *types.Signature) bool {
+		for i := 0; i < sig.Params().Len(); i++ {
+			if walk(sig.Params().At(i).Type()) {
+				return true
+			}
+		}
+		for i := 0; i < sig.Results().Len(); i++ {
+			if t := sig.Results().At(i).Type(); !isHTTPHandler(t) && walk(t) {
+				return true
+			}
+		}
+		return false
+	}
 	scope := pkg.Scope()
 	for _, name := range scope.Names() {
 		switch obj := scope.Lookup(name).(type) {
 		case *types.Func:
-			if obj.Exported() && obj.Signature().TypeParams().Len() == 0 && walkSig(obj.Signature()) {
+			if obj.Exported() && obj.Signature().TypeParams().Len() == 0 && exported(obj.Signature()) {
 				return true
 			}
 		case *types.TypeName:
 			if n, ok := obj.Type().(*types.Named); ok && obj.Exported() && n.TypeParams().Len() == 0 {
 				for _, fn := range handleMethods(n) {
-					if walkSig(fn.Signature()) {
+					if exported(fn.Signature()) {
 						return true
 					}
 				}

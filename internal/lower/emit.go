@@ -537,6 +537,9 @@ func (pe *pkgEmitter) emit() *Module {
 
 	// init functions in source order, then main for the entry package.
 	for i, f := range pe.inits {
+		if fn, ok := pe.initObjs[i].(*types.Func); ok && !pe.prog.InitCalled(fn) {
+			continue // it only assigns variables nothing uses
+		}
 		call := f + "()"
 		if pe.prog.async[pe.initObjs[i]] {
 			call = pe.prog.awaitMain(call)
@@ -670,9 +673,16 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 	// A variable whose initializer has no side effects is declared with it,
 	// as a pure expression, so that bundlers drop the unused ones (most of
 	// unicode's tables, for one).
-	pure := map[*types.Var]bool{}
+	// One without effects that no reachable code uses is left out
+	// (VarReached), as it may call methods compiled as never called.
+	pure, unused := map[*types.Var]bool{}, map[*types.Var]bool{}
 	for _, in := range pe.info.InitOrder {
-		if len(in.Lhs) == 1 && in.Lhs[0].Name() != "_" && embeds[in.Lhs[0]] == nil && pe.pureExpr(in.Rhs) {
+		if len(in.Lhs) != 1 || embeds[in.Lhs[0]] != nil {
+			continue
+		}
+		if !pe.prog.VarReached(in.Lhs[0], in.Rhs) {
+			unused[in.Lhs[0]] = true
+		} else if in.Lhs[0].Name() != "_" && (pe.pureExpr(in.Rhs) || pe.prog.LazyVar(in.Lhs[0])) {
 			pure[in.Lhs[0]] = true
 		}
 	}
@@ -713,6 +723,9 @@ func (pe *pkgEmitter) emitVars(files []*ast.File) {
 		mark := pe.tab.mark(in.Rhs.Pos())
 		if len(in.Lhs) == 1 {
 			v := in.Lhs[0]
+			if unused[v] {
+				continue
+			}
 			rhs := fe.valueOf(in.Rhs, v.Type())
 			if pure[v] {
 				if pe.prog.boxed[v] {

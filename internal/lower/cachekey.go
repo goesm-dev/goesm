@@ -125,6 +125,25 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 			}
 		}
 	}
+	// Which variable initializers are pure and which init functions run
+	// (effects.go).
+	for _, pkg := range p.Pkgs {
+		for _, in := range pkg.TypesInfo.InitOrder {
+			if len(in.Lhs) == 1 {
+				add("lazyVar", in.Lhs[0], strconv.FormatBool(p.LazyVar(in.Lhs[0])))
+				add("varReached", in.Lhs[0], strconv.FormatBool(p.VarReached(in.Lhs[0], in.Rhs)))
+			}
+		}
+		for _, f := range pkg.Syntax {
+			for _, d := range f.Decls {
+				if fd, isFunc := d.(*ast.FuncDecl); isFunc && fd.Recv == nil && fd.Name.Name == "init" {
+					if fn, isFn := pkg.TypesInfo.Defs[fd.Name].(*types.Func); isFn {
+						add("initCalled", fn, strconv.FormatBool(p.InitCalled(fn)))
+					}
+				}
+			}
+		}
+	}
 	if !ok {
 		return nil, false
 	}

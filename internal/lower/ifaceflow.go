@@ -33,86 +33,13 @@ type ifaceImpl struct {
 // findIfaceTypes collects the types stored in interface values and indexes
 // their methods by name.
 func (p *Program) findIfaceTypes() {
-	reflection := false
-	for _, pkg := range p.Pkgs {
-		reflection = reflection || pkg.PkgPath == "reflect"
-	}
-	var seen typeutil.Map
-	var add func(t types.Type)
-	add = func(t types.Type) {
-		if t == nil {
-			return
-		}
-		t = types.Unalias(t)
-		if seen.At(t) != nil {
-			return
-		}
-		switch u := t.(type) {
-		case *types.TypeParam:
-			return // covered by the instantiations' type arguments
-		case *types.Basic:
-			if u.Info()&types.IsUntyped != 0 {
-				if u.Kind() == types.UntypedNil {
-					return
-				}
-				t = types.Default(t)
-			}
-		case *types.Tuple:
-			for i := 0; i < u.Len(); i++ {
-				add(u.At(i).Type())
-			}
-			return
-		}
-		seen.Set(t, true)
-		if !isIface(t) {
-			ms := p.msets.MethodSet(t)
-			for i := 0; i < ms.Len(); i++ {
-				fn := ms.At(i).Obj().(*types.Func)
-				p.ifaceImpls[fn.Name()] = append(p.ifaceImpls[fn.Name()], ifaceImpl{t, fn})
-			}
-		}
-		// Reflection can reach (and take the address of) what a stored value
-		// contains.
-		if !reflection {
-			return
-		}
-		if _, ok := t.(*types.Named); ok {
-			add(types.NewPointer(t))
-		}
-		switch u := t.Underlying().(type) {
-		case *types.Pointer:
-			add(u.Elem())
-		case *types.Struct:
-			for i := 0; i < u.NumFields(); i++ {
-				add(u.Field(i).Type())
-				add(types.NewPointer(u.Field(i).Type()))
-			}
-		case *types.Array:
-			add(u.Elem())
-			add(types.NewPointer(u.Elem()))
-		case *types.Slice:
-			add(u.Elem())
-			add(types.NewPointer(u.Elem()))
-		case *types.Map:
-			add(u.Key())
-			add(u.Elem())
-		case *types.Chan:
-			add(u.Elem())
-		}
-	}
-	conv := func(src, dst types.Type) {
-		if src != nil && dst != nil && isIface(dst) && !isIface(src) {
-			add(src)
-		}
-	}
+	ts := p.newIfaceTypes(func(t types.Type, fn *types.Func) {
+		p.ifaceImpls[fn.Name()] = append(p.ifaceImpls[fn.Name()], ifaceImpl{t, fn})
+	})
 	for _, pkg := range p.Pkgs {
 		info := pkg.TypesInfo
 		for _, inst := range info.Instances {
-			for i := 0; i < inst.TypeArgs.Len(); i++ {
-				if t := inst.TypeArgs.At(i); !isIface(t) {
-					add(t)
-				}
-			}
+			ts.addInst(inst)
 		}
 		for _, f := range pkg.Syntax {
 			for _, d := range f.Decls {
@@ -120,13 +47,114 @@ func (p *Program) findIfaceTypes() {
 				case *ast.FuncDecl:
 					if d.Body != nil {
 						fn := info.Defs[d.Name].(*types.Func)
-						p.findConversions(info, d.Body, fn.Signature(), conv)
+						p.findConversions(info, d.Body, fn.Signature(), ts.conv)
 					}
 				case *ast.GenDecl:
-					p.findConversions(info, d, nil, conv)
+					p.findConversions(info, d, nil, ts.conv)
 				}
 			}
 		}
+	}
+}
+
+// ifaceTypes is a set of types stored in interface values, with what
+// reflection reaches from them in a program that links package reflect.
+// method is called once for each method of each type added.
+type ifaceTypes struct {
+	msets      *typeutil.MethodSetCache
+	reflection bool
+	seen       typeutil.Map
+	method     func(t types.Type, fn *types.Func)
+}
+
+func (p *Program) newIfaceTypes(method func(t types.Type, fn *types.Func)) *ifaceTypes {
+	reflection := false
+	for _, pkg := range p.Pkgs {
+		reflection = reflection || pkg.PkgPath == "reflect"
+	}
+	return &ifaceTypes{msets: &p.msets, reflection: reflection, method: method}
+}
+
+// conv records a conversion from src to dst (see findConversions).
+func (s *ifaceTypes) conv(src, dst types.Type) {
+	if src != nil && dst != nil && isIface(dst) && !isIface(src) {
+		s.add(src)
+	}
+}
+
+// addInst adds the type arguments of an instantiation.
+func (s *ifaceTypes) addInst(inst types.Instance) {
+	for i := 0; i < inst.TypeArgs.Len(); i++ {
+		if t := inst.TypeArgs.At(i); !isIface(t) {
+			s.add(t)
+		}
+	}
+}
+
+func (s *ifaceTypes) add(t types.Type) {
+	if t == nil {
+		return
+	}
+	t = types.Unalias(t)
+	if s.seen.At(t) != nil {
+		return
+	}
+	switch u := t.(type) {
+	case *types.TypeParam:
+		return // covered by the instantiations' type arguments
+	case *types.Basic:
+		if u.Info()&types.IsUntyped != 0 {
+			if u.Kind() == types.UntypedNil {
+				return
+			}
+			t = types.Default(t)
+		}
+	case *types.Tuple:
+		for i := 0; i < u.Len(); i++ {
+			s.add(u.At(i).Type())
+		}
+		return
+	}
+	s.seen.Set(t, true)
+	if !isIface(t) {
+		ms := s.msets.MethodSet(t)
+		for i := 0; i < ms.Len(); i++ {
+			s.method(t, ms.At(i).Obj().(*types.Func))
+		}
+	}
+	// Reflection can reach (and take the address of) what a stored value
+	// contains.
+	if !s.reflection {
+		return
+	}
+	if _, ok := t.(*types.Named); ok {
+		s.add(types.NewPointer(t))
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Pointer:
+		s.add(u.Elem())
+	case *types.Struct:
+		// reflect's Interface panics for the value of an unexported field
+		// (one not embedded, whose exported fields stay reachable), and its
+		// Call for the methods of one, so reflection stores only the
+		// values of the others.
+		for i := 0; i < u.NumFields(); i++ {
+			if f := u.Field(i); f.Exported() || f.Embedded() {
+				s.add(f.Type())
+				s.add(types.NewPointer(f.Type()))
+			}
+		}
+	case *types.Array:
+		s.add(u.Elem())
+		s.add(types.NewPointer(u.Elem()))
+	case *types.Slice:
+		s.add(u.Elem())
+		s.add(types.NewPointer(u.Elem()))
+	case *types.Map:
+		s.add(u.Key())
+		s.add(u.Elem())
+	case *types.Chan:
+		s.add(u.Elem())
 	}
 }
 
@@ -326,11 +354,21 @@ func (p *Program) ifaceCallBlocks(recv types.Type, m *types.Func, seen map[types
 			}
 			continue
 		}
-		if p.async[impl.fn.Origin()] {
+		if p.async[impl.fn.Origin()] && p.liveMethod(impl.fn.Origin()) {
 			return true
 		}
 	}
 	return false
+}
+
+// liveMethod reports whether a call through an interface may reach the
+// concrete method fn (refineBlocking): whether reachable code stores its
+// type in an interface value and reaches the method.
+func (p *Program) liveMethod(fn *types.Func) bool {
+	if p.live == nil {
+		return true
+	}
+	return p.live(fn) && p.storedMethods[fn]
 }
 
 func (p *Program) implements(t types.Type, iface *types.Interface) bool {
