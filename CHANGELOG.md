@@ -8,6 +8,18 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 Changes on `main` since v0.0.1-beta.8: [v0.0.1-beta.8...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.8...main).
 
+### Bundle size
+
+- A Cloudflare Worker serving one Connect service with connect-go bundles to 1.9 MB minified (457 KB gzipped) instead of 4.5 MB (1.18 MB gzipped), imports in 210 ms instead of 570 ms on Node and answers a unary call in 215 µs instead of 340 µs (`testdata/usecases/worker`, `TestUseCaseWorker`):
+  - Package variable initializers and `init` functions with no effect besides computing their variables are left out when reachable code does not use those variables: net/http's TLS defaults, crypto/tls's tables, nistec's P-256 table and x/text's normalization tables kept TLS, X.509 and elliptic curves.
+  - The self-tests of `crypto/internal/fips140`, which run only in FIPS 140 mode, no longer keep the hashes, AES and the key derivations through the `init` functions that pass them.
+  - Only the entry packages are roots of reachable code: the other packages of the module count for what the entries use, so a server leaves out the client of its generated connect-go package, with net/http's client.
+  - Reflection's `MethodByName` with a constant name keeps the methods of that name only of the types stored in interface values, as Go's linker does: protobuf's descriptor formatting calling `Get` kept `http.Client.Get`.
+
+### Blocking analysis
+
+- Blocking is decided again for the code reachable from the entries: code that never runs does not make other code async. In the Worker, the `io.Pipe` of connect-go's and net/http's clients made `io.Reader`'s `Read` block, and through protobuf's `Format` methods every `fmt.Sprintf` and `fmt.Errorf`.
+
 ## v0.0.1-beta.8
 
 Tagged on 2026-10-21. Changes since v0.0.1-beta.7: [v0.0.1-beta.7...v0.0.1-beta.8](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.7...v0.0.1-beta.8).

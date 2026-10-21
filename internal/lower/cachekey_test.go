@@ -13,7 +13,7 @@ import (
 
 // covered are the Program fields and methods that lowering a package may
 // read, each of which Facts covers: in the digests of the package or of its
-// dependencies (async, syncOnly, boxed, linkPulls, linkProvides, DynMethod, CalledMethod, BoxOf, std, Deps,
+// dependencies (async, syncOnly, boxed, linkPulls, linkProvides, DynMethod, CalledMethod, BoxOf, LazyVar, InitCalled, std, Deps,
 // TracksGoroutines, usesPull and the methods reading them), as answers recorded for
 // the package's nodes (CallBlocks, CallAlwaysAsync, RangeBlocks, WaitLock,
 // WaitLockVal, SyncClone, CallBlocksIn; cloned through HasClone), or
@@ -28,6 +28,7 @@ var covered = map[string]bool{
 	"TracksGoroutines": true, "awaitMain": true, "usesPull": true, "StdFixed": true,
 	"CallBlocks": true, "CallAlwaysAsync": true, "RangeBlocks": true, "WaitLock": true, "WaitLockVal": true,
 	"DynMethod": true, "CalledMethod": true, "BoxOf": true,
+	"LazyVar": true, "InitCalled": true, "VarReached": true,
 	// What PureEmitter answers depends on the files of an imported
 	// package, which are part of its importers' module keys.
 	"PureEmitter":    true,
