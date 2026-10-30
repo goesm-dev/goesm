@@ -12,7 +12,9 @@ import (
 //
 // A function declared without a body and a //go:linkname directive naming a
 // function of another package (a "pull", as compile-time instrumentation
-// like otelc generates to reach its hooks) calls that function. The call
+// like otelc generates to reach its hooks) calls that function. A directive
+// with the function's name only pulls the function that another package
+// pushes to the symbol of that name. The call
 // goes through a symbol table in @goesm/runtime, not an ES module import:
 // the linked packages may import each other the other way round, and an
 // import would change the order in which packages are initialized, which Go
@@ -87,12 +89,23 @@ func (p *Program) analyzeLinknames() {
 					continue
 				}
 				target, ok := byName[fd.Name.Name]
-				if !ok || target == "" {
+				if !ok {
 					continue
 				}
 				fn, _ := pkg.TypesInfo.Defs[fd.Name].(*types.Func)
 				if fn == nil || fn.Signature().TypeParams().Len() > 0 {
 					continue
+				}
+				if target == "" {
+					// The one-argument form names the function's own
+					// symbol. With a body it publishes nothing under another
+					// name; without one it pulls whatever another package
+					// pushes to that symbol, as crypto/internal/fips140hash's
+					// sha3Unwrap does from crypto/sha3.
+					if fd.Body != nil {
+						continue
+					}
+					target = linkSymbol(fn)
 				}
 				if fd.Body != nil {
 					providers[target] = fn // a push: fn is the symbol target
