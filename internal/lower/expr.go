@@ -2094,9 +2094,11 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			if tv := fe.info.Types[e]; tv.Value == nil {
 				// Not constant: the operand has calls or receives to
 				// evaluate, or is a value of a type parameter (len of which
-				// is never constant).
-				if a := arg(0); !reusable(stripMarks(a)) {
-					return fmt.Sprintf("(%s, %d)", a, u.Len())
+				// is never constant, and which Go evaluates: len(p.A) panics
+				// for a nil p). Only a plain variable can go unevaluated;
+				// tsc rejects a comma expression that starts with one.
+				if _, isVar := unparen(e.Args[0]).(*ast.Ident); !isVar {
+					return fmt.Sprintf("(%s, %d)", arg(0), u.Len())
 				}
 			}
 			return fmt.Sprint(u.Len())

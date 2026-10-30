@@ -330,3 +330,35 @@ func ArrayCoreTypeIndexPanic() (msg string) {
 	i := 4
 	return itoa(int(ringAt(ring{}, i)))
 }
+
+type ringHolder[T ~[ringN]coeff] struct{ A T }
+
+// lenCapField takes len and cap of a field of type T through a pointer: Go
+// evaluates the operand for a type parameter, so a nil p panics.
+func lenCapField[T ~[ringN]coeff](p *ringHolder[T]) int { return len(p.A)*10 + cap(p.A) }
+
+func lenField[T ~[ringN]coeff](p *ringHolder[T]) int { return len(p.A) }
+
+func capField[T ~[ringN]coeff](p *ringHolder[T]) int { return cap(p.A) }
+
+func ArrayCoreTypeLenCap() []int {
+	return []int{lenCapField(&ringHolder[ring]{}), lenCapField(&ringHolder[nttRing]{}), lenField(&ringHolder[ring]{}), capField(&ringHolder[ring]{})}
+}
+
+func ArrayCoreTypeLenNilField() (msg string) {
+	defer func() {
+		if e, ok := recover().(error); ok {
+			msg = e.Error()
+		}
+	}()
+	return itoa(lenField[ring](nil))
+}
+
+func ArrayCoreTypeCapNilField() (msg string) {
+	defer func() {
+		if e, ok := recover().(error); ok {
+			msg = e.Error()
+		}
+	}()
+	return itoa(capField[ring](nil))
+}
