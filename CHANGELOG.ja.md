@@ -6,7 +6,11 @@ goesm の各バージョンの変更点を、新しい順に記載します。�
 
 ## Unreleased
 
-v0.0.1-beta.8 以降に `main` に入った変更です。差分は [v0.0.1-beta.8...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.8...main) で確認できます。
+v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta.9...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.9...main) で確認できます。
+
+## v0.0.1-beta.9
+
+2026-10-30 にタグを付けました。v0.0.1-beta.8 からの差分は [v0.0.1-beta.8...v0.0.1-beta.9](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.8...v0.0.1-beta.9) で確認できます。
 
 ### バンドルサイズ
 
