@@ -497,13 +497,27 @@ func (fe *funcEmitter) addrOf(e ast.Expr) string {
 	return "undefined"
 }
 
+// arrayPtr is the array object of the pointer-to-array expression x, nil
+// checked (a type parameter whose core type is a pointer to an array is not
+// an array type to TypeScript).
+func (fe *funcEmitter) arrayPtr(x ast.Expr) string {
+	if isTypeParam(fe.info.TypeOf(x)) {
+		return "(" + fe.expr(x) + " as any)"
+	}
+	return nilChecked(fe.expr(x))
+}
+
 func (fe *funcEmitter) arrayIndex(x *ast.IndexExpr) string {
 	if tv, ok := fe.info.Types[x.Index]; ok && tv.Value != nil {
 		return fe.intNumber(x.Index) // constant indices are bounds-checked by go/types
 	}
-	xt := fe.info.TypeOf(x.X)
-	base, _ := derefType(xt)
-	n := base.Underlying().(*types.Array).Len()
+	// x is an array, a pointer to an array, or a type parameter with one of
+	// them as its core type.
+	u := under(fe.info.TypeOf(x.X))
+	if p, ok := u.(*types.Pointer); ok {
+		u = under(p.Elem())
+	}
+	n := u.(*types.Array).Len()
 	if max, ok := indexBound(fe.info, x.Index); (ok && max < n) || fe.pe.inBounds[x] {
 		return fe.intNumber(x.Index)
 	}
@@ -565,7 +579,7 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 	case *types.Array:
 		return fmt.Sprintf("%s%s[%s]", m, fe.expr(e.X), fe.arrayIndex(e))
 	case *types.Pointer: // *array: the array object, nil-checked
-		return fmt.Sprintf("%s%s[%s]", m, nilChecked(fe.expr(e.X)), fe.arrayIndex(e))
+		return fmt.Sprintf("%s%s[%s]", m, fe.arrayPtr(e.X), fe.arrayIndex(e))
 	case *types.Interface:
 		// Type parameter without a core type, e.g. ~string | ~[]byte: the
 		// representation is chosen at run time.
@@ -2078,8 +2092,12 @@ func (fe *funcEmitter) builtin(e *ast.CallExpr, name string) string {
 			return "$rt." + name + "(" + arg(0) + ")"
 		case *types.Array:
 			if tv := fe.info.Types[e]; tv.Value == nil {
-				// Not constant: the operand has calls or receives to evaluate.
-				return fmt.Sprintf("(%s, %d)", arg(0), u.Len())
+				// Not constant: the operand has calls or receives to
+				// evaluate, or is a value of a type parameter (len of which
+				// is never constant).
+				if a := arg(0); !reusable(stripMarks(a)) {
+					return fmt.Sprintf("(%s, %d)", a, u.Len())
+				}
 			}
 			return fmt.Sprint(u.Len())
 		case *types.Map:
