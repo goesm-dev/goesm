@@ -3,7 +3,13 @@
 package stdlibuse
 
 import (
+	"crypto/hkdf"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/sha3"
+	"encoding/hex"
 	"errors"
+	"hash"
 	"maps"
 	"math/bits"
 	"slices"
@@ -328,4 +334,19 @@ func MapKeyKinds() []any {
 	var nilMap map[string]int
 	keys := slices.Sorted(maps.Keys(set))
 	return []any{has0, hasB, hasC, p == nil, hasP, bools[true], bools[false], chans[ch1], chans[ch2], len(floats), floats[0], negZeroKey, sum, len(ints), nilMap["x"], keys}
+}
+
+// HMACSHA3 and HKDFSHA3 go through crypto/internal/fips140hash.Unwrap, which
+// pulls crypto/sha3's function by a one-argument //go:linkname.
+func HMACSHA3() []string {
+	m := hmac.New(func() hash.Hash { return sha3.New256() }, []byte("key"))
+	m.Write([]byte("message"))
+	m2 := hmac.New(sha256.New, []byte("key"))
+	m2.Write([]byte("message"))
+	return []string{hex.EncodeToString(m.Sum(nil)), hex.EncodeToString(m2.Sum(nil))}
+}
+
+func HKDFSHA3() (string, error) {
+	k, err := hkdf.Key(func() hash.Hash { return sha3.New512() }, []byte("secret"), []byte("salt"), "info", 40)
+	return hex.EncodeToString(k), err
 }
