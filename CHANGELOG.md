@@ -24,6 +24,10 @@ Changes on `main` since v0.0.1-beta.8: [v0.0.1-beta.8...main](https://github.com
 
 ### Fixes
 
+- Post-quantum cryptography matches native Go (`testdata/programs/pqcrypto`: ML-KEM, ML-DSA, SHA-3 and SHAKE, X25519, HKDF and every KEM, KDF and AEAD of `crypto/hpke`, including ML-KEM-768 + X25519):
+  - Indexing a value of a type parameter whose core type is an array (`func polyAdd[T ~[n]fieldElement](a, b T)` in `crypto/internal/fips140/mlkem`) failed to lower ("interface conversion: types.Type is *types.Interface, not *types.Array") and the function became a stub that panics.
+  - A function declared without a body and a one-argument `//go:linkname` pulls the function another package pushes to its symbol, as it does with two arguments: `crypto/internal/fips140hash.Unwrap`, which `hmac.New` and `hkdf.Key` call, panicked with `crypto/sha3` hashes.
+  - `chacha20poly1305` (`crypto/hpke`'s ChaCha20-Poly1305, `crypto/tls`) panicked with "invalid buffer overlap of output and input": the vendored `alias.AnyOverlap` compared addresses from `reflect.Value.Pointer`, so every pair of slices overlapped. It compares backing arrays and offsets, like `crypto/internal/fips140/alias`.
 - `reflect.Type`'s `String` of an unnamed struct type shows the fields' tags, as Go does (`struct { F int "json:\"f\"" }`), and is `struct {}` for an empty one.
 
 ### Blocking analysis
