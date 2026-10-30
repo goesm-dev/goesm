@@ -801,9 +801,11 @@ func (fe *funcEmitter) lvalueOf(e ast.Expr, prepare int) lvalue {
 				set: func(rhs string) string { return fmt.Sprintf("%s$rt.setIndexAny(%s, %s, %s)", fe.mark(x), s, i, rhs) },
 			}
 		default:
-			a := fe.expr(x.X)
+			var a string
 			if _, isPtr := under(xt).(*types.Pointer); isPtr {
-				a = nilChecked(a)
+				a = fe.arrayPtr(x.X)
+			} else {
+				a = fe.expr(x.X)
 			}
 			a = stab(a)
 			i := stab(fe.arrayIndex(x))
