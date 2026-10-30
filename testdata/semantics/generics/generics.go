@@ -274,3 +274,91 @@ func anonWith[T any](x T) int {
 }
 
 func AnonStructWithTypeParam() []int { return []int{anonWith(1), anonWith("s")} }
+
+type coeff uint16
+
+const ringN = 4
+
+type ring [ringN]coeff
+type nttRing [ringN]coeff
+
+// addRings indexes, ranges over and returns a type parameter whose core type
+// is an array (crypto/internal/fips140/mlkem's polyAdd).
+func addRings[T ~[ringN]coeff](a, b T) (s T) {
+	for i := range s {
+		s[i] = a[i] + b[i]
+	}
+	return s
+}
+
+func decodeRing[T ~[ringN]coeff](b []byte) (T, error) {
+	var f T
+	for i := 0; i < ringN; i += 2 {
+		f[i] = coeff(b[i]) << 8
+	}
+	return f, nil
+}
+
+func ringAt[T ~[ringN]coeff](a T, i int) coeff { return a[i] }
+
+func ringPtrSet[P ~*[ringN]coeff](a P, i int, v coeff) { a[i] = v }
+
+func ringSum[T ~[ringN]coeff](a T) (s int) {
+	for _, v := range a {
+		s += int(v)
+	}
+	return s + len(a)
+}
+
+func ArrayCoreType() []any {
+	r := ring{1, 2, 3, 65535}
+	p := (*[ringN]coeff)(&r)
+	ringPtrSet(p, 1, 40)
+	d, err := decodeRing[nttRing]([]byte{1, 2, 3, 4})
+	return []any{
+		addRings(ring{1, 2, 3, 65535}, ring{5, 6, 7, 8}), addRings(nttRing{1}, nttRing{2}),
+		ringAt(r, 3), r, ringSum(r), d, err,
+	}
+}
+
+func ArrayCoreTypeIndexPanic() (msg string) {
+	defer func() {
+		if e, ok := recover().(error); ok {
+			msg = e.Error()
+		}
+	}()
+	i := 4
+	return itoa(int(ringAt(ring{}, i)))
+}
+
+type ringHolder[T ~[ringN]coeff] struct{ A T }
+
+// lenCapField takes len and cap of a field of type T through a pointer: Go
+// evaluates the operand for a type parameter, so a nil p panics.
+func lenCapField[T ~[ringN]coeff](p *ringHolder[T]) int { return len(p.A)*10 + cap(p.A) }
+
+func lenField[T ~[ringN]coeff](p *ringHolder[T]) int { return len(p.A) }
+
+func capField[T ~[ringN]coeff](p *ringHolder[T]) int { return cap(p.A) }
+
+func ArrayCoreTypeLenCap() []int {
+	return []int{lenCapField(&ringHolder[ring]{}), lenCapField(&ringHolder[nttRing]{}), lenField(&ringHolder[ring]{}), capField(&ringHolder[ring]{})}
+}
+
+func ArrayCoreTypeLenNilField() (msg string) {
+	defer func() {
+		if e, ok := recover().(error); ok {
+			msg = e.Error()
+		}
+	}()
+	return itoa(lenField[ring](nil))
+}
+
+func ArrayCoreTypeCapNilField() (msg string) {
+	defer func() {
+		if e, ok := recover().(error); ok {
+			msg = e.Error()
+		}
+	}()
+	return itoa(capField[ring](nil))
+}

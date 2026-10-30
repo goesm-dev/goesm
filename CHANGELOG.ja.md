@@ -28,6 +28,10 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### 修正
 
+- ポスト量子暗号が native Go と一致するようになりました (`testdata/programs/pqcrypto`: ML-KEM、ML-DSA、SHA-3 と SHAKE、X25519、HKDF、ML-KEM-768 + X25519 を含む `crypto/hpke` のすべての KEM、KDF、AEAD)。
+  - core type が配列である型パラメータの値 (`crypto/internal/fips140/mlkem` の `func polyAdd[T ~[n]fieldElement](a, b T)`) への添字アクセスが lowering に失敗し ("interface conversion: types.Type is *types.Interface, not *types.Array")、その関数は呼ぶと panic する stub になっていました。
+  - 本体のない関数に引数 1 つの `//go:linkname` がある場合も、引数 2 つの場合と同じく、別のパッケージがそのシンボルに push した関数を呼ぶようになりました。`hmac.New` と `hkdf.Key` が呼ぶ `crypto/internal/fips140hash.Unwrap` は、`crypto/sha3` の hash で panic していました。
+  - `chacha20poly1305` (`crypto/hpke` の ChaCha20-Poly1305、`crypto/tls`) が "invalid buffer overlap of output and input" で panic していました。vendor 版の `alias.AnyOverlap` が `reflect.Value.Pointer` のアドレスを比較するため、あらゆる slice の組が重なっていると判定されていました。`crypto/internal/fips140/alias` と同じく、backing array と offset を比較します。
 - 名前のない struct 型の `reflect.Type` の `String` は、Go と同じく field の tag を表示するようになりました (`struct { F int "json:\"f\"" }`)。空の struct では `struct {}` です。
 
 ### ブロッキング解析
