@@ -1867,6 +1867,7 @@ export function native$crypto$internal$fips140$alias$AnyOverlap(x: Slice<number>
   return x !== null && y !== null && x.$length > 0 && y.$length > 0 && x.$array === y.$array &&
     x.$offset < y.$offset + y.$length && y.$offset < x.$offset + x.$length;
 }
+export const native$vendor$golang$org$x$crypto$internal$alias$AnyOverlap = native$crypto$internal$fips140$alias$AnyOverlap;
 // weak pointers: a weak handle per pointer (weak.Make(p) == weak.Make(p)),
 // holding a WeakRef where the host has one.
 const weakHandles = new WeakMap<object, { ref: { deref(): any } }>();
