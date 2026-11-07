@@ -1331,9 +1331,15 @@ func (fe *funcEmitter) binary(e *ast.BinaryExpr) string {
 		if s, ok := fe.bytesEq(e.X, e.Y); ok {
 			return s
 		}
+		if s, ok := fe.elemAddrEq(e.X, e.Y); ok {
+			return s
+		}
 		return fe.eqExpr(fe.expr(e.X), xt, fe.expr(e.Y), yt)
 	case token.NEQ:
 		if s, ok := fe.bytesEq(e.X, e.Y); ok {
+			return "!" + s
+		}
+		if s, ok := fe.elemAddrEq(e.X, e.Y); ok {
 			return "!" + s
 		}
 		return "!" + "(" + fe.eqExpr(fe.expr(e.X), xt, fe.expr(e.Y), yt) + ")"
@@ -1373,6 +1379,37 @@ func (fe *funcEmitter) bytesEq(x, y ast.Expr) (string, bool) {
 		return "$rt.bytesEqASCII(" + fe.expr(conv) + ", " + jsString(c) + ")", true
 	}
 	return "", false
+}
+
+// elemAddrEq lowers &a[i] == &b[j] of slices whose elements are not
+// aggregates (whose pointers are the elements themselves) as a comparison
+// of the arrays and offsets, without making the pointers, which the
+// runtime keeps on the array (sliceElemPtr). Go's slices.Overlaps-style
+// checks, such as regexp's &t.cap[0] != &cap[0], compare them at each step.
+// The second operand has no calls, so that the bounds checks of both,
+// which sameElem makes in order, panic as Go's would.
+func (fe *funcEmitter) elemAddrEq(x, y ast.Expr) (string, bool) {
+	elem := func(e ast.Expr) (*ast.IndexExpr, bool) {
+		u, ok := unparen(e).(*ast.UnaryExpr)
+		if !ok || u.Op != token.AND {
+			return nil, false
+		}
+		ix, ok := unparen(u.X).(*ast.IndexExpr)
+		if !ok {
+			return nil, false
+		}
+		s, ok := under(fe.info.TypeOf(ix.X)).(*types.Slice)
+		if !ok || isTypeParam(s.Elem()) || isAggregate(s.Elem()) {
+			return nil, false
+		}
+		return ix, true
+	}
+	a, aok := elem(x)
+	b, bok := elem(y)
+	if !aok || !bok || hasCallOrRecv(y) {
+		return "", false
+	}
+	return fmt.Sprintf("$rt.sameElem(%s, %s, %s, %s)", fe.expr(a.X), fe.intNumber(a.Index), fe.expr(b.X), fe.intNumber(b.Index)), true
 }
 
 // bytesConv returns b if e is the conversion string(b) of a byte slice b.

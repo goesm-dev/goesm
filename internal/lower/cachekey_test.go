@@ -33,8 +33,8 @@ var covered = map[string]bool{
 	// package, which are part of its importers' module keys.
 	"PureEmitter":    true,
 	"UnicodeClasses": true,
-	"RegexpJS":       true,
-	"JSONv2":         true, "jsonLeftOut": true,
+	"RegexpJS":       true, "RegexpOnlyJS": true,
+	"JSONv2": true, "jsonLeftOut": true,
 	"HTTPDialers": true,
 	"cloned":      true, "HasClone": true, "SyncClone": true, "CallBlocksIn": true,
 	"ShareArgs":    true,

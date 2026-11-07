@@ -12,15 +12,16 @@ import (
 // Regular expressions as the engine's RegExp. Package regexp, compiled from
 // Go, is the largest part of a bundle that matches a pattern (60 KB gzipped
 // with regexp/syntax's parser and fold tables and the three matching
-// engines), while JavaScript has regular expressions built in. When every
+// engines), while JavaScript has regular expressions built in. When a
 // pattern a program compiles is known at compile time and its matches are
-// the same as a RegExp's (translateRegexp), goesm parses each one here, at
+// the same as a RegExp's (translateRegexp), goesm parses it here, at
 // compile time, with Go's own regexp/syntax, and the program matches with a
 // RegExp translated from it: the patched regexp.compile looks the pattern
 // up (jsPattern, which the lowering writes) and find runs the RegExp
-// (execJS in runtime/src/natives.ts). Go's parser and engines are then left
-// out (regexpLeftOut). A program that compiles any other pattern keeps
-// them, and matches every pattern with them.
+// (execJS in runtime/src/natives.ts). When every pattern is, Go's parser
+// and engines are left out (regexpLeftOut). A program that compiles any
+// other pattern, or matches from a RuneReader or leftmost-longest, keeps
+// them for those, and matches the translated patterns with their RegExps.
 //
 // A RegExp matches what Go's regexp matches, with the same submatches,
 // when the translation spells out every character class as code point
@@ -80,6 +81,7 @@ func translateRegexp(expr string) (entry string, ok bool) {
 	if err != nil {
 		return "", false
 	}
+	tree = denull(tree)
 	if !check(tree, false) {
 		return "", false
 	}
@@ -90,6 +92,111 @@ func translateRegexp(expr string) (entry string, ok bool) {
 	jsRegexp(&b, tree)
 	prefix, complete := re.LiteralPrefix()
 	return regexpEntry(b.String(), re.NumSubexp(), complete, re.SubexpNames(), prefix), true
+}
+
+// denull rewrites each greedy x* and x+ whose x matches the empty string
+// only as its last choice, and has no capture group or empty-width
+// assertion, as y*, y being x without the empty string (nonEmpty). Go
+// compiles x* of such an x as (x+)? (golang.org/issue/46123), and an
+// iteration that matches nothing returns to the start of the loop at the
+// position it was entered, a thread that both engines drop: what is left
+// is to leave the loop, which the iteration only reaches once x's other
+// choices failed, as in y*. The rewritten pattern has no repeated
+// subexpression that matches the empty string, which JavaScript stops,
+// and so passes check: goldmark's (?:[ \t]|(?:\r\n|\n){0,1})*, one
+// space or one newline, any number of times, is (?:[ \t]|\r\n|\n)*.
+func denull(re *syntax.Regexp) *syntax.Regexp {
+	var subs []*syntax.Regexp
+	for i, sub := range re.Sub {
+		if d := denull(sub); d != sub {
+			if subs == nil {
+				subs = append([]*syntax.Regexp(nil), re.Sub...)
+			}
+			subs[i] = d
+		}
+	}
+	if subs != nil {
+		c := *re
+		c.Sub = subs
+		re = &c
+	}
+	if (re.Op == syntax.OpStar || re.Op == syntax.OpPlus) && re.Flags&syntax.NonGreedy == 0 && nullable(re.Sub[0], true) && !hasCapture(re.Sub[0]) {
+		if y, ok := nonEmpty(re.Sub[0]); ok && y != nil {
+			c := *re
+			c.Op = syntax.OpStar
+			c.Sub = []*syntax.Regexp{y}
+			return &c
+		}
+	}
+	return re
+}
+
+// nonEmpty returns x without the empty string, nil if that leaves nothing,
+// or ok == false unless x matches the empty string only as its last choice
+// and only without empty-width assertions: x is the empty string, a greedy
+// y?, y{0,n} or y* of a y that does not match the empty string, or an
+// alternation whose last alternative is such an x and whose others do not
+// match the empty string.
+func nonEmpty(x *syntax.Regexp) (y *syntax.Regexp, ok bool) {
+	greedy := x.Flags&syntax.NonGreedy == 0
+	switch x.Op {
+	case syntax.OpEmptyMatch:
+		return nil, true
+	case syntax.OpQuest:
+		if greedy && !nullable(x.Sub[0], true) {
+			return x.Sub[0], true
+		}
+	case syntax.OpStar:
+		if greedy && !nullable(x.Sub[0], true) {
+			c := *x
+			c.Op = syntax.OpPlus
+			return &c, true
+		}
+	case syntax.OpRepeat:
+		if greedy && x.Min == 0 && x.Max != 0 && !nullable(x.Sub[0], true) {
+			if x.Max == 1 {
+				return x.Sub[0], true
+			}
+			c := *x
+			c.Min = 1
+			return &c, true
+		}
+	case syntax.OpAlternate:
+		n := len(x.Sub)
+		for _, sub := range x.Sub[:n-1] {
+			if nullable(sub, true) {
+				return nil, false
+			}
+		}
+		last, ok := nonEmpty(x.Sub[n-1])
+		if !ok {
+			return nil, false
+		}
+		subs := append([]*syntax.Regexp(nil), x.Sub[:n-1]...)
+		if last != nil {
+			subs = append(subs, last)
+		}
+		if len(subs) == 1 {
+			return subs[0], true
+		}
+		c := *x
+		c.Sub = subs
+		return &c, true
+	}
+	return nil, false
+}
+
+// hasCapture reports whether re has a capture group.
+func hasCapture(re *syntax.Regexp) bool {
+	if re.Op == syntax.OpCapture {
+		return true
+	}
+	for _, sub := range re.Sub {
+		if hasCapture(sub) {
+			return true
+		}
+	}
+	return false
 }
 
 // check reports whether re has no capture group under a repetition that

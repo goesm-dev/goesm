@@ -4,12 +4,14 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// goesm's patch of regexp's regexp.go: a program whose patterns are all
-// known at compile time, and translated there, matches with the engine's
-// RegExp (internal/lower/regexpjs.go). compile then finds the pattern's
-// translation with jsPattern, whose body the lowering writes, and find
-// runs the RegExp (exec.go). replaceAll and matches convert a []byte to a
-// string once for all the searches they make.
+// goesm's patch of regexp's regexp.go: a pattern known at compile time and
+// translated there matches with the engine's RegExp
+// (internal/lower/regexpjs.go). compile finds the pattern's translation
+// with jsPattern, whose body the lowering writes, and find runs the RegExp
+// (exec.go). The other patterns, a RuneReader and leftmost-longest
+// matching use Go's engine, which a program whose every match runs a
+// RegExp leaves out. replaceAll and matches convert a []byte to a string
+// once for all the searches they make.
 package regexp
 
 import (
@@ -43,7 +45,8 @@ type Regexp struct {
 	// but it is otherwise read-only.
 	longest bool // whether regexp prefers leftmost-longest match
 
-	js string // the source of the RegExp it matches with, or ""
+	js   string  // the source of the RegExp it matches with, or ""
+	goRe *Regexp // expr compiled for Go's engine, once goEngine needs it
 }
 
 // compile uses the RegExp translated from expr if there is one.
@@ -63,6 +66,22 @@ func compile(expr string, mode syntax.Flags, longest bool) (*Regexp, error) {
 // body for the patterns of the program.
 func jsPattern(expr string) string {
 	return ""
+}
+
+// goEngine returns re compiled for Go's engine, for what a RegExp cannot
+// do: read a RuneReader only as far as the match needs, and match
+// leftmost-longest.
+func (re *Regexp) goEngine() *Regexp {
+	if re.goRe == nil {
+		g, err := compileGo(re.expr, syntax.Perl, false)
+		if err != nil {
+			// The pattern was translated, so it parses.
+			panic(compileError(re.expr, err))
+		}
+		re.goRe = g
+	}
+	re.goRe.longest = re.longest
+	return re.goRe
 }
 
 // compileJS returns the Regexp of expr matched with a RegExp, from the
