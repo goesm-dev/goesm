@@ -43,23 +43,15 @@ func (p *Program) HTTPDialers() bool {
 }
 
 // storesDialer reports whether f stores a dialer of its own in a
-// net/http.Transport (HTTPDialers).
+// net/http.Transport (HTTPDialers). A field is told by its object, which a
+// type defined as http.Transport, or embedding it, shares.
 func storesDialer(info *types.Info, f *ast.File) bool {
 	found := false
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch n := n.(type) {
-		case *ast.CompositeLit:
-			if !isTransport(info.TypeOf(n)) {
-				break
-			}
-			for _, e := range n.Elts {
-				kv, ok := e.(*ast.KeyValueExpr)
-				if !ok {
-					continue
-				}
-				if k, ok := kv.Key.(*ast.Ident); ok && transportDialFields[k.Name] && !hostDialer(info, kv.Value) {
-					found = true
-				}
+		case *ast.KeyValueExpr:
+			if k, ok := n.Key.(*ast.Ident); ok && isDialVar(info.Uses[k]) && !hostDialer(info, n.Value) {
+				found = true
 			}
 		case *ast.AssignStmt:
 			for i, l := range n.Lhs {
@@ -88,36 +80,30 @@ func isDialField(info *types.Info, e ast.Expr) bool {
 		return false
 	}
 	s := info.Selections[sel]
-	if s == nil || s.Kind() != types.FieldVal || !transportDialFields[sel.Sel.Name] {
-		return false
-	}
-	v, ok := s.Obj().(*types.Var)
-	return ok && v.Pkg() != nil && v.Pkg().Path() == "net/http" && isTransport(fieldOwner(s))
+	return s != nil && s.Kind() == types.FieldVal && isDialVar(s.Obj())
 }
 
-// fieldOwner returns the struct type declaring the field s selects.
-func fieldOwner(s *types.Selection) types.Type {
-	t := s.Recv()
-	idx := s.Index()
-	for _, i := range idx[:len(idx)-1] {
-		t, _ = derefType(t)
-		st, ok := t.Underlying().(*types.Struct)
-		if !ok {
-			return nil
+// isDialVar reports whether obj is one of net/http.Transport's dialer
+// fields.
+func isDialVar(obj types.Object) bool {
+	v, ok := obj.(*types.Var)
+	if !ok || !v.IsField() || v.Pkg() == nil || v.Pkg().Path() != "net/http" || !transportDialFields[v.Name()] {
+		return false
+	}
+	tn, ok := v.Pkg().Scope().Lookup("Transport").(*types.TypeName)
+	if !ok {
+		return false
+	}
+	st, ok := tn.Type().Underlying().(*types.Struct)
+	if !ok {
+		return false
+	}
+	for i := 0; i < st.NumFields(); i++ {
+		if st.Field(i) == v {
+			return true
 		}
-		t = st.Field(i).Type()
 	}
-	t, _ = derefType(t)
-	return t
-}
-
-// isTransport reports whether t is net/http.Transport.
-func isTransport(t types.Type) bool {
-	if t == nil {
-		return false
-	}
-	n, ok := types.Unalias(t).(*types.Named)
-	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "net/http" && n.Obj().Name() == "Transport"
+	return false
 }
 
 // hostDialer reports whether e is nil, net.Dial or a method value of a
