@@ -278,6 +278,24 @@ export function fmtF(v: number, prec: number): string {
   return fmtFixed(v, prec);
 }
 
+// fmtFloatF is fmt's %f (and %F) of a float64 with precision prec, which
+// is strconv.FormatFloat(v, 'f', prec, 64) for every v, NaN and the
+// infinities included.
+export function fmtFloatF(v: number, prec: number): string {
+  const s = fmtF(v, prec);
+  return s !== "" ? s : formatFloat64(v, 102, prec);
+}
+
+// fmtNumberInt is fmt's %d or %v (base 10) or %x (16) of a Go int, or with
+// unsigned of a uint or uintptr, held in a number: past 2^53, fmt formats
+// its int64 or uint64 conversion, as it does for a uint below zero, which
+// a number does not wrap to.
+export function fmtNumberInt(v: number, base: number, unsigned: boolean): string {
+  if (Number.isSafeInteger(v) && (!unsigned || v >= 0)) return v.toString(base);
+  const b = BigInt(v);
+  return (unsigned ? BigInt.asUintN(64, b) : BigInt.asIntN(64, b)).toString(base);
+}
+
 // ---- strconv.FormatFloat and ParseFloat of float64 (strconvcall.go) ----
 
 // formatFloat64 is strconv.FormatFloat(v, fmt, prec, 64) for fmt 'e', 'E',

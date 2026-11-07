@@ -275,7 +275,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * Go が知らない未完了の処理 (JavaScript の timer、I/O) が host に残っている間の deadlock 検出、goroutine の preemption、goroutine-local な recover 状態
 
 **native Go との既知の差分** (最初の 2 項目は `TestKnownGaps` の `IntWrap`・`UintWrap`・`AppendCap` で差分が存在することを固定。残りは決定的に比較できないため文書のみ):
-* `int` と `uint` は 2^53 を超えると不正確、64-bit overflow で wrap しない (`uint(0)-1` が `-1`)。`int64` と `uint64` は正確。ただし負の `i` の変換 `uint(i)` を直接大小比較する場合 (bounds check の慣用句 `uint(i) < uint(len(s))`) は wrap した値として比較する。
+* `int` と `uint` は 2^53 を超えると不正確、64-bit overflow で wrap しない (`uint(0)-1` が `-1`)。`int64` と `uint64` は正確。ただし負の `i` の変換 `uint(i)` を直接大小比較する場合 (bounds check の慣用句 `uint(i) < uint(len(s))`) は wrap した値として比較し、fmt は `int` と `uint` を 64-bit への変換として書式化する (`uint(0)-1` は 18446744073709551615 と表示される)。
 * 変数宣言を越える後方 `goto` は、Go なら新しい変数を作るところで同じ変数を再利用する。違いが分かるのは jump の前に作った closure だけ。
 * `append` の capacity 拡張は近似 (size class の丸めなし)。`cap()` の値が gc と異なることがある。
 * map の range 順は挿入順 (Go はランダム)。どちらも仕様上未定義。
