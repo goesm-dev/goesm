@@ -36,8 +36,10 @@ func TestBundleSize(t *testing.T) {
 		// KB with regexp's parser and engines, which a pattern known at
 		// compile time and translated to a RegExp does not need.
 		{"./regex", 60_000},
-		// A pattern regexp's engines match, without the tables.
-		{"./regexgo", 230_000},
+		// A pattern regexp's engines match, without the tables. Its
+		// earlier pattern, (\w+)@(\w+), became a RegExp and the case
+		// stopped testing the engines.
+		{"./regexgo", 160_000},
 		// 35 KB when the runtime's printing of panic values kept every
 		// Error method, NumError's with strconv.Quote and its tables.
 		{"./atoi", 20_000},
