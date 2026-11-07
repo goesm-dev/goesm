@@ -189,9 +189,27 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 					_, where := at(n.Pos())
 					wait, locker := p.WaitLock(n)
 					blocks := p.CallBlocks(info, n)
-					fmt.Fprintf(h, "call %s %v %v %s %v %v\n", where, blocks, blocks && p.CallAlwaysAsync(info, n), funcName(wait), locker, p.SyncClone(info, n, nil))
+					fmt.Fprintf(h, "call %s %v %v %s %v %v %x\n", where, blocks, blocks && p.CallAlwaysAsync(info, n), funcName(wait), locker, p.SyncClone(info, n, nil), p.ShareArgs(info, n))
 					if encl := p.encls[n]; p.cloned[encl] {
 						fmt.Fprintf(h, "clone call %s %v %v\n", where, p.CallBlocksIn(info, n, encl), p.SyncClone(info, n, encl))
+					}
+				case *ast.ReturnStmt:
+					for i, r := range n.Results {
+						if _, ok := unparen(r).(*ast.Ident); ok {
+							_, where := at(r.Pos())
+							fmt.Fprintf(h, "return %s %d %v\n", where, i, p.ReturnsLocal(info, r))
+						}
+					}
+				case *ast.FuncType:
+					if n.Results != nil {
+						for _, fld := range n.Results.List {
+							for _, name := range fld.Names {
+								if v, ok := info.Defs[name].(*types.Var); ok {
+									_, where := at(name.Pos())
+									fmt.Fprintf(h, "result %s %v\n", where, p.PrivateVar(info, v))
+								}
+							}
+						}
 					}
 				case *ast.RangeStmt:
 					if _, ok := info.TypeOf(n.X).Underlying().(*types.Signature); ok {

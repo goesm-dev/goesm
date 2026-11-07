@@ -504,12 +504,24 @@ func (fe *funcEmitter) resultsTuple() string {
 func (fe *funcEmitter) resultVals() []string {
 	var rs []string
 	for i, r := range fe.results {
-		if fe.named && isAggregate(fe.resultTs[i]) {
+		// A result variable nothing else can reach is returned without a
+		// copy, as nothing uses it after the return.
+		if fe.named && isAggregate(fe.resultTs[i]) && !fe.privateResult(i) {
 			r = fe.pe.copyExpr(r, fe.resultTs[i], fe.tp)
 		}
 		rs = append(rs, r)
 	}
 	return rs
+}
+
+// privateResult reports whether the i-th result variable is private
+// (Program.PrivateVar) and no other result variable has its JS name.
+func (fe *funcEmitter) privateResult(i int) bool {
+	rs := fe.sig.Results()
+	if i >= rs.Len() || rs.At(i).Name() == "" || rs.At(i).Name() == "_" {
+		return false
+	}
+	return fe.pe.prog.PrivateVar(fe.info, rs.At(i))
 }
 
 // setResults stores return values into the result variables (named

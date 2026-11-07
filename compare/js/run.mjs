@@ -58,6 +58,7 @@ for (const lib of libs) {
     const t0 = now();
     const m = await import(pathToFileURL(file).href);
     const load = now() - t0;
+    await lib.setupModule?.(m);
     res[side] = { size: size(file), load, sum: await checksum(lib, m), ms: await time(lib, m) };
   }
   if (res.go.sum !== res.js.sum) {

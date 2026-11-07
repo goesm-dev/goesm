@@ -199,6 +199,14 @@ var overrides = map[string]bool{
 	"math/big.mulAddVWW_g":                     true,
 	"math/big.addMulVVWW_g":                    true,
 	"crypto/internal/fips140/bigmod.addMulVVW": true,
+	// Keccak-f[1600] on uint64 lanes, on 32-bit halves (see natives.ts).
+	"crypto/internal/fips140/sha3.keccakF1600Generic": true,
+	// ML-DSA's field arithmetic: uint64 products of uint32s.
+	"crypto/internal/fips140/mldsa.fieldReduceOnce":       true,
+	"crypto/internal/fips140/mldsa.fieldFromMontgomery":   true,
+	"crypto/internal/fips140/mldsa.fieldMontgomeryMul":    true,
+	"crypto/internal/fips140/mldsa.fieldMontgomeryMulSub": true,
+	"crypto/internal/fips140/mldsa.fieldMontgomeryAddMul": true,
 
 	"slices.overlaps": true, // compares element addresses
 
@@ -221,6 +229,16 @@ var overrides = map[string]bool{
 	"math.Signbit":     true,
 	"math.Copysign":    true,
 	"math.Inf":         true,
+	// Exact too, but their Go bodies take the float apart with
+	// Float64bits (a BigInt) or compare through IsInf and Signbit calls: %
+	// is fmod, which IEEE 754 makes exact, and the natives do the bit work
+	// of Frexp and Ldexp on 32-bit halves.
+	"math.Mod":   true,
+	"math.Max":   true,
+	"math.Min":   true,
+	"math.Frexp": true,
+	"math.Ldexp": true,
+	"math.Modf":  true,
 
 	"math.Float32bits":     true,
 	"math.Float32frombits": true,
