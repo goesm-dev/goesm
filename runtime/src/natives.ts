@@ -208,18 +208,23 @@ export function native$math$RoundToEven(x: number): number {
   return d > 0.5 || (d === 0.5 && t % 2 !== 0) ? t + Math.sign(x) : t;
 }
 
+// Abs, Signbit and Copysign go through the bits only for NaN, whose sign
+// bit the JS operators do not keep.
 export function native$math$Abs(x: number): number {
+  if (x === x) return Math.abs(x);
   scratch.setFloat64(0, x);
   scratch.setUint8(0, scratch.getUint8(0) & 0x7f);
   return scratch.getFloat64(0);
 }
 
 export function native$math$Signbit(x: number): boolean {
+  if (x === x) return x < 0 || (x === 0 && 1 / x < 0);
   scratch.setFloat64(0, x);
   return (scratch.getUint8(0) & 0x80) !== 0;
 }
 
 export function native$math$Copysign(f: number, sign: number): number {
+  if (f === f && sign === sign) return sign < 0 || (sign === 0 && 1 / sign < 0) ? -Math.abs(f) : Math.abs(f);
   scratch.setFloat64(0, sign);
   const s = scratch.getUint8(0) & 0x80;
   scratch.setFloat64(0, f);
@@ -229,6 +234,71 @@ export function native$math$Copysign(f: number, sign: number): number {
 
 export function native$math$Inf(sign: number): number {
   return sign >= 0 ? Infinity : -Infinity;
+}
+
+// Mod is fmod: JS's % computes the remainder exactly, with the sign of x,
+// and has Go's special cases (NaN for an infinite x or a zero y, x for an
+// infinite y).
+export function native$math$Mod(x: number, y: number): number {
+  return x % y;
+}
+
+// Max and Min: an infinity of the right sign wins over NaN in Go, and
+// Math.max and Math.min already order -0 below +0.
+export function native$math$Max(x: number, y: number): number {
+  return x === Infinity || y === Infinity ? Infinity : Math.max(x, y);
+}
+
+export function native$math$Min(x: number, y: number): number {
+  return x === -Infinity || y === -Infinity ? -Infinity : Math.min(x, y);
+}
+
+const smallestNormal = 2.2250738585072014e-308;
+
+// Frexp and Ldexp are Go's frexp and ldexp, with the exponent field set in
+// the high 32 bits of the float (DataView is big-endian by default).
+export function native$math$Frexp(f: number): [number, number] {
+  if (f === 0 || f !== f || f === Infinity || f === -Infinity) return [f, 0];
+  let exp = 0;
+  if (Math.abs(f) < smallestNormal) {
+    f *= 4503599627370496; // 2^52
+    exp = -52;
+  }
+  scratch.setFloat64(0, f);
+  const hi = scratch.getUint32(0);
+  exp += ((hi >>> 20) & 0x7ff) - 1022;
+  scratch.setUint32(0, ((hi & 0x800fffff) | (1022 << 20)) >>> 0);
+  return [scratch.getFloat64(0), exp];
+}
+
+export function native$math$Ldexp(frac: number, exp: number): number {
+  if (frac === 0 || frac !== frac || frac === Infinity || frac === -Infinity) return frac;
+  if (Math.abs(frac) < smallestNormal) {
+    frac *= 4503599627370496;
+    exp -= 52;
+  }
+  scratch.setFloat64(0, frac);
+  const hi = scratch.getUint32(0);
+  exp += ((hi >>> 20) & 0x7ff) - 1023;
+  if (exp < -1075) return frac < 0 ? -0 : 0; // underflow
+  if (exp > 1023) return frac < 0 ? -Infinity : Infinity; // overflow
+  let m = 1;
+  if (exp < -1022) {
+    // a denormal: one rounding, by the multiplication
+    exp += 53;
+    m = 1.1102230246251565e-16; // 2^-53
+  }
+  scratch.setUint32(0, ((hi & 0x800fffff) | ((exp + 1023) << 20)) >>> 0);
+  return m * scratch.getFloat64(0);
+}
+
+// Modf: the integer part is the truncation, and both parts keep the sign of
+// f (Modf(-2) = -2, -0).
+export function native$math$Modf(f: number): [number, number] {
+  if (f === 0) return [f, f];
+  const i = Math.trunc(f);
+  const frac = f - i;
+  return [i, frac === 0 && f < 0 ? -0 : frac];
 }
 
 export const native$internal$strconv$float64bits = native$math$Float64bits;
