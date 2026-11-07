@@ -1832,6 +1832,15 @@ func (fe *funcEmitter) returnValues(s *ast.ReturnStmt) []string {
 	}
 	var vals []string
 	for i, r := range s.Results {
+		if fe.named && fe.isResultVar(r, i) {
+			// return x of the result variable x: setResults leaves it.
+			vals = append(vals, fe.expr(r))
+			continue
+		}
+		if fe.returnsLocal(s, i) {
+			vals = append(vals, fe.convert(fe.expr(r), fe.info.TypeOf(r), res.At(i).Type()))
+			continue
+		}
 		vals = append(vals, fe.valueOf(r, res.At(i).Type()))
 	}
 	if len(vals) > 1 && fe.regResults() && !fe.hasDefer && !fe.named {
@@ -1853,6 +1862,45 @@ func (fe *funcEmitter) returnValues(s *ast.ReturnStmt) []string {
 		}
 	}
 	return vals
+}
+
+// isResultVar reports whether e is the i-th result variable.
+func (fe *funcEmitter) isResultVar(e ast.Expr, i int) bool {
+	id, ok := unparen(e).(*ast.Ident)
+	return ok && i < fe.sig.Results().Len() && fe.info.Uses[id] == fe.sig.Results().At(i)
+}
+
+// returnsLocal reports whether s returns its i-th result, an aggregate
+// local variable, without a copy (Program.ReturnsLocal): no other result
+// is the same variable, and it is not a parameter or receiver.
+func (fe *funcEmitter) returnsLocal(s *ast.ReturnStmt, i int) bool {
+	id, ok := unparen(s.Results[i]).(*ast.Ident)
+	if !ok || !isAggregate(fe.info.TypeOf(id)) {
+		return false
+	}
+	v, ok := fe.info.Uses[id].(*types.Var)
+	if !ok {
+		return false
+	}
+	if r := fe.sig.Recv(); r != nil && r == v {
+		return false
+	}
+	for j := 0; j < fe.sig.Params().Len(); j++ {
+		if fe.sig.Params().At(j) == v {
+			return false
+		}
+	}
+	for j := 0; j < fe.sig.Results().Len(); j++ {
+		if fe.sig.Results().At(j) == v {
+			return false
+		}
+	}
+	for j, r := range s.Results {
+		if id2, ok := unparen(r).(*ast.Ident); ok && j != i && fe.info.Uses[id2] == v {
+			return false
+		}
+	}
+	return fe.pe.prog.ReturnsLocal(fe.info, id)
 }
 
 // mayCallGo reports whether evaluating e may call a Go function or method

@@ -72,7 +72,100 @@ func (h *holder) read(p Point) float64 {
 	return p.X
 }
 
+// fresh returns a local, which goesm returns without a copy.
+func fresh(x float64) Point {
+	p := Point{x, x}
+	p.Y++
+	return p
+}
+
+// twice returns one local twice: the two results must be two values.
+func twice() (Point, Point) {
+	p := Point{1, 2}
+	return p, p
+}
+
+var kept *Point
+
+// escaped returns a local a pointer to which it keeps.
+func escaped() Point {
+	p := Point{3, 4}
+	kept = &p
+	return p
+}
+
+// closed returns a local a closure it keeps writes.
+var later func()
+
+func closed() Point {
+	p := Point{5, 6}
+	later = func() { p.X = -5 }
+	return p
+}
+
+type counter struct{ n [2]int }
+
+func (c *counter) inc() { c.n[0]++ }
+
+// method returns a local whose pointer method value it keeps.
+var incLater func()
+
+func method() counter {
+	c := counter{}
+	incLater = c.inc
+	return c
+}
+
+// named returns its result variables.
+func named(x float64) (p, q Point, err error) {
+	p = Point{x, 0}
+	q = p
+	q.Y = 1
+	return p, p, nil
+}
+
+func namedBare() (p Point) {
+	p.X = 4
+	return
+}
+
+func namedDefer() (p Point) {
+	defer func() { p.Y = 8 }()
+	p.X = 7
+	return p
+}
+
 func main() {
+	n1, n2, _ := named(3)
+	n1.X = -3
+	fmt.Println(n1, n2)
+	nb1, nb2 := namedBare(), namedBare()
+	nb1.Y = 1
+	fmt.Println(nb1, nb2, namedDefer())
+
+	f1, f2 := fresh(1), fresh(2)
+	f1.X = 10
+	fmt.Println(f1, f2)
+	t1, t2 := twice()
+	t1.X = 100
+	fmt.Println(t1, t2)
+	e := escaped()
+	kept.X = 30
+	fmt.Println(e, *kept)
+	cl := closed()
+	later()
+	fmt.Println(cl)
+	mc := method()
+	incLater()
+	fmt.Println(mc)
+	lit := func() Box {
+		b := Box{Max: Point{1, 1}}
+		return b
+	}
+	l1, l2 := lit(), lit()
+	l1.Max.X = 9
+	fmt.Println(l1.Max, l2.Max)
+
 	b := Box{Point{0, 0}, Point{4, 2}, [2]string{"a", "b"}}
 	fmt.Println(area(b), center(b), through(b))
 
