@@ -221,6 +221,16 @@ var overrides = map[string]bool{
 	"math.Signbit":     true,
 	"math.Copysign":    true,
 	"math.Inf":         true,
+	// Exact too, but their Go bodies take the float apart with
+	// Float64bits (a BigInt) or compare through IsInf and Signbit calls: %
+	// is fmod, which IEEE 754 makes exact, and the natives do the bit work
+	// of Frexp and Ldexp on 32-bit halves.
+	"math.Mod":   true,
+	"math.Max":   true,
+	"math.Min":   true,
+	"math.Frexp": true,
+	"math.Ldexp": true,
+	"math.Modf":  true,
 
 	"math.Float32bits":     true,
 	"math.Float32frombits": true,
