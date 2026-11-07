@@ -52,7 +52,7 @@ func main() {
 }
 ```
 
-Its many types and methods make the module larger: the counter above is 50 KiB with gzip, against 704 KiB for Go's WebAssembly port.
+Its many types and methods make the module larger: the counter above is 27 KiB with gzip, against 704 KiB for Go's WebAssembly port.
 
 ## Event handlers
 

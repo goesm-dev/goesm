@@ -17,14 +17,16 @@ import (
 //
 // becomes
 //
-//	(f1 = $rt.fmtF(f, 2)) === "" || !Number.isSafeInteger(i)
-//		? fmt.Sprintf("%d:%s|%.2f", $rt.sliceLit([...]))
-//		: "" + i + ":" + s + "|" + f1
+//	"" + (Number.isSafeInteger(i) ? i : $rt.fmtNumberInt(i, 10, false)) + ":" + s + "|" + $rt.fmtFloatF(f, 2)
 //
 // Boxing the arguments into a []any and walking the format at run time
-// cost more than formatting them. The conditions select the values whose
-// JS formatting is not Go's (an int past 2^53, a float that toFixed does
-// not format as strconv does), which take fmt.Sprintf itself.
+// cost more than formatting them. Where JS formatting is not Go's (an int
+// past 2^53, a float that toFixed does not format as strconv does), the
+// runtime formats the value as fmt does, so that such a call does not keep
+// fmt's printer, with reflect, in the bundle. Values the runtime does not
+// format take fmt.Sprintf itself, chosen by conditions:
+//
+//	(q = $rt.quoteText(s)) === null ? fmt.Sprintf("%q", $rt.sliceLit([...])) : "" + q
 //
 // The verbs %v, %s and, for fmt.Errorf, one %w of an operand of type error
 // are its Error method's result, which $rt.errText returns after checking
@@ -277,21 +279,29 @@ func (fe *funcEmitter) concatFormat(fn *types.Func, format string, args []ast.Ex
 			if prec < 0 {
 				prec = 6
 			}
-			piece = temp()
-			conds = append(conds, "("+piece+" = $rt.fmtF("+v+", "+strconv.Itoa(prec)+")) === \"\"")
+			piece = "$rt.fmtFloatF(" + v + ", " + strconv.Itoa(prec) + ")"
 		case b.Kind() == types.String && sp.verb == 'q':
 			piece = temp()
 			conds = append(conds, "("+piece+" = $rt.quoteText("+v+")) === null")
 		case b.Kind() == types.String || b.Kind() == types.Bool:
 			piece = v
 		default: // integers
-			if b.Kind() == types.Int || b.Kind() == types.Uint || b.Kind() == types.Uintptr {
-				conds = append(conds, "!Number.isSafeInteger("+v+")")
-			}
-			switch sp.verb {
-			case 'x':
+			// int, uint and uintptr are numbers that may be past 2^53,
+			// which fmt formats as their int64 or uint64 conversion.
+			number := b.Kind() == types.Int || b.Kind() == types.Uint || b.Kind() == types.Uintptr
+			unsigned := strconv.FormatBool(b.Kind() != types.Int)
+			switch {
+			case number && sp.verb == 'x':
+				piece = "$rt.fmtNumberInt(" + v + ", 16, " + unsigned + ")"
+			case number && sp.verb == 'X':
+				piece = "$rt.fmtNumberInt(" + v + ", 16, " + unsigned + ").toUpperCase()"
+			case number && b.Kind() == types.Int:
+				piece = "(Number.isSafeInteger(" + v + ") ? " + v + " : $rt.fmtNumberInt(" + v + ", 10, false))"
+			case number:
+				piece = "$rt.fmtNumberInt(" + v + ", 10, true)"
+			case sp.verb == 'x':
 				piece = v + ".toString(16)"
-			case 'X':
+			case sp.verb == 'X':
 				piece = v + ".toString(16).toUpperCase()"
 			default:
 				piece = v

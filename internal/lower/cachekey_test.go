@@ -35,7 +35,8 @@ var covered = map[string]bool{
 	"UnicodeClasses": true,
 	"RegexpJS":       true,
 	"JSONv2":         true, "jsonLeftOut": true,
-	"cloned": true, "HasClone": true, "SyncClone": true, "CallBlocksIn": true,
+	"HTTPDialers": true,
+	"cloned":      true, "HasClone": true, "SyncClone": true, "CallBlocksIn": true,
 	// Which of a package and its dependencies are entries, and whether the
 	// package is an entry other packages import, are part of its module key
 	// (moduleKeys in internal/build).

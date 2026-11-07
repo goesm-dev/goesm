@@ -446,7 +446,7 @@ export function native$fmt$fmtInt(v: number, verb: number, prec: number): string
 export function native$fmt$fmtUint(v: number, verb: number, prec: number): string {
   const base = prec >= 0 ? 0 : verb === 100 || verb === 118 ? 10 : verb === 120 || verb === 88 ? 16 : 0;
   if (base === 0) return "";
-  const s = Number.isSafeInteger(v) ? v.toString(base) : BigInt.asUintN(64, BigInt(v)).toString(base);
+  const s = Number.isSafeInteger(v) && v >= 0 ? v.toString(base) : BigInt.asUintN(64, BigInt(v)).toString(base);
   return verb === 88 ? s.toUpperCase() : s;
 }
 // fmt's fast paths (see the fmt patch and fmt.ts).

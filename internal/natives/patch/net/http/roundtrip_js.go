@@ -8,6 +8,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"net"
 	"syscall/js"
 )
@@ -36,9 +37,15 @@ func (t *Transport) RoundTrip(req *Request) (*Response, error) {
 		if t.DialTLS != nil || t.DialTLSContext != nil ||
 			(t.Dial != nil && !plainDialer(dialerOf(t.Dial))) ||
 			(t.DialContext != nil && !plainDialer(dialerOfContext(t.DialContext))) {
+			if !transportDials() {
+				return nil, errNoDial
+			}
 			return t.roundTripPort(req)
 		}
 		t = fetchTransport
+	}
+	if jsFetchMissing && !transportDials() {
+		return nil, errNoFetch
 	}
 	if fetchManualRedirect && !jsFetchMissing && req.Header.Get(jsFetchRedirect) == "" {
 		req = req.Clone(req.Context())
@@ -46,6 +53,18 @@ func (t *Transport) RoundTrip(req *Request) (*Response, error) {
 	}
 	return t.roundTripPort(req)
 }
+
+// transportDials reports whether a Transport may connect with its own
+// dialers: whether the program gives one a dialer other than a net.Dialer's,
+// which dials nothing on a JavaScript host. goesm writes its body
+// (HTTPDialers in internal/lower); when it is false, the Transport's own
+// connections, with TLS and HTTP/2, are left out of the program.
+func transportDials() bool { return true }
+
+var (
+	errNoDial  = errors.New("net/http: a Transport without a dialer of its own connects only with fetch on a JavaScript host")
+	errNoFetch = errors.New("net/http: the JavaScript host has no fetch")
+)
 
 // fetchManualRedirect reports whether fetch hands redirects to the caller
 // with redirect: "manual", as it does outside browsers (Node.js, Bun, Deno,
