@@ -425,6 +425,12 @@ func (p *Program) findGoexits() map[any]bool {
 			for _, c := range u.callees {
 				calls = calls || exits[c]
 			}
+			for _, c := range u.varFns {
+				calls = calls || exits[c]
+			}
+			for _, c := range u.paramFns {
+				calls = calls || exits[c]
+			}
 			for _, s := range u.sites {
 				calls = calls || exits[s.fn]
 			}

@@ -33,6 +33,7 @@ type ifaceImpl struct {
 // findIfaceTypes collects the types stored in interface values and indexes
 // their methods by name.
 func (p *Program) findIfaceTypes() {
+	p.ifaceImpls = map[string][]ifaceImpl{}
 	ts := p.newIfaceTypes(func(t types.Type, fn *types.Func) {
 		p.ifaceImpls[fn.Name()] = append(p.ifaceImpls[fn.Name()], ifaceImpl{t, fn})
 	})
@@ -55,6 +56,7 @@ func (p *Program) findIfaceTypes() {
 			}
 		}
 	}
+	p.ifaceTypes, p.ifaceFuncs = &ts.seen, ts.funcs
 }
 
 // ifaceTypes is a set of types stored in interface values, with what
@@ -65,6 +67,9 @@ type ifaceTypes struct {
 	reflection bool
 	seen       typeutil.Map
 	method     func(t types.Type, fn *types.Func)
+	// funcs are the function types of the values Go code stores in
+	// interface values (not what reflection reaches from those).
+	funcs []types.Type
 }
 
 func (p *Program) newIfaceTypes(method func(t types.Type, fn *types.Func)) *ifaceTypes {
@@ -78,6 +83,7 @@ func (p *Program) newIfaceTypes(method func(t types.Type, fn *types.Func)) *ifac
 // conv records a conversion from src to dst (see findConversions).
 func (s *ifaceTypes) conv(src, dst types.Type) {
 	if src != nil && dst != nil && isIface(dst) && !isIface(src) {
+		s.addFunc(src)
 		s.add(src)
 	}
 }
@@ -86,8 +92,16 @@ func (s *ifaceTypes) conv(src, dst types.Type) {
 func (s *ifaceTypes) addInst(inst types.Instance) {
 	for i := 0; i < inst.TypeArgs.Len(); i++ {
 		if t := inst.TypeArgs.At(i); !isIface(t) {
+			s.addFunc(t)
 			s.add(t)
 		}
+	}
+}
+
+// addFunc records t if it is a function type.
+func (s *ifaceTypes) addFunc(t types.Type) {
+	if _, ok := t.Underlying().(*types.Signature); ok {
+		s.funcs = append(s.funcs, t)
 	}
 }
 

@@ -120,6 +120,24 @@ func MapStrings(xs []string, f func(string) string) []string {
 	return out
 }
 
+// Apply calls f, which JavaScript may pass back from LaterFunc: no Go code
+// calls it, so only JavaScript says what f is.
+func Apply(f func() string) string { return f() + "!" }
+
+// Callback holds a function JavaScript gives.
+type Callback struct {
+	F func() string
+}
+
+// ApplyField calls the function of c, which JavaScript may pass back from
+// LaterFunc: no Go code stores one in the field.
+func ApplyField(c Callback) string { return c.F() + "?" }
+
+// LaterFunc returns a function that waits.
+func LaterFunc(s string) func() string {
+	return func() string { return Later(s) }
+}
+
 // Exclaim is passed to JavaScript as a function.
 func Exclaim() func(string) string {
 	return func(s string) string { return s + "!" }
@@ -262,6 +280,10 @@ func Lookup(name string) any {
 		return registry.GetPair()
 	case "outer":
 		return registry.GetOuter()
+	case "values":
+		return registry.Values()
+	case "runner":
+		return registry.GetRunner()
 	}
 	return nil
 }

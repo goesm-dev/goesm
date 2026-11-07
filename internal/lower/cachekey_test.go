@@ -13,7 +13,7 @@ import (
 
 // covered are the Program fields and methods that lowering a package may
 // read, each of which Facts covers: in the digests of the package or of its
-// dependencies (async, syncOnly, boxed, linkPulls, linkProvides, DynMethod, CalledMethod, BoxOf, LazyVar, InitCalled, std, Deps,
+// dependencies (async, syncOnly, boxed, linkPulls, linkProvides, DynMethod, CalledMethod, BoxOf, LazyVar, InitCalled, FieldLeftOut, std, Deps,
 // TracksGoroutines, usesPull and the methods reading them), as answers recorded for
 // the package's nodes (CallBlocks, CallAlwaysAsync, RangeBlocks, WaitLock,
 // WaitLockVal, SyncClone, CallBlocksIn; cloned through HasClone), or
@@ -35,8 +35,8 @@ var covered = map[string]bool{
 	"UnicodeClasses": true,
 	"RegexpJS":       true, "RegexpOnlyJS": true,
 	"JSONv2": true, "jsonLeftOut": true,
-	"HTTPDialers": true,
-	"cloned":      true, "HasClone": true, "SyncClone": true, "CallBlocksIn": true,
+	"HTTPDialers": true, "FieldLeftOut": true,
+	"cloned": true, "HasClone": true, "SyncClone": true, "CallBlocksIn": true,
 	"ShareArgs":    true,
 	"ReturnsLocal": true,
 	"PrivateVar":   true,
