@@ -1397,6 +1397,11 @@ func (fe *funcEmitter) bytesConv(e ast.Expr) (ast.Expr, bool) {
 	if b, ok := under(s.Elem()).(*types.Basic); !ok || b.Kind() != types.Uint8 {
 		return nil, false
 	}
+	// A json.Marshal local that stringBytesVars kept as a string has no
+	// bytes to compare: string(b) reads the string.
+	if _, ok := fe.stringBytesRead(call.Args[0]); ok {
+		return nil, false
+	}
 	return call.Args[0], true
 }
 
