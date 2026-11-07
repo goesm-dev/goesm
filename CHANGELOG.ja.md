@@ -8,6 +8,24 @@ goesm の各バージョンの変更点を、新しい順に記載します。�
 
 v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta.9...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.9...main) で確認できます。
 
+### バンドルサイズ
+
+- net/http 以外のどの package も Transport に `net.Dialer` のものか `net.Dial` 以外の dialer を与えないプログラムでは、`net/http` のクライアントは TLS、HTTP/2、X.509、楕円曲線を含む Transport 自身の接続処理を出力せず、すべてのリクエストを `fetch` で送るようになりました。`http.Get` を呼ぶパッケージは minify 後 2.6 MB から 980 KB (gzip で 757 KB から 262 KB、`TestBundleSize/httpget`) に、`compare/rpc` の Connect クライアントは gzip で 951 KiB から 484 KiB になりました。それでも自身の接続処理が必要になる Transport は error を返します。local address、resolver、control 関数のいずれかを設定した `net.Dialer` を持つ Transport と、`fetch` のない host 上の Transport がこれにあたります。JavaScript の host ではどちらも dial に失敗するだけでした。
+- 有効な定数パターンの `regexp.MustCompile` か `regexp.Compile` で初期化するパッケージ変数は、ほかの副作用のない初期化子と同じく、使われなければ初期化子ごと出力しないようになりました。このような変数を持つパッケージを import するだけで、Go のパーサーとエンジンを含む regexp がバンドルに残っていました (`TestBundleSize/unusedre` で minify 後 118 KB から 10 KB)。
+- 文字列、真偽値、数値に対する verb だけからなる定数の書式の `fmt.Sprintf` と `fmt.Errorf` は、JavaScript と書式が異なる値 (2^53 を超える `int`、`toFixed` が strconv と異なる書式にする浮動小数点数) のために `reflect` を含む fmt の printer を残さなくなりました。それらの値は runtime が fmt と同じく書式化します。`Sprintf("%s has %d items", ...)` を呼ぶパッケージは gzip で 34.8 KB から 11.2 KB になりました。
+
+### 修正
+
+- goesm の数値が wrap しないために負になった `uint` を、fmt は Go が `uint(0)-1` を 18446744073709551615 と表示するのと同じく `uint64` への変換として書式化するようになりました。以前は負の数として表示していました (`testdata/programs/sprintfconcat`)。
+- ポスト量子暗号が native Go と一致するようになりました (`testdata/programs/pqcrypto`: ML-KEM、ML-DSA、SHA-3 と SHAKE、X25519、HKDF、ML-KEM-768 + X25519 を含む `crypto/hpke` のすべての KEM、KDF、AEAD)。
+  - core type が配列である型パラメータの値 (`crypto/internal/fips140/mlkem` の `func polyAdd[T ~[n]fieldElement](a, b T)`) への添字アクセスが lowering に失敗し ("interface conversion: types.Type is *types.Interface, not *types.Array")、その関数は呼ぶと panic する stub になっていました。
+  - 本体のない関数に引数 1 つの `//go:linkname` がある場合も、引数 2 つの場合と同じく、別のパッケージがそのシンボルに push した関数を呼ぶようになりました。`hmac.New` と `hkdf.Key` が呼ぶ `crypto/internal/fips140hash.Unwrap` は、`crypto/sha3` の hash で panic していました。
+  - `chacha20poly1305` (`crypto/hpke` の ChaCha20-Poly1305、`crypto/tls`) が "invalid buffer overlap of output and input" で panic していました。vendor 版の `alias.AnyOverlap` が `reflect.Value.Pointer` のアドレスを比較するため、あらゆる slice の組が重なっていると判定されていました。`crypto/internal/fips140/alias` と同じく、backing array と offset を比較します。
+
+### ツール
+
+- `goesm emit-ts` が出力する TS→Go の source map (inline のものと `<module>.ts.map`) は、`.go` ファイルを絶対パスではなく module のディレクトリからの相対パスで示すようになりました。木を移動しても公開しても map が使えます。
+
 ## v0.0.1-beta.9
 
 2026-10-30 にタグを付けました。v0.0.1-beta.8 からの差分は [v0.0.1-beta.8...v0.0.1-beta.9](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.8...v0.0.1-beta.9) で確認できます。
@@ -28,10 +46,6 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### 修正
 
-- ポスト量子暗号が native Go と一致するようになりました (`testdata/programs/pqcrypto`: ML-KEM、ML-DSA、SHA-3 と SHAKE、X25519、HKDF、ML-KEM-768 + X25519 を含む `crypto/hpke` のすべての KEM、KDF、AEAD)。
-  - core type が配列である型パラメータの値 (`crypto/internal/fips140/mlkem` の `func polyAdd[T ~[n]fieldElement](a, b T)`) への添字アクセスが lowering に失敗し ("interface conversion: types.Type is *types.Interface, not *types.Array")、その関数は呼ぶと panic する stub になっていました。
-  - 本体のない関数に引数 1 つの `//go:linkname` がある場合も、引数 2 つの場合と同じく、別のパッケージがそのシンボルに push した関数を呼ぶようになりました。`hmac.New` と `hkdf.Key` が呼ぶ `crypto/internal/fips140hash.Unwrap` は、`crypto/sha3` の hash で panic していました。
-  - `chacha20poly1305` (`crypto/hpke` の ChaCha20-Poly1305、`crypto/tls`) が "invalid buffer overlap of output and input" で panic していました。vendor 版の `alias.AnyOverlap` が `reflect.Value.Pointer` のアドレスを比較するため、あらゆる slice の組が重なっていると判定されていました。`crypto/internal/fips140/alias` と同じく、backing array と offset を比較します。
 - 名前のない struct 型の `reflect.Type` の `String` は、Go と同じく field の tag を表示するようになりました (`struct { F int "json:\"f\"" }`)。空の struct では `struct {}` です。
 
 ### ブロッキング解析
