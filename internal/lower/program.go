@@ -176,8 +176,12 @@ type Program struct {
 	// lazyVars are the package variables whose initializers have no
 	// effect, and lazyInits the init functions that only assign the
 	// package variables listed (effects.go).
-	lazyVars    map[*types.Var]bool
-	lazyInits   map[*types.Func][]*types.Var
+	lazyVars  map[*types.Var]bool
+	lazyInits map[*types.Func][]*types.Var
+	// eff is the last effect analysis, whose function summaries
+	// sharearg.go asks; shareArgs holds what sharearg.go found.
+	eff *effAnalysis
+	shareArgs
 	effectsOnce sync.Once
 	// anyHandles are the exported methods of the handles that cross the
 	// entry package's JS calling ABI inside interface values (see

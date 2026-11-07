@@ -1885,7 +1885,12 @@ func (fe *funcEmitter) args(e *ast.CallExpr, sig *types.Signature) string {
 			return fmt.Sprintf("...((%s: any): [%s] => [%s])(%s)", t, anys, strings.Join(parts, ", "), fe.expr(e.Args[0]))
 		}
 	}
+	share := fe.pe.prog.ShareArgs(fe.info, e) // sharearg.go
 	for i, a := range e.Args {
+		if share&(1<<i) != 0 {
+			vals = append(vals, fe.convert(fe.expr(a), fe.info.TypeOf(a), paramType(i)))
+			continue
+		}
 		vals = append(vals, fe.valueOf(a, paramType(i)))
 	}
 	if sig.Variadic() && !e.Ellipsis.IsValid() {
