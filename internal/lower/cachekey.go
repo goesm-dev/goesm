@@ -189,7 +189,7 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 					_, where := at(n.Pos())
 					wait, locker := p.WaitLock(n)
 					blocks := p.CallBlocks(info, n)
-					fmt.Fprintf(h, "call %s %v %v %s %v %v\n", where, blocks, blocks && p.CallAlwaysAsync(info, n), funcName(wait), locker, p.SyncClone(info, n, nil))
+					fmt.Fprintf(h, "call %s %v %v %s %v %v %x\n", where, blocks, blocks && p.CallAlwaysAsync(info, n), funcName(wait), locker, p.SyncClone(info, n, nil), p.ShareArgs(info, n))
 					if encl := p.encls[n]; p.cloned[encl] {
 						fmt.Fprintf(h, "clone call %s %v %v\n", where, p.CallBlocksIn(info, n, encl), p.SyncClone(info, n, encl))
 					}
