@@ -9,7 +9,8 @@
 import { hashKey } from "./iface.ts";
 import { $R } from "./results.ts";
 import { plainPanic, runtimePanic } from "./panic.ts";
-import { Kind, Type } from "./types.ts";
+import { Kind, Type, zeroSized } from "./types.ts";
+import type { Iface } from "./iface.ts";
 
 // A map whose keys are booleans, integers, strings or channels, which JS
 // Map compares as Go does (SameValueZero, which only differs from Go
@@ -17,8 +18,18 @@ import { Kind, Type } from "./types.ts";
 // Other maps hash keys with hashKey and map the hash to a [key, value]
 // entry, which keeps the key itself (a float key's sign, the dynamic
 // value of an interface key).
+//
+// An interface key holding a pointer or a channel, an object, is entered
+// under the object itself rather than its hash, which saves serializing
+// the key at each access (a sync.Map or a cache keyed by reflect.Type).
+// Values of two types can be one object (*T and *U of the same struct,
+// converted), so the entry's key is checked to have the key's type; a key
+// whose object is taken by a key of another type is entered under its
+// hash, and spilled counts those, so that lookups look for hashes only
+// when there are some.
 export class GoMap<K, V> {
   entries = new Map<any, any>();
+  spilled = 0;
   declare keyType: Type;
   declare direct: boolean;
   constructor(keyType: Type) {
@@ -39,6 +50,21 @@ function directKey(t: Type): boolean {
 
 export type M<K, V> = GoMap<K, V> | null;
 
+// objKey is the object an interface key k is entered under, or undefined.
+function objKey(m: GoMap<any, any>, k: any): object | undefined {
+  if (m.keyType.kind !== Kind.Interface || k === null) return undefined;
+  const x = k as Iface, t = x.t;
+  if (x.v === null || typeof x.v !== "object") return undefined;
+  if (t.kind === Kind.Chan || (t.kind === Kind.Pointer && !zeroSized(t.elem!))) return x.v;
+  return undefined;
+}
+
+// objEntry is the entry of k under the object o, or undefined.
+function objEntry(m: GoMap<any, any>, o: object, k: any): [any, any] | undefined {
+  const e = m.entries.get(o);
+  return e !== undefined && (e[0] as Iface).t === (k as Iface).t ? e : undefined;
+}
+
 // makeMap makes a map; the size hint of make(map[K]V, n) is ignored.
 export function makeMap<K = any, V = any>(keyType: Type, _hint?: number): GoMap<K, V> {
   return new GoMap<K, V>(keyType);
@@ -58,6 +84,12 @@ export function mapGet<K = any, V = any>(m: M<K, V>, k: K, zero: () => V): V {
     const v = m.entries.get(k);
     return v !== undefined || m.entries.has(k) ? v : zero();
   }
+  const o = objKey(m, k);
+  if (o !== undefined) {
+    const e = objEntry(m, o, k);
+    if (e !== undefined) return e[1];
+    if (m.spilled === 0) return zero();
+  }
   const e = m.entries.get(hashKey(m.keyType, k));
   return e === undefined ? zero() : e[1];
 }
@@ -70,6 +102,12 @@ export function mapLookup<K = any, V = any>(m: M<K, V>, k: K, zero: () => V): V 
     if (v !== undefined || m.entries.has(k)) return ($R.r1 = true, v as V);
     return ($R.r1 = false, zero());
   }
+  const o = objKey(m, k);
+  if (o !== undefined) {
+    const e = objEntry(m, o, k);
+    if (e !== undefined) return ($R.r1 = true, e[1]);
+    if (m.spilled === 0) return ($R.r1 = false, zero());
+  }
   const e = m.entries.get(hashKey(m.keyType, k));
   if (e === undefined) return ($R.r1 = false, zero());
   return ($R.r1 = true, e[1]);
@@ -79,6 +117,27 @@ export function mapSet<K = any, V = any>(m: M<K, V>, k: K, v: V): void {
   if (m === null) plainPanic("assignment to entry in nil map");
   if (m.direct) {
     m.entries.set(k, v);
+    return;
+  }
+  const o = objKey(m, k);
+  if (o !== undefined) {
+    const e = m.entries.get(o);
+    if (e !== undefined && (e[0] as Iface).t === (k as any as Iface).t) {
+      e[0] = k;
+      e[1] = v;
+      return;
+    }
+    const h = m.spilled === 0 ? undefined : hashKey(m.keyType, k);
+    const s = h === undefined ? undefined : m.entries.get(h);
+    if (s !== undefined) {
+      s[0] = k;
+      s[1] = v;
+    } else if (e === undefined) {
+      m.entries.set(o, [k, v]);
+    } else {
+      m.spilled++;
+      m.entries.set(h ?? hashKey(m.keyType, k), [k, v]);
+    }
     return;
   }
   const h = hashKey(m.keyType, k);
@@ -93,7 +152,19 @@ export function mapSet<K = any, V = any>(m: M<K, V>, k: K, v: V): void {
 
 export function mapDelete<K = any, V = any>(m: M<K, V>, k: K): void {
   if (m === null) return;
-  m.entries.delete(m.direct ? k : hashKey(m.keyType, k));
+  if (m.direct) {
+    m.entries.delete(k);
+    return;
+  }
+  const o = objKey(m, k);
+  if (o !== undefined) {
+    if (objEntry(m, o, k) !== undefined) {
+      m.entries.delete(o);
+      return;
+    }
+    if (m.spilled === 0) return;
+  }
+  m.entries.delete(hashKey(m.keyType, k));
 }
 
 export function mapLen(m: M<any, any>): number {
@@ -101,7 +172,10 @@ export function mapLen(m: M<any, any>): number {
 }
 
 export function mapClear(m: M<any, any>): void {
-  if (m !== null) m.entries.clear();
+  if (m !== null) {
+    m.entries.clear();
+    m.spilled = 0;
+  }
 }
 
 // mapRange iterates over live [key, value] entries; entries deleted during
