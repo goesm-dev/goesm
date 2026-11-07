@@ -196,6 +196,10 @@ type Program struct {
 	// interfaces (JSONv2).
 	jsonV2     bool
 	jsonV2Once sync.Once
+	// httpDialers is set when the program may give a net/http.Transport a
+	// dialer of its own (HTTPDialers).
+	httpDialers     bool
+	httpDialersOnce sync.Once
 
 	// pureEmitters answer returnsPure for the functions of imported
 	// packages (PureEmitter).

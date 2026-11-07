@@ -47,6 +47,10 @@ func TestBundleSize(t *testing.T) {
 		// variables compiling constant patterns ran though nothing used
 		// the variables, keeping regexp with its parser and engines.
 		{"./unusedre", 16_000},
+		// 2.6 MB with the Transport's own connections (TLS, HTTP/2,
+		// X.509), which a program giving no Transport a dialer of its own
+		// does not use, as it sends its requests with fetch.
+		{"./httpget", 1_100_000},
 		// 553 KB with encoding/json, json v2 and jsontext, which the
 		// runtime's decoder does without.
 		{"./jsondecode", 45_000},
