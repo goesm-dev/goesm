@@ -267,6 +267,8 @@ func (pe *pkgEmitter) leftOut(fd *ast.FuncDecl) bool {
 		return fd.Recv == nil && pe.prog.jsonLeftOut()["encoding/json."+fd.Name.Name]
 	case "regexp/syntax":
 		return fd.Recv == nil && fd.Name.Name == "unicodeTable" && !pe.prog.UnicodeClasses()
+	case "net/http":
+		return fd.Recv != nil && fd.Name.Name == "roundTrip" && pe.info.Defs[fd.Name].(*types.Func).FullName() == transportRoundTrip && !pe.prog.HTTPDialers()
 	case "regexp":
 		switch fd.Name.Name {
 		case "compileGo", "findGo", "quote", "compileError":
@@ -289,6 +291,12 @@ func (pe *pkgEmitter) emitStdFuncDecl(file *ast.File, fd *ast.FuncDecl) {
 		// A constant (JSONv2, json.go).
 		fn := pe.info.Defs[fd.Name].(*types.Func)
 		pe.funcs.ln("%sfunction %s(): boolean { return %v; }", pe.tab.mark(fd.Pos()), pe.funcDeclName(fd, fn), pe.prog.JSONv2())
+		return
+	}
+	if pe.pkg.PkgPath == "net/http" && fd.Recv == nil && fd.Name.Name == "transportDials" {
+		// A constant (HTTPDialers, httpdial.go).
+		fn := pe.info.Defs[fd.Name].(*types.Func)
+		pe.funcs.ln("%sfunction %s(): boolean { return %v; }", pe.tab.mark(fd.Pos()), pe.funcDeclName(fd, fn), pe.prog.HTTPDialers())
 		return
 	}
 	if pe.pkg.PkgPath == "regexp" && fd.Recv == nil && fd.Name.Name == "jsPattern" {
