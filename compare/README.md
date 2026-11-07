@@ -29,11 +29,11 @@ Three comparisons also have a second Go package under [light/](light), shown as 
 | Library | Go package | goesm gzip | JS gzip | ratio |
 | --- | --- | --- | --- | --- |
 | luxon | `datetime` | 19.8 KiB | 21.7 KiB | 0.91× |
-| neverthrow | `result` | 41.2 KiB | 2.4 KiB | 17.25× |
+| neverthrow | `result` | 41.3 KiB | 2.4 KiB | 17.27× |
 | neverthrow (light) | `light/result` | 15.7 KiB | 2.4 KiB | 6.57× |
-| connect-es | `rpc` | 949.0 KiB | 32.9 KiB | 28.88× |
+| connect-es | `rpc` | 483.6 KiB | 32.9 KiB | 14.72× |
 | connect-es (light) | `light/rpc` | 14.3 KiB | 32.9 KiB | 0.43× |
-| react | `render` | 215.3 KiB | 64.3 KiB | 3.35× |
+| react | `render` | 215.2 KiB | 64.3 KiB | 3.34× |
 | react (light) | `light/render` | 11.6 KiB | 64.3 KiB | 0.18× |
 | vitepress | `markdown` | 151.0 KiB | 40.4 KiB | 3.74× |
 | astro | `markdown` | 151.0 KiB | 47.2 KiB | 3.20× |
@@ -46,21 +46,21 @@ Three comparisons also have a second Go package under [light/](light), shown as 
 
 | Library | node 26.10.0 goesm | node 26.10.0 JS | ratio | bun 1.4.2 goesm | bun 1.4.2 JS | ratio |
 | --- | --- | --- | --- | --- | --- | --- |
-| luxon | 2.8 ms | 7.2 ms | 0.38× | 5.4 ms | 7.6 ms | 0.71× |
-| neverthrow | 0.39 ms | 0.35 ms | 1.11× | 0.48 ms | 0.52 ms | 0.94× |
-| neverthrow (light) | 0.39 ms | 0.38 ms | 1.02× | 0.57 ms | 0.55 ms | 1.04× |
-| connect-es | 18 ms | 2.1 ms | 8.39× | 20 ms | 2.0 ms | 9.77× |
-| connect-es (light) | 1.6 ms | 2.1 ms | 0.73× | 1.2 ms | 1.9 ms | 0.61× |
-| react | 2.3 ms | 1.4 ms | 1.64× | 3.1 ms | 1.8 ms | 1.69× |
-| react (light) | 0.16 ms | 1.4 ms | 0.12× | 0.15 ms | 1.8 ms | 0.08× |
-| vitepress | 0.32 ms | 0.19 ms | 1.63× | 0.46 ms | 0.13 ms | 3.45× |
-| astro | 0.30 ms | 2.0 ms | 0.15× | 0.42 ms | 2.6 ms | 0.16× |
-| vue | 5.0 ms | 4.7 ms | 1.06× | 5.3 ms | 4.7 ms | 1.12× |
-| tailwind | 2.0 ms | 3.7 ms | 0.54× | 2.7 ms | 3.5 ms | 0.77× |
-| marked | 1.7 ms | 0.81 ms | 2.08× | 2.2 ms | 1.3 ms | 1.75× |
-| smol-toml | 6.2 ms | 0.89 ms | 7.04× | 9.6 ms | 0.68 ms | 14.26× |
-| @noble/post-quantum | 56 ms | 30 ms | 1.84× | 44 ms | 46 ms | 0.95× |
-| @bufbuild/protobuf | 14 ms | 1.9 ms | 7.40× | 9.6 ms | 1.9 ms | 4.93× |
+| luxon | 2.8 ms | 7.2 ms | 0.38× | 5.5 ms | 7.5 ms | 0.73× |
+| neverthrow | 0.39 ms | 0.37 ms | 1.06× | 0.47 ms | 0.47 ms | 1.00× |
+| neverthrow (light) | 0.39 ms | 0.38 ms | 1.02× | 0.53 ms | 0.45 ms | 1.20× |
+| connect-es | 17 ms | 2.3 ms | 7.40× | 19 ms | 2.0 ms | 9.08× |
+| connect-es (light) | 1.6 ms | 2.1 ms | 0.76× | 1.2 ms | 2.1 ms | 0.55× |
+| react | 2.3 ms | 1.4 ms | 1.65× | 2.9 ms | 1.7 ms | 1.76× |
+| react (light) | 0.16 ms | 1.4 ms | 0.12× | 0.16 ms | 1.6 ms | 0.10× |
+| vitepress | 0.30 ms | 0.17 ms | 1.75× | 0.45 ms | 0.14 ms | 3.19× |
+| astro | 0.25 ms | 1.8 ms | 0.14× | 0.36 ms | 2.5 ms | 0.14× |
+| vue | 4.9 ms | 5.3 ms | 0.92× | 5.4 ms | 4.7 ms | 1.15× |
+| tailwind | 2.1 ms | 3.9 ms | 0.54× | 2.9 ms | 3.7 ms | 0.77× |
+| marked | 1.8 ms | 0.83 ms | 2.11× | 2.4 ms | 1.4 ms | 1.71× |
+| smol-toml | 6.0 ms | 0.91 ms | 6.63× | 10 ms | 0.68 ms | 14.88× |
+| @noble/post-quantum | 55 ms | 28 ms | 1.99× | 46 ms | 46 ms | 1.01× |
+| @bufbuild/protobuf | 14 ms | 1.9 ms | 7.31× | 9.8 ms | 1.9 ms | 5.22× |
 <!-- compare:end -->
 
 Sizes are of the minified ES module bundle, compressed with gzip at level 9. Times are the median of one workload run, after a warmup. The connect-es workload answers `fetch` in-process with encoded responses, so it times the client alone: encoding the request, the protocol and decoding the response.
