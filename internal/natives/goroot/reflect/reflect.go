@@ -612,8 +612,9 @@ func TypeOf(i any) Type { return toType(ifaceType(i)) }
 // goesmTypeOf hands the runtime reflect.TypeOf(ptr).Elem(), for the Type
 // fields of the errors of encoding/json it makes in a program without the
 // package (runtime/src/json.ts). It is true. toType and Value.Type, which
-// make the Types a program can have but for the runtime's, read it, so
-// that the registration runs whenever a program can look at a Type, and
+// make the Types a program can have but for the runtime's, and ValueOf,
+// through which a program can read a Type field of such an error, read it,
+// so that the registration runs whenever a program can look at a Type, and
 // a program that only imports reflect leaves it out (registerTypeOf in
 // effFree, internal/lower/effects.go).
 var goesmTypeOf = registerTypeOf(func(ptr any) Type { return typeElem(ifaceType(ptr)) }, (*Type)(nil))
@@ -791,7 +792,7 @@ func (e *ValueError) Error() string {
 
 // ValueOf returns a new Value initialized to the concrete value stored in i.
 func ValueOf(i any) Value {
-	if i == nil {
+	if i == nil || !goesmTypeOf {
 		return Value{}
 	}
 	return Value{typ: ifaceType(i), ptr: ifaceValue(i)}
