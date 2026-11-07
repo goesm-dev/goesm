@@ -9,6 +9,7 @@ package sourcemap
 import (
 	"encoding/base64"
 	"encoding/json"
+	"path/filepath"
 	"sort"
 	"strings"
 	"unicode/utf16"
@@ -145,7 +146,60 @@ func (b *Builder) JSON(file string) []byte {
 
 // InlineComment returns a sourceMappingURL comment embedding the map.
 func (b *Builder) InlineComment(file string) string {
-	return "//# sourceMappingURL=data:application/json;base64," + base64.StdEncoding.EncodeToString(b.JSON(file)) + "\n"
+	return InlineComment(b.JSON(file))
+}
+
+// inlinePrefix starts the comment InlineComment returns.
+const inlinePrefix = "//# sourceMappingURL=data:application/json;base64,"
+
+// InlineComment returns a sourceMappingURL comment embedding the encoded
+// map data.
+func InlineComment(data []byte) string {
+	return inlinePrefix + base64.StdEncoding.EncodeToString(data) + "\n"
+}
+
+// Relocate returns the encoded map data with the absolute paths of its
+// sources made relative to dir, the directory of the generated file, with
+// forward slashes, as tsc and esbuild write them: the map then works where
+// the tree is moved or published, and does not show where it was built.
+// A source on another volume stays absolute.
+func Relocate(data []byte, dir string) []byte {
+	var m mapJSON
+	if json.Unmarshal(data, &m) != nil {
+		return data
+	}
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return data
+	}
+	changed := false
+	for i, s := range m.Sources {
+		if !filepath.IsAbs(s) {
+			continue
+		}
+		if rel, err := filepath.Rel(dir, s); err == nil {
+			m.Sources[i] = filepath.ToSlash(rel)
+			changed = true
+		}
+	}
+	if !changed {
+		return data
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return data
+	}
+	return out
+}
+
+// ReplaceInline replaces the map that ts embeds at its end (InlineComment)
+// with data.
+func ReplaceInline(ts string, data []byte) string {
+	i := strings.LastIndex(ts, inlinePrefix)
+	if i < 0 || strings.Contains(ts[i:len(ts)-1], "\n") {
+		return ts
+	}
+	return ts[:i] + InlineComment(data)
 }
 
 const b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"

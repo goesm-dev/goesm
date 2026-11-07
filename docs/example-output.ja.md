@@ -60,7 +60,7 @@ const $goesm = { path: "example.com/app/main", funcs: { Result: { fn: Result, ty
 export { $Result$js1 as "Result", $goesm };
 ```
 
-entry package の `Result` は、wrapper の `$Result$js1` を通して export されます。wrapper は JavaScript から呼ぶための引数と戻り値の変換を行い、nil の参照外しを Go の panic にします ([js-exports.ja.md](js-exports.ja.md))。Go のコードは `Result` そのものを呼びます。末尾には TS→Go の source map が `//# sourceMappingURL=data:...` として inline で付きます。同じ map は module の隣に `<module>.ts.map` としても書き出されます。
+entry package の `Result` は、wrapper の `$Result$js1` を通して export されます。wrapper は JavaScript から呼ぶための引数と戻り値の変換を行い、nil の参照外しを Go の panic にします ([js-exports.ja.md](js-exports.ja.md))。Go のコードは `Result` そのものを呼びます。末尾には TS→Go の source map が `//# sourceMappingURL=data:...` として inline で付きます。同じ map は module の隣に `<module>.ts.map` としても書き出されます。どちらも `.go` ファイルを module のディレクトリからの相対パスで示します。
 
 ### bundler や TypeScript を扱える runtime から使う
 
