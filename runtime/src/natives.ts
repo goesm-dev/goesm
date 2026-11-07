@@ -956,6 +956,157 @@ export function native$crypto$internal$fips140$bigmod$addMulVVW(z: S<number>, x:
   return mulAdd32(z!.$array, z!.$offset, n, x!.$array, x!.$offset, y, z!.$array, z!.$offset, 0);
 }
 
+// ---- crypto/internal/fips140/sha3 ----
+
+// keccakF1600Generic(da *[200]byte) permutes the Keccak state, the 25
+// little-endian 64-bit lanes of da. Go's body works on uint64 lanes, which
+// are BigInts here; this does the same permutation on each lane's low and
+// high 32 bits, so SHA-3 and SHAKE (and ML-KEM and ML-DSA, which use them)
+// never touch a BigInt.
+const keccakLo = /* @__PURE__ */ new Int32Array(25);
+const keccakHi = /* @__PURE__ */ new Int32Array(25);
+const keccakBLo = /* @__PURE__ */ new Int32Array(25);
+const keccakBHi = /* @__PURE__ */ new Int32Array(25);
+// The round constants' high and low halves.
+const keccakRCHi = /* @__PURE__ */ Int32Array.of(
+  0, 0, 0x80000000, 0x80000000, 0, 0, 0x80000000, 0x80000000, 0, 0, 0, 0,
+  0, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0, 0x80000000, 0x80000000, 0x80000000, 0, 0x80000000,
+);
+const keccakRCLo = /* @__PURE__ */ Int32Array.of(
+  0x00000001, 0x00008082, 0x0000808a, 0x80008000, 0x0000808b, 0x80000001, 0x80008081, 0x00008009,
+  0x0000008a, 0x00000088, 0x80008009, 0x8000000a, 0x8000808b, 0x0000008b, 0x00008089, 0x00008003,
+  0x00008002, 0x00000080, 0x0000800a, 0x8000000a, 0x80008081, 0x00008080, 0x80000001, 0x80008008,
+);
+// The rotation of each lane (index x + 5y) and where ρ and π move it.
+const keccakRot = /* @__PURE__ */ Int32Array.of(0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14);
+const keccakPi = /* @__PURE__ */ (() => {
+  const p = new Int32Array(25);
+  for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++) p[x + 5 * y] = y + 5 * ((2 * x + 3 * y) % 5);
+  return p;
+})();
+
+export function native$crypto$internal$fips140$sha3$keccakF1600Generic(da: number[]): void {
+  const lo = keccakLo, hi = keccakHi, bLo = keccakBLo, bHi = keccakBHi;
+  for (let i = 0, o = 0; i < 25; i++, o += 8) {
+    lo[i] = da[o] | (da[o + 1] << 8) | (da[o + 2] << 16) | (da[o + 3] << 24);
+    hi[i] = da[o + 4] | (da[o + 5] << 8) | (da[o + 6] << 16) | (da[o + 7] << 24);
+  }
+  for (let round = 0; round < 24; round++) {
+    // θ: each lane takes the parity of two columns, one of them rotated by 1.
+    for (let x = 0; x < 5; x++) {
+      bLo[x] = lo[x] ^ lo[x + 5] ^ lo[x + 10] ^ lo[x + 15] ^ lo[x + 20];
+      bHi[x] = hi[x] ^ hi[x + 5] ^ hi[x + 10] ^ hi[x + 15] ^ hi[x + 20];
+    }
+    for (let x = 0; x < 5; x++) {
+      const pl = bLo[(x + 4) % 5], ph = bHi[(x + 4) % 5];
+      const nl = bLo[(x + 1) % 5], nh = bHi[(x + 1) % 5];
+      const dl = pl ^ ((nl << 1) | (nh >>> 31));
+      const dh = ph ^ ((nh << 1) | (nl >>> 31));
+      for (let y = 0; y < 25; y += 5) {
+        lo[x + y] ^= dl;
+        hi[x + y] ^= dh;
+      }
+    }
+    // ρ and π: rotate each lane and move it.
+    for (let i = 0; i < 25; i++) {
+      const r = keccakRot[i], l = lo[i], h = hi[i], j = keccakPi[i];
+      if (r === 0) {
+        bLo[j] = l;
+        bHi[j] = h;
+      } else if (r < 32) {
+        bLo[j] = (l << r) | (h >>> (32 - r));
+        bHi[j] = (h << r) | (l >>> (32 - r));
+      } else if (r === 32) {
+        bLo[j] = h;
+        bHi[j] = l;
+      } else {
+        const q = r - 32;
+        bLo[j] = (h << q) | (l >>> (32 - q));
+        bHi[j] = (l << q) | (h >>> (32 - q));
+      }
+    }
+    // χ
+    for (let y = 0; y < 25; y += 5) {
+      for (let x = 0; x < 5; x++) {
+        const a = x + y, b = ((x + 1) % 5) + y, c = ((x + 2) % 5) + y;
+        lo[a] = bLo[a] ^ (~bLo[b] & bLo[c]);
+        hi[a] = bHi[a] ^ (~bHi[b] & bHi[c]);
+      }
+    }
+    // ι
+    lo[0] ^= keccakRCLo[round];
+    hi[0] ^= keccakRCHi[round];
+  }
+  for (let i = 0, o = 0; i < 25; i++, o += 8) {
+    const l = lo[i], h = hi[i];
+    da[o] = l & 0xff;
+    da[o + 1] = (l >>> 8) & 0xff;
+    da[o + 2] = (l >>> 16) & 0xff;
+    da[o + 3] = l >>> 24;
+    da[o + 4] = h & 0xff;
+    da[o + 5] = (h >>> 8) & 0xff;
+    da[o + 6] = (h >>> 16) & 0xff;
+    da[o + 7] = h >>> 24;
+  }
+}
+
+// ---- crypto/internal/fips140/mldsa ----
+
+// The field arithmetic of ML-DSA (mod q = 8380417, Montgomery form with
+// R = 2^32) forms uint64 products of uint32s, BigInts here. These are Go's
+// functions with the products on 32-bit halves, exact for every uint32
+// input, and without data-dependent branches, like Go's.
+const mldsaQ = 8380417;
+const mldsaQNegInv = 4236238847;
+let mulHi = 0;
+let mulLo = 0;
+
+// mul32 sets mulHi and mulLo to the high and low 32 bits of a * b.
+function mul32(a: number, b: number): void {
+  const al = a & 0xffff, ah = a >>> 16, bl = b & 0xffff, bh = b >>> 16;
+  const ll = al * bl, lh = al * bh, hl = ah * bl;
+  const mid = (ll >>> 16) + (lh & 0xffff) + (hl & 0xffff);
+  mulLo = ((mid << 16) | (ll & 0xffff)) >>> 0;
+  mulHi = (ah * bh + (lh >>> 16) + (hl >>> 16) + (mid >>> 16)) >>> 0;
+}
+
+// fieldReduceOnce(a uint32) fieldElement: a - q if a >= q, else a.
+export function native$crypto$internal$fips140$mldsa$fieldReduceOnce(a: number): number {
+  const d = a - mldsaQ;
+  return (d - Math.floor(d * 2.3283064365386963e-10) * mldsaQ) >>> 0;
+}
+
+// montgomeryReduce is fieldMontgomeryReduce(hi<<32 | lo).
+function mldsaMontgomeryReduce(hi: number, lo: number): number {
+  const t = Math.imul(lo, mldsaQNegInv) >>> 0;
+  mul32(t, mldsaQ);
+  const carry = Math.floor((lo + mulLo) * 2.3283064365386963e-10);
+  return native$crypto$internal$fips140$mldsa$fieldReduceOnce((hi + mulHi + carry) >>> 0);
+}
+
+export function native$crypto$internal$fips140$mldsa$fieldFromMontgomery(a: number): number {
+  return mldsaMontgomeryReduce(0, a);
+}
+
+export function native$crypto$internal$fips140$mldsa$fieldMontgomeryMul(a: number, b: number): number {
+  mul32(a, b);
+  return mldsaMontgomeryReduce(mulHi, mulLo);
+}
+
+export function native$crypto$internal$fips140$mldsa$fieldMontgomeryMulSub(a: number, b: number, c: number): number {
+  mul32(a, (b - c + mldsaQ) >>> 0);
+  return mldsaMontgomeryReduce(mulHi, mulLo);
+}
+
+export function native$crypto$internal$fips140$mldsa$fieldMontgomeryAddMul(a: number, b: number, c: number, d: number): number {
+  mul32(a, b);
+  const h = mulHi, l = mulLo;
+  mul32(c, d);
+  const lo = l + mulLo;
+  const carry = Math.floor(lo * 2.3283064365386963e-10);
+  return mldsaMontgomeryReduce((h + mulHi + carry) >>> 0, lo >>> 0);
+}
+
 // ---- maps, slices ----
 
 // maps.clone(m any) any: a shallow copy (keys and values are assigned, so

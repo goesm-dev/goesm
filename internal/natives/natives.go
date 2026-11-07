@@ -199,6 +199,14 @@ var overrides = map[string]bool{
 	"math/big.mulAddVWW_g":                     true,
 	"math/big.addMulVVWW_g":                    true,
 	"crypto/internal/fips140/bigmod.addMulVVW": true,
+	// Keccak-f[1600] on uint64 lanes, on 32-bit halves (see natives.ts).
+	"crypto/internal/fips140/sha3.keccakF1600Generic": true,
+	// ML-DSA's field arithmetic: uint64 products of uint32s.
+	"crypto/internal/fips140/mldsa.fieldReduceOnce":       true,
+	"crypto/internal/fips140/mldsa.fieldFromMontgomery":   true,
+	"crypto/internal/fips140/mldsa.fieldMontgomeryMul":    true,
+	"crypto/internal/fips140/mldsa.fieldMontgomeryMulSub": true,
+	"crypto/internal/fips140/mldsa.fieldMontgomeryAddMul": true,
 
 	"slices.overlaps": true, // compares element addresses
 
