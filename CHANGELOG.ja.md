@@ -17,7 +17,7 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 - 複合リテラルか代入で構造体の関数フィールドに入れる標準ライブラリの関数は、到達できるコードがそのフィールドを呼ばず読みもしないとき、出力しないようになりました。そのフィールドの値は呼ばれることがありません。
 - vendor された `golang.org/x/net/idna` の `ToASCII` は、`net/http` が ASCII でない host に対して呼びます。この関数は Punycode プロファイルで符号化し、ほかのプロファイルの対応付けと検証を通らないようになりました。これまでは HTTP クライアントを持つすべてのプログラムに IDNA と bidi の表 (minify 後約 140 KB) が残っていました。Punycode プロファイルは対応付けも検証もしないので、結果は変わりません。
 - `crypto/rand.Read` は、FIPS 140 の CTR_DRBG を通らずにホストの乱数源から読みます。これまでは乱数を読むすべてのプログラムに AES が残っていました。goesm のプログラムでは FIPS 140 モードを有効にできず、Go も FIPS 140 モードの外では OS から読みます。
-- export が `any` などの interface 型の値を返すか受け取るパッケージは、JavaScript が呼べるメソッドを、JavaScript に渡る interface 型の値に入る型についてだけ残すようになりました。JavaScript に渡る interface 型は、export の型、export する関数が別の interface 型に変換する型、プログラム自身のパッケージがそのどれかに変換する型です。これまでは、プログラムのパッケージがポインタを入れる別の interface 型の値 (Connect の `HTTPClient` としての `*http.Client` など) があると、その型のメソッドがすべて残っていました。`TestBundleSize/ifacehandle` は minify 後 121 KB から 26 KB になりました。
+- export が `any` などの interface 型の値を返すか受け取るパッケージは、JavaScript が呼べるメソッドを、JavaScript に渡る interface 型の値に入る型についてだけ残すようになりました。JavaScript に渡る interface 型は、export の型、export する関数が別の interface 型に変換する型、プログラム自身のパッケージがそのどれかに変換する型と、それらに変換する値の中にある interface 型 (`any` に入れた `[]Value` など) です。これまでは、プログラムのパッケージがポインタを入れる別の interface 型の値 (Connect の `HTTPClient` としての `*http.Client` など) があると、その型のメソッドがすべて残っていました。`TestBundleSize/ifacehandle` は minify 後 121 KB から 26 KB になりました。
 - 条件が定数で実行されることのない `if` 文の分岐 (`const debug = false; if debug { ... }`) は、Go がその分岐のコードを生成しないのと同じく出力しないようになりました。分岐の中の呼び出しは、呼び出し先を残さなくなりました。
 
 ### 性能
@@ -35,7 +35,7 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### 修正
 
-- エントリーパッケージのエクスポートされた関数が関数の仮引数を呼ぶとき、その型の関数値のどれかがブロックするなら、その関数は async になります。JavaScript は Go から受け取った関数をその仮引数に渡すことがあるためです。Go のコードがそのような関数を渡さない仮引数 (`func Apply(f func() string) string`) は Go が渡すものだけを持つと扱われ、`Apply` はブロックする `f` の Promise で計算していました (`test/js/poc.test.mjs`)。
+- エントリーパッケージのエクスポートされた関数が関数の仮引数を呼ぶとき、その型の関数値のどれかがブロックするなら、その関数は async になります。JavaScript は Go から受け取った関数をその仮引数に渡すことがあるためです。export が受け取るか返す構造体型の関数フィールドも同じです。Go のコードがそのような関数を渡さない仮引数 (`func Apply(f func() string) string`) は Go が渡すものだけを持つと扱われ、`Apply` はブロックする `f` の Promise で計算していました (`test/js/poc.test.mjs`)。
 - goesm の数値が wrap しないために負になった `uint` を、fmt は Go が `uint(0)-1` を 18446744073709551615 と表示するのと同じく `uint64` への変換として書式化するようになりました。以前は負の数として表示していました (`testdata/programs/sprintfconcat`)。
 - ポスト量子暗号が native Go と一致するようになりました (`testdata/programs/pqcrypto`: ML-KEM、ML-DSA、SHA-3 と SHAKE、X25519、HKDF、ML-KEM-768 + X25519 を含む `crypto/hpke` のすべての KEM、KDF、AEAD)。
   - core type が配列である型パラメータの値 (`crypto/internal/fips140/mlkem` の `func polyAdd[T ~[n]fieldElement](a, b T)`) への添字アクセスが lowering に失敗し ("interface conversion: types.Type is *types.Interface, not *types.Array")、その関数は呼ぶと panic する stub になっていました。

@@ -221,6 +221,12 @@ func (p *Program) findFuncVars() {
 		}
 	}
 
+	// JavaScript gives the function fields of the structs an entry's ABI
+	// carries functions of its own, or functions Go returned to it.
+	for _, f := range p.entryABIFuncFields() {
+		bad[f] = true
+	}
+
 	asValue := map[*types.Func]bool{}
 	for _, pkg := range p.Pkgs {
 		for id, obj := range pkg.TypesInfo.Uses {
@@ -536,4 +542,77 @@ func (p *Program) reflectSets() bool {
 		}
 	}
 	return false
+}
+
+// entryABIFuncFields returns the function fields of the struct types that
+// the JavaScript ABI of the entry packages carries, in the arguments and
+// results of their exported functions and of the methods of their handles,
+// and in what those contain. Before SetEntries there are none.
+func (p *Program) entryABIFuncFields() []*types.Var {
+	var out []*types.Var
+	seen := map[types.Type]bool{}
+	var walk func(t types.Type)
+	walkSig := func(sig *types.Signature) {
+		for i := 0; i < sig.Params().Len(); i++ {
+			walk(sig.Params().At(i).Type())
+		}
+		for i := 0; i < sig.Results().Len(); i++ {
+			walk(sig.Results().At(i).Type())
+		}
+	}
+	walk = func(t types.Type) {
+		t = types.Unalias(t)
+		if seen[t] || isJSValue(t) {
+			return
+		}
+		seen[t] = true
+		switch u := t.Underlying().(type) {
+		case *types.Pointer:
+			if n, ok := types.Unalias(u.Elem()).(*types.Named); ok && isHandleType(t) {
+				for _, fn := range handleMethods(n) {
+					walkSig(fn.Signature())
+				}
+			}
+			walk(u.Elem())
+		case *types.Slice:
+			walk(u.Elem())
+		case *types.Array:
+			walk(u.Elem())
+		case *types.Map:
+			walk(u.Key())
+			walk(u.Elem())
+		case *types.Struct:
+			for i := 0; i < u.NumFields(); i++ {
+				if f := u.Field(i); f.Exported() || promotes(f) {
+					if isSignature(f.Type()) {
+						out = append(out, f.Origin())
+					}
+					walk(f.Type())
+				}
+			}
+		case *types.Signature:
+			walkSig(u)
+		}
+	}
+	for _, pkg := range p.Pkgs {
+		if !p.Entries[pkg.PkgPath] {
+			continue
+		}
+		scope := pkg.Types.Scope()
+		for _, name := range scope.Names() {
+			switch obj := scope.Lookup(name).(type) {
+			case *types.Func:
+				if obj.Exported() && obj.Signature().TypeParams().Len() == 0 {
+					walkSig(obj.Signature())
+				}
+			case *types.TypeName:
+				if n, ok := obj.Type().(*types.Named); ok && obj.Exported() && n.TypeParams().Len() == 0 {
+					for _, fn := range handleMethods(n) {
+						walkSig(fn.Signature())
+					}
+				}
+			}
+		}
+	}
+	return out
 }

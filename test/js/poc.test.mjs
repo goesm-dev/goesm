@@ -255,6 +255,8 @@ test("JS calling ABI: functions cross both ways", async () => {
   assert.deepEqual(m.MapStrings(["x"], ex), ["x!"]);
   // A Go function that waits comes back to an export no Go code calls.
   assert.equal(await m.Apply(m.LaterFunc("あ")), "later あ!");
+  // ... and in a function field of a struct an export takes.
+  assert.equal(await m.ApplyField({ F: m.LaterFunc("い") }), "later い?");
 });
 
 test("JS calling ABI: handles of other packages' types have their methods", async () => {
@@ -289,6 +291,8 @@ test("JS calling ABI: handles inside an any, of generic types, have their method
   assert.equal(m.Lookup("pair").First.N(), 8);
   // A handle a method of a boxed handle returns.
   assert.equal(m.Lookup("outer").Inner().N(), 9);
+  // A handle inside a slice of another interface type inside an any.
+  assert.equal(m.Lookup("values")[0].N(), 10);
   // A handle JavaScript passes for an interface its type is never
   // converted to in Go.
   assert.equal(m.Greet(m.NewDog("ポチ")), "ポチ: わん");

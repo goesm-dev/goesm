@@ -298,17 +298,36 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 				})
 			}
 		}
+		// A value converted to an interface type that reaches JavaScript
+		// carries the interface values inside it there too: goToJS converts
+		// a []Value in an any element by element.
 		for grown := true; grown; {
 			grown = false
 			for _, pkg := range p.Pkgs {
-				if own(pkg) && !p.Entries[pkg.PkgPath] {
-					eachConv(pkg, func(src, dst types.Type) {
-						if src != nil && dst != nil && isIface(src) && isIface(dst) && reaches(dst) && !reaches(src) {
+				if !own(pkg) {
+					continue
+				}
+				entry := p.Entries[pkg.PkgPath]
+				eachConv(pkg, func(src, dst types.Type) {
+					if src == nil || dst == nil || !isIface(dst) {
+						return
+					}
+					if isIface(src) {
+						if !entry && reaches(dst) && !reaches(src) {
 							toJS = append(toJS, src)
 							grown = true
 						}
-					})
-				}
+						return
+					}
+					if entry || reaches(dst) {
+						nestedIfaces(src, func(t types.Type) {
+							if !reaches(t) {
+								toJS = append(toJS, t)
+								grown = true
+							}
+						})
+					}
+				})
 			}
 		}
 		for _, pkg := range p.Pkgs {
@@ -384,6 +403,45 @@ func abiCarriesIface(pkg *types.Package) bool { return len(abiIfaces(pkg, true))
 
 // abiIfaces returns the interface types other than error that the JS calling
 // ABI of pkg carries (abiCarriesIface), or only the first one found.
+// nestedIfaces calls add for each interface type inside a value of the
+// concrete type t that goToJS converts: in its elements, keys, pointees and
+// exported fields.
+func nestedIfaces(t types.Type, add func(types.Type)) {
+	seen := map[types.Type]bool{}
+	var walk func(t types.Type, top bool)
+	walk = func(t types.Type, top bool) {
+		t = types.Unalias(t)
+		if seen[t] || isJSValue(t) {
+			return
+		}
+		seen[t] = true
+		switch u := t.Underlying().(type) {
+		case *types.Interface:
+			if !top {
+				add(t)
+			}
+		case *types.Pointer:
+			walk(u.Elem(), false)
+		case *types.Slice:
+			walk(u.Elem(), false)
+		case *types.Array:
+			walk(u.Elem(), false)
+		case *types.Chan:
+			walk(u.Elem(), false)
+		case *types.Map:
+			walk(u.Key(), false)
+			walk(u.Elem(), false)
+		case *types.Struct:
+			for i := 0; i < u.NumFields(); i++ {
+				if f := u.Field(i); f.Exported() || promotes(f) {
+					walk(f.Type(), false)
+				}
+			}
+		}
+	}
+	walk(t, true)
+}
+
 func abiIfaces(pkg *types.Package, first bool) []types.Type {
 	var found []types.Type
 	errType := types.Universe.Lookup("error").Type()

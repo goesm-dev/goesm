@@ -262,8 +262,9 @@ func (p *Program) SetEntries(paths []string) {
 	}
 	// JavaScript calls the exported functions of an entry with functions
 	// of its own or functions Go returned to it: their parameters of
-	// function type, which the first analysis took to hold only what Go
-	// passes them (funcvars.go), hold unknown functions.
+	// function type and the function fields of the structs they take,
+	// which the first analysis took to hold only what Go stores in them
+	// (funcvars.go), hold unknown functions.
 	if p.entryParamsKnown() {
 		p.analyzeBlocking()
 	}
@@ -271,8 +272,15 @@ func (p *Program) SetEntries(paths []string) {
 }
 
 // entryParamsKnown reports whether a parameter of function type of an
-// exported function of an entry package has known values (funcVars).
+// exported function of an entry package, or a function field of a struct
+// type its JavaScript ABI carries (entryABIFuncFields), has known values
+// (funcVars).
 func (p *Program) entryParamsKnown() bool {
+	for _, f := range p.entryABIFuncFields() {
+		if _, ok := p.funcVars[f]; ok {
+			return true
+		}
+	}
 	for _, pkg := range p.Pkgs {
 		if !p.Entries[pkg.PkgPath] {
 			continue

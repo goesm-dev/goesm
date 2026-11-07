@@ -61,3 +61,14 @@ type Inner struct{ n int }
 func (i *Inner) N() int { return i.n }
 
 func GetOuter() any { return &Outer{n: 8} }
+
+// Value is an interface a slice the entry forwards in an any holds.
+type Value interface{}
+
+// Valued is a handle only a Value holds.
+type Valued struct{ n int }
+
+func (v *Valued) N() int { return v.n }
+
+// Values returns a []Value inside an any.
+func Values() any { return []Value{&Valued{n: 10}} }
