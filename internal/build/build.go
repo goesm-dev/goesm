@@ -18,6 +18,7 @@ import (
 
 	"github.com/goesm-dev/goesm/internal/loader"
 	"github.com/goesm-dev/goesm/internal/lower"
+	"github.com/goesm-dev/goesm/internal/sourcemap"
 	"github.com/goesm-dev/goesm/internal/toolexec"
 	goesmruntime "github.com/goesm-dev/goesm/runtime"
 )
@@ -183,7 +184,8 @@ func WriteTS(dir string, mods []*lower.Module) error {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return err
 		}
-		ts := m.TS
+		ts, sm := m.TS, sourcemap.Relocate(m.Map, filepath.Dir(p))
+		ts = sourcemap.ReplaceInline(ts, sm)
 		for _, f := range m.Files {
 			// //goesm:import of a file: relative to where the module is.
 			if old, rel := lower.JSImportSpecifier(p, f); old != "" {
@@ -193,7 +195,7 @@ func WriteTS(dir string, mods []*lower.Module) error {
 		if err := os.WriteFile(p, []byte(ts), 0o644); err != nil {
 			return err
 		}
-		if err := os.WriteFile(p+".map", m.Map, 0o644); err != nil {
+		if err := os.WriteFile(p+".map", sm, 0o644); err != nil {
 			return err
 		}
 	}
