@@ -262,13 +262,16 @@ func newPkgEmitter(p *Program, pkg *packages.Package, entry bool) *pkgEmitter {
 // matched with a RegExp (regexpjs.go), in which case compile cannot fail
 // and MustCompile does not quote a pattern.
 func (pe *pkgEmitter) leftOut(fd *ast.FuncDecl) bool {
+	if fn, ok := pe.info.Defs[fd.Name].(*types.Func); ok && pe.prog.FieldLeftOut(fn) {
+		return true
+	}
 	switch pe.pkg.PkgPath {
 	case "encoding/json":
 		return fd.Recv == nil && pe.prog.jsonLeftOut()["encoding/json."+fd.Name.Name]
 	case "regexp/syntax":
 		return fd.Recv == nil && fd.Name.Name == "unicodeTable" && !pe.prog.UnicodeClasses()
 	case "net/http":
-		return fd.Recv != nil && fd.Name.Name == "roundTrip" && pe.info.Defs[fd.Name].(*types.Func).FullName() == transportRoundTrip && !pe.prog.HTTPDialers()
+		return fd.Recv != nil && transportDials[pe.info.Defs[fd.Name].(*types.Func).FullName()] && !pe.prog.HTTPDialers()
 	case "regexp":
 		switch fd.Name.Name {
 		case "compileGo", "findGo", "quote", "compileError":

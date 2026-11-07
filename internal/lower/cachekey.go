@@ -126,6 +126,19 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 			}
 		}
 	}
+	// Which functions reachable code only stores in function fields it
+	// never calls or reads, lowered as stubs (reach.go).
+	for _, pkg := range p.Pkgs {
+		for _, f := range pkg.Syntax {
+			for _, d := range f.Decls {
+				if fd, isFunc := d.(*ast.FuncDecl); isFunc {
+					if fn, isFn := pkg.TypesInfo.Defs[fd.Name].(*types.Func); isFn && p.FieldLeftOut(fn) {
+						add("fieldLeftOut", fn, "true")
+					}
+				}
+			}
+		}
+	}
 	// Which variable initializers are pure and which init functions run
 	// (effects.go).
 	for _, pkg := range p.Pkgs {

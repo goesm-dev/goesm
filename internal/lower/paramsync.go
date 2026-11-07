@@ -759,11 +759,15 @@ func (p *Program) trackedFuncParam(fn *types.Func, j int) bool {
 
 // dynCallable reports whether fn may be called other than at its static
 // call sites: through a function value, a method expression or an
-// interface, from a go statement or package initializer, or through a
-// //go:linkname pull. Methods of the types stored in interface values are
+// interface, from a go statement or package initializer, through a
+// //go:linkname pull, or from JavaScript as an exported function or method
+// of an entry package. Methods of the types stored in interface values are
 // called through interfaces only when an interface has them.
 func (p *Program) dynCallable(fn *types.Func) bool {
 	if p.funcValues[fn] || p.unsited[fn] {
+		return true
+	}
+	if fn.Exported() && fn.Pkg() != nil && p.Entries[fn.Pkg().Path()] {
 		return true
 	}
 	for _, t := range p.linkTargets {

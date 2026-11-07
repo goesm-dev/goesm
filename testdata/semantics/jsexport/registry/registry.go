@@ -61,3 +61,29 @@ type Inner struct{ n int }
 func (i *Inner) N() int { return i.n }
 
 func GetOuter() any { return &Outer{n: 8} }
+
+// Value is an interface a slice the entry forwards in an any holds.
+type Value interface{}
+
+// Valued is a handle only a Value holds.
+type Valued struct{ n int }
+
+func (v *Valued) N() int { return v.n }
+
+// Values returns a []Value inside an any.
+func Values() any { return []Value{&Valued{n: 10}} }
+
+// Job holds a function a Runner calls.
+type Job struct{ F func() string }
+
+// Runner is a handle only an any holds; JavaScript passes its Run a Job
+// whose function it gives.
+type Runner struct{}
+
+func (*Runner) Run(j Job) string { return j.F() + "#" }
+
+// NowJob is a Job whose function Go gives, and returns at once.
+var NowJob = Job{F: func() string { return "now" }}
+
+// GetRunner returns a Runner inside an any.
+func GetRunner() any { return &Runner{} }

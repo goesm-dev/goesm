@@ -51,8 +51,11 @@ func TestBundleSize(t *testing.T) {
 		{"./unusedre", 16_000},
 		// 2.6 MB with the Transport's own connections (TLS, HTTP/2,
 		// X.509), which a program giving no Transport a dialer of its own
-		// does not use, as it sends its requests with fetch.
-		{"./httpget", 1_100_000},
+		// does not use, as it sends its requests with fetch; 979 KB with
+		// the Transport's dialing of connections for its idle pool and its
+		// Proxy, ProxyFromEnvironment, which only dialing calls, with
+		// their async callers.
+		{"./httpget", 700_000},
 		// 553 KB with encoding/json, json v2 and jsontext, which the
 		// runtime's decoder does without.
 		{"./jsondecode", 45_000},
@@ -61,6 +64,10 @@ func TestBundleSize(t *testing.T) {
 		// host's fs) ran in a program that imports them through another
 		// package and uses none of what they set up.
 		{"./unusedinit", 12_000},
+		// 121 KB when the methods of every type its packages convert to
+		// an interface type were kept, Dump with fmt, though only values
+		// of type any, which hold no *item, reach JavaScript.
+		{"./ifacehandle", 32_000},
 	} {
 		t.Run(c.pkg[2:], func(t *testing.T) {
 			out := t.TempDir()

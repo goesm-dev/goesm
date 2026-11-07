@@ -10,13 +10,19 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### バンドルサイズ
 
-- net/http 以外のどの package も Transport に `net.Dialer` のものか `net.Dial` 以外の dialer を与えないプログラムでは、`net/http` のクライアントは TLS、HTTP/2、X.509、楕円曲線を含む Transport 自身の接続処理を出力せず、すべてのリクエストを `fetch` で送るようになりました。`http.Get` を呼ぶパッケージは minify 後 2.6 MB から 980 KB (gzip で 757 KB から 262 KB、`TestBundleSize/httpget`) に、`compare/rpc` の Connect クライアントは gzip で 951 KiB から 484 KiB になりました。それでも自身の接続処理が必要になる Transport は error を返します。local address、resolver、control 関数のいずれかを設定した `net.Dialer` を持つ Transport と、`fetch` のない host 上の Transport がこれにあたります。JavaScript の host ではどちらも dial に失敗するだけでした。
+- net/http 以外のどの package も Transport に `net.Dialer` のものか `net.Dial` 以外の dialer を与えないプログラムでは、`net/http` のクライアントは TLS、HTTP/2、X.509、楕円曲線を含む Transport 自身の接続処理を出力せず、すべてのリクエストを `fetch` で送るようになりました。アイドル接続のプールが渡す接続を dial する処理と、dial のときだけ呼ぶ `DefaultTransport` の `Proxy` (`ProxyFromEnvironment`) も同じく出力しません。`http.Get` を呼ぶパッケージは minify 後 2.6 MB から 603 KB (gzip で 757 KB から 167 KB、`TestBundleSize/httpget`) に、`compare/rpc` の Connect クライアントは gzip で 951 KiB から 395 KiB になりました。それでも自身の接続処理が必要になる Transport は error を返します。local address、resolver、control 関数のいずれかを設定した `net.Dialer` を持つ Transport と、`fetch` のない host 上の Transport がこれにあたります。JavaScript の host ではどちらも dial に失敗するだけでした。
 - 有効な定数パターンの `regexp.MustCompile` か `regexp.Compile` で初期化するパッケージ変数は、ほかの副作用のない初期化子と同じく、使われなければ初期化子ごと出力しないようになりました。このような変数を持つパッケージを import するだけで、Go のパーサーとエンジンを含む regexp がバンドルに残っていました (`TestBundleSize/unusedre` で minify 後 118 KB から 10 KB)。
 - 文字列、真偽値、数値に対する verb だけからなる定数の書式の `fmt.Sprintf` と `fmt.Errorf` は、JavaScript と書式が異なる値 (2^53 を超える `int`、`toFixed` が strconv と異なる書式にする浮動小数点数) のために `reflect` を含む fmt の printer を残さなくなりました。それらの値は runtime が fmt と同じく書式化します。`Sprintf("%s has %d items", ...)` を呼ぶパッケージは gzip で 34.8 KB から 11.2 KB になりました。
 - `encoding/json`（runtime のデコーダーが返すエラーの作り方）、`reflect`（同じエラーのための `TypeOf`）、`net/netip`（`unique.Make`）、`internal/godebug`（更新関数。設定を初めて調べるときに runtime に渡すようになりました）、`syscall`（ホストの `fs`、`process`、`path` と `open` のフラグ）の初期化は、これらのパッケージを import していても初期化したものを使わないプログラムでは実行しなくなりました。`encoding/json` と `net/url` を使うパッケージを import し、どちらも要らない関数だけを呼ぶパッケージは、minify 後 28.3 KB から 10.3 KB になります (`testdata/bundlesize/unusedinit`)。`time` だけを使うパッケージ (`timeonly`) は 33.1 KB から 26.5 KB になります。
+- 複合リテラルか代入で構造体の関数フィールドに入れる標準ライブラリの関数は、到達できるコードがそのフィールドを呼ばず読みもしないとき、出力しないようになりました。そのフィールドの値は呼ばれることがありません。
+- vendor された `golang.org/x/net/idna` の `ToASCII` は、`net/http` が ASCII でない host に対して呼びます。この関数は Punycode プロファイルで符号化し、ほかのプロファイルの対応付けと検証を通らないようになりました。これまでは HTTP クライアントを持つすべてのプログラムに IDNA と bidi の表 (minify 後約 140 KB) が残っていました。Punycode プロファイルは対応付けも検証もしないので、結果は変わりません。
+- `crypto/rand.Read` は、FIPS 140 の CTR_DRBG を通らずにホストの乱数源から読みます。これまでは乱数を読むすべてのプログラムに AES が残っていました。goesm のプログラムでは FIPS 140 モードを有効にできず、Go も FIPS 140 モードの外では OS から読みます。
+- export が `any` などの interface 型の値を返すか受け取るパッケージは、JavaScript が呼べるメソッドを、JavaScript に渡る interface 型の値に入る型についてだけ残すようになりました。JavaScript に渡る interface 型は、export の型、export する関数が別の interface 型に変換する型、プログラム自身のパッケージがそのどれかに変換する型と、それらに変換する値の中にある interface 型 (`any` に入れた `[]Value` など) です。これまでは、プログラムのパッケージがポインタを入れる別の interface 型の値 (Connect の `HTTPClient` としての `*http.Client` など) があると、その型のメソッドがすべて残っていました。`TestBundleSize/ifacehandle` は minify 後 121 KB から 26 KB になりました。
+- 条件が定数で実行されることのない `if` 文の分岐 (`const debug = false; if debug { ... }`) は、Go がその分岐のコードを生成しないのと同じく出力しないようになりました。分岐の中の呼び出しは、呼び出し先を残さなくなりました。
 
 ### 性能
 
+- 構造体型の関数フィールドと関数の仮引数のうち、既知の関数 (宣言された関数か関数リテラル) だけを持つものを通した呼び出しは、それらの関数のどれかがブロックするときだけブロックします。このような変数の呼び出しはすでにそうなっていました。`sync.Pool` の `Get` は `New` を呼びますが、どれかのプールの `New` がブロックしない限り同期関数のままです。呼び出し元がブロックしない関数だけを渡す関数は、同じシグネチャの別の関数値がブロックしても同期関数のままです。到達できるコードが呼ばない関数 (goesm はスタブとして出力します) と、定数の条件で実行されない分岐は、呼び出し元を async にしなくなりました (`testdata/programs/funcfields`)。`reflect.Value.Set` を呼ぶプログラムで、reflection がポインタを通して到達する構造体のエクスポートされたフィールドは、reflection が値を入れられるフィールドです。このフィールドは、reflection がそこで得られる関数値も持つものとして扱います。Go のコードがインターフェース値に入れる関数値と、reflection が到達する同じ型のフィールドの関数値です (`testdata/programs/reflectset`、`reflectcopy`)。
 - `math.Mod`、`Max`、`Min`、`Frexp`、`Ldexp`、`Modf` を native にし、`Sin`、`Cos`、`Tan`、`Sincos` は八分円の番号を `int` で持つようにしました。Go の本体は浮動小数点数を BigInt である `uint64` で分解していました。
 - Keccak-f[1600] (SHA-3、SHAKE、ML-KEM、ML-DSA) はレーンを 32 ビットの半分ずつで、ML-DSA の体の演算は積を 16 ビットの半分ずつで計算し、BigInt を使わなくなりました。ML-DSA-65 の JWT の発行と検証は Bun で 46 ms になり、@noble/post-quantum と同じです (`compare/pqjwt`)。
 - 呼び出し先が宣言された同期関数で、仮引数を変更せず、アドレスを取らず、保持もしないとき、構造体と配列の引数をコピーせずに渡します。ただし、引数がほかから到達できないローカル変数であるか、呼び出し先がメモリに書き込まない場合に限ります。ポインタ、クロージャ、go 文、defer 文のいずれからも到達できない構造体と配列のローカル変数と名前付き戻り値は、コピーせずに返します。
@@ -29,6 +35,7 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### 修正
 
+- エントリーパッケージのエクスポートされた関数が関数の仮引数を呼ぶとき、その型の関数値のどれかがブロックするなら、その関数は async になります。JavaScript は Go から受け取った関数をその仮引数に渡すことがあるためです。export が受け取るか返す構造体型の関数フィールドも同じです。Go のコードがそのような関数を渡さない仮引数 (`func Apply(f func() string) string`) は Go が渡すものだけを持つと扱われ、`Apply` はブロックする `f` の Promise で計算していました (`test/js/poc.test.mjs`)。
 - goesm の数値が wrap しないために負になった `uint` を、fmt は Go が `uint(0)-1` を 18446744073709551615 と表示するのと同じく `uint64` への変換として書式化するようになりました。以前は負の数として表示していました (`testdata/programs/sprintfconcat`)。
 - ポスト量子暗号が native Go と一致するようになりました (`testdata/programs/pqcrypto`: ML-KEM、ML-DSA、SHA-3 と SHAKE、X25519、HKDF、ML-KEM-768 + X25519 を含む `crypto/hpke` のすべての KEM、KDF、AEAD)。
   - core type が配列である型パラメータの値 (`crypto/internal/fips140/mlkem` の `func polyAdd[T ~[n]fieldElement](a, b T)`) への添字アクセスが lowering に失敗し ("interface conversion: types.Type is *types.Interface, not *types.Array")、その関数は呼ぶと panic する stub になっていました。
