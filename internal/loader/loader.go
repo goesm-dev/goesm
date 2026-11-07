@@ -308,6 +308,10 @@ func replacingParser(goroot string, mem *memOverlay) func(*token.FileSet, string
 // "//goesm:original name" keeps the declaration it replaces, renamed to name,
 // so it can call it.
 //
+// A patch variable declaration whose doc comment has the directive
+// "//goesm:droporiginal" removes the declarations of the variables it
+// replaces instead, so their original initializers do not run.
+//
 // A package may have several init functions, so a patch's init replaces only
 // those of the file it patches.
 func patch(fset *token.FileSet, f *ast.File, names map[string]bool, importPath, base string) (*ast.File, error) {
@@ -321,8 +325,18 @@ func patch(fset *token.FileSet, f *ast.File, names map[string]bool, importPath, 
 	}
 	patchesInit := false
 	originals := map[string]string{} // replaced declaration -> name it keeps
+	dropped := map[string]bool{}     // replaced variables whose declarations go
 	if pf != nil {
 		for _, d := range pf.Decls {
+			if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.VAR && g.Doc != nil {
+				for _, c := range g.Doc.List {
+					if strings.TrimSpace(c.Text) == "//goesm:droporiginal" {
+						for _, n := range natives.DeclNames(g) {
+							dropped[n] = true
+						}
+					}
+				}
+			}
 			fd, ok := d.(*ast.FuncDecl)
 			if !ok {
 				continue
@@ -356,6 +370,14 @@ func patch(fset *token.FileSet, f *ast.File, names map[string]bool, importPath, 
 				}
 			}
 		case *ast.GenDecl:
+			specs := d.Specs[:0]
+			for _, s := range d.Specs {
+				if vs, ok := s.(*ast.ValueSpec); ok && allDropped(vs, dropped) {
+					continue
+				}
+				specs = append(specs, s)
+			}
+			d.Specs = specs
 			for _, s := range d.Specs {
 				switch s := s.(type) {
 				case *ast.TypeSpec:
@@ -399,6 +421,16 @@ func patch(fset *token.FileSet, f *ast.File, names map[string]bool, importPath, 
 	}
 	f.Decls = append(append(imports, f.Decls...), rest...)
 	return f, nil
+}
+
+// allDropped reports whether every variable vs declares is in dropped.
+func allDropped(vs *ast.ValueSpec, dropped map[string]bool) bool {
+	for _, n := range vs.Names {
+		if !dropped[n.Name] {
+			return false
+		}
+	}
+	return len(vs.Names) > 0
 }
 
 func importKey(is *ast.ImportSpec) string {

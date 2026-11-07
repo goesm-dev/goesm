@@ -232,6 +232,30 @@ var effFree = map[string]bool{
 	"os.runtime_args":                  true,
 	"time.runtimeNano":                 true,
 	"errors.New":                       true,
+	// The patch of encoding/json hands the runtime the makers of its
+	// errors (goesmErrors), which only decoding reads: Unmarshal reads
+	// goesmErrors, so the registration runs whenever Unmarshal can.
+	"encoding/json.registerErrors": true,
+	// unique.Make interns its value: a handle another Make returns compares
+	// equal whichever call entered the value first, so leaving out a Make
+	// nothing reads changes nothing (net/netip's z4 and z6noz, which kept
+	// unique, sync and their types in every program importing net/url).
+	"unique.Make": true,
+	// internal/godebug's init hands the runtime its update function, which
+	// fills the cache that only lookup reads; the patch of godebug.go calls
+	// it again before the first lookup, so the init runs only if a variable
+	// it assigns is used (it assigns none).
+	"internal/godebug.setUpdate":           true,
+	"internal/godebug.setNewIncNonDefault": true,
+	// reflect hands the runtime TypeOf for the errors of its JSON decoder
+	// (goesmTypeOf), which only matters once a program can look at a Type:
+	// toType and Value.Type read goesmTypeOf.
+	"reflect.registerTypeOf": true,
+	// syscall's host objects and fs flags (the patch of fs_js.go), which
+	// the runtime makes when asked, and its environment, a new slice.
+	"syscall.hostValue":    true,
+	"syscall.hostFlag":     true,
+	"syscall.runtime_envs": true,
 	// internal/bytealg's assembly functions, which natives.ts implements:
 	// they only read their arguments.
 	"internal/bytealg.Compare":         true,

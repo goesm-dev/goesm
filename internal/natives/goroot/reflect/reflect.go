@@ -600,7 +600,7 @@ func overflowFloat32(x float64) bool {
 }
 
 func toType(t *rtype) Type {
-	if t == nil {
+	if t == nil || !goesmTypeOf {
 		return nil
 	}
 	return t
@@ -611,8 +611,12 @@ func TypeOf(i any) Type { return toType(ifaceType(i)) }
 
 // goesmTypeOf hands the runtime reflect.TypeOf(ptr).Elem(), for the Type
 // fields of the errors of encoding/json it makes in a program without the
-// package (runtime/src/json.ts).
-var goesmTypeOf = registerTypeOf(func(ptr any) Type { return TypeOf(ptr).Elem() }, (*Type)(nil))
+// package (runtime/src/json.ts). It is true. toType and Value.Type, which
+// make the Types a program can have but for the runtime's, read it, so
+// that the registration runs whenever a program can look at a Type, and
+// a program that only imports reflect leaves it out (registerTypeOf in
+// effFree, internal/lower/effects.go).
+var goesmTypeOf = registerTypeOf(func(ptr any) Type { return typeElem(ifaceType(ptr)) }, (*Type)(nil))
 
 func registerTypeOf(f func(any) Type, typePtr any) bool
 
@@ -838,7 +842,7 @@ func (v Value) IsValid() bool { return v.typ != nil }
 
 // Type returns v's type.
 func (v Value) Type() Type {
-	if v.typ == nil {
+	if v.typ == nil || !goesmTypeOf {
 		panic(&ValueError{"reflect.Value.Type", Invalid})
 	}
 	return v.typ

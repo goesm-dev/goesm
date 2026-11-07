@@ -38,7 +38,7 @@ import (
 // Unmarshal parses the JSON-encoded data and stores the result
 // in the value pointed to by v.
 func Unmarshal(data []byte, v any) error {
-	if fastUnmarshal(data, v) {
+	if goesmErrors && fastUnmarshal(data, v) {
 		return nil
 	}
 	if jsonV2() {
@@ -65,6 +65,8 @@ func fastUnmarshal(data []byte, v any) bool
 
 // goesmErrors hands the runtime the makers of Unmarshal's errors, which it
 // returns when it decodes a value itself (jsonDecode in runtime/src/json.ts).
+// It is true. Unmarshal reads it, so that a program that never decodes
+// leaves the registration out with what the error makers use.
 var goesmErrors = registerErrors(
 	func(msg string, offset int64) error { return &SyntaxError{msg: msg, Offset: offset} },
 	func(value string, ptr any, offset int64, structName, field string) error {

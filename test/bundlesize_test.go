@@ -56,6 +56,11 @@ func TestBundleSize(t *testing.T) {
 		// 553 KB with encoding/json, json v2 and jsontext, which the
 		// runtime's decoder does without.
 		{"./jsondecode", 45_000},
+		// 28 KB when the initializers of encoding/json, reflect and
+		// net/netip (unique.Make), internal/godebug and syscall (the
+		// host's fs) ran in a program that imports them through another
+		// package and uses none of what they set up.
+		{"./unusedinit", 12_000},
 	} {
 		t.Run(c.pkg[2:], func(t *testing.T) {
 			out := t.TempDir()
