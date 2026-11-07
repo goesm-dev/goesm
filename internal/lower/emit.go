@@ -272,7 +272,7 @@ func (pe *pkgEmitter) leftOut(fd *ast.FuncDecl) bool {
 	case "regexp":
 		switch fd.Name.Name {
 		case "compileGo", "findGo", "quote", "compileError":
-			return pe.prog.RegexpJS() != nil
+			return pe.prog.RegexpOnlyJS()
 		}
 	}
 	return false

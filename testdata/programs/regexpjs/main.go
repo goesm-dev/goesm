@@ -84,6 +84,13 @@ var patterns = []*regexp.Regexp{
 	regexp.MustCompile(`url\(["']?([^"')]+)["']?\)`),
 	regexp.MustCompile(`url\(([^)]+?\.woff2)\)`),
 	regexp.MustCompile(`@font-face\s*\{[^}]*\}`),
+	// Repetitions of a subexpression that matches the empty string only
+	// as its last choice (denull).
+	regexp.MustCompile(`^</([A-Za-z][A-Za-z0-9-]*)(?:[ \t]|(?:\r\n|\n){0,1})*>`),
+	regexp.MustCompile(`(?:a|b?)*c`),
+	regexp.MustCompile(`x(?:y|z*)+`),
+	regexp.MustCompile(`(?:a|b{0,2})*b`),
+	regexp.MustCompile(`(?:[ \t]|\n?)+#`),
 }
 
 var inputs = []string{
@@ -134,6 +141,10 @@ var inputs = []string{
 	"u: a b; u:x; u:  ;",
 	`url("a.woff2") url(b.woff2) url('c.ttf')`,
 	"@font-face { src: x } @font-face{} @font-face {",
+	"</em> </div \x0d\x0a> </p\x0a\x0a> </a\t >",
+	"aabbc bc c xyzzy xzzyz",
+	"abbbab bb",
+	" \x0a #  \x0a\x0a#",
 }
 
 func main() {
