@@ -29,38 +29,38 @@ Web アプリが普段は人気の JavaScript ライブラリに任せる処理�
 | 比較対象 | Go パッケージ | goesm gzip | JS gzip | 比 |
 | --- | --- | --- | --- | --- |
 | luxon | `datetime` | 19.8 KiB | 21.7 KiB | 0.91× |
-| neverthrow | `result` | 41.0 KiB | 2.4 KiB | 17.18× |
-| neverthrow (light) | `light/result` | 15.5 KiB | 2.4 KiB | 6.49× |
-| connect-es | `rpc` | 949.6 KiB | 32.9 KiB | 28.90× |
-| connect-es (light) | `light/rpc` | 14.1 KiB | 32.9 KiB | 0.43× |
-| react | `render` | 215.1 KiB | 64.3 KiB | 3.34× |
-| react (light) | `light/render` | 11.5 KiB | 64.3 KiB | 0.18× |
-| vitepress | `markdown` | 150.8 KiB | 40.4 KiB | 3.73× |
-| astro | `markdown` | 150.8 KiB | 47.2 KiB | 3.19× |
+| neverthrow | `result` | 41.2 KiB | 2.4 KiB | 17.25× |
+| neverthrow (light) | `light/result` | 15.7 KiB | 2.4 KiB | 6.57× |
+| connect-es | `rpc` | 949.0 KiB | 32.9 KiB | 28.88× |
+| connect-es (light) | `light/rpc` | 14.3 KiB | 32.9 KiB | 0.43× |
+| react | `render` | 215.3 KiB | 64.3 KiB | 3.35× |
+| react (light) | `light/render` | 11.6 KiB | 64.3 KiB | 0.18× |
+| vitepress | `markdown` | 151.0 KiB | 40.4 KiB | 3.74× |
+| astro | `markdown` | 151.0 KiB | 47.2 KiB | 3.20× |
 | vue | `reactive` | 7.0 KiB | 5.3 KiB | 1.32× |
-| tailwind | `utility` | 54.0 KiB | 72.2 KiB | 0.75× |
-| marked | `gfm` | 158.9 KiB | 13.4 KiB | 11.85× |
-| smol-toml | `invoice` | 100.7 KiB | 6.6 KiB | 15.23× |
-| @noble/post-quantum | `pqjwt` | 101.7 KiB | 9.5 KiB | 10.66× |
-| @bufbuild/protobuf | `protomsg` | 197.6 KiB | 18.1 KiB | 10.92× |
+| tailwind | `utility` | 54.2 KiB | 72.2 KiB | 0.75× |
+| marked | `gfm` | 159.1 KiB | 13.4 KiB | 11.86× |
+| smol-toml | `invoice` | 100.9 KiB | 6.6 KiB | 15.26× |
+| @noble/post-quantum | `pqjwt` | 101.9 KiB | 9.5 KiB | 10.69× |
+| @bufbuild/protobuf | `protomsg` | 197.5 KiB | 18.1 KiB | 10.92× |
 
 | 比較対象 | node 26.10.0 goesm | node 26.10.0 JS | 比 | bun 1.4.2 goesm | bun 1.4.2 JS | 比 |
 | --- | --- | --- | --- | --- | --- | --- |
-| luxon | 3.3 ms | 7.4 ms | 0.44× | 5.7 ms | 7.5 ms | 0.76× |
-| neverthrow | 0.39 ms | 0.37 ms | 1.05× | 0.50 ms | 0.47 ms | 1.07× |
-| neverthrow (light) | 0.35 ms | 0.36 ms | 0.96× | 0.54 ms | 0.46 ms | 1.17× |
-| connect-es | 17 ms | 2.2 ms | 7.93× | 20 ms | 1.8 ms | 11.14× |
-| connect-es (light) | 1.5 ms | 2.2 ms | 0.71× | 1.1 ms | 2.0 ms | 0.54× |
-| react | 2.4 ms | 1.1 ms | 2.07× | 2.7 ms | 1.7 ms | 1.57× |
-| react (light) | 0.15 ms | 1.4 ms | 0.11× | 0.17 ms | 1.7 ms | 0.10× |
-| vitepress | 0.30 ms | 0.19 ms | 1.56× | 0.52 ms | 0.14 ms | 3.78× |
-| astro | 0.32 ms | 1.9 ms | 0.17× | 0.41 ms | 2.5 ms | 0.17× |
-| vue | 4.8 ms | 5.4 ms | 0.89× | 5.2 ms | 4.6 ms | 1.13× |
-| tailwind | 2.0 ms | 4.1 ms | 0.50× | 2.8 ms | 3.5 ms | 0.80× |
-| marked | 2.1 ms | 0.80 ms | 2.59× | 3.7 ms | 1.3 ms | 2.75× |
-| smol-toml | 8.2 ms | 0.96 ms | 8.55× | 16 ms | 0.69 ms | 23.51× |
-| @noble/post-quantum | 57 ms | 28 ms | 2.04× | 46 ms | 47 ms | 0.99× |
-| @bufbuild/protobuf | 13 ms | 1.9 ms | 6.72× | 9.9 ms | 1.9 ms | 5.28× |
+| luxon | 2.8 ms | 7.2 ms | 0.38× | 5.4 ms | 7.6 ms | 0.71× |
+| neverthrow | 0.39 ms | 0.35 ms | 1.11× | 0.48 ms | 0.52 ms | 0.94× |
+| neverthrow (light) | 0.39 ms | 0.38 ms | 1.02× | 0.57 ms | 0.55 ms | 1.04× |
+| connect-es | 18 ms | 2.1 ms | 8.39× | 20 ms | 2.0 ms | 9.77× |
+| connect-es (light) | 1.6 ms | 2.1 ms | 0.73× | 1.2 ms | 1.9 ms | 0.61× |
+| react | 2.3 ms | 1.4 ms | 1.64× | 3.1 ms | 1.8 ms | 1.69× |
+| react (light) | 0.16 ms | 1.4 ms | 0.12× | 0.15 ms | 1.8 ms | 0.08× |
+| vitepress | 0.32 ms | 0.19 ms | 1.63× | 0.46 ms | 0.13 ms | 3.45× |
+| astro | 0.30 ms | 2.0 ms | 0.15× | 0.42 ms | 2.6 ms | 0.16× |
+| vue | 5.0 ms | 4.7 ms | 1.06× | 5.3 ms | 4.7 ms | 1.12× |
+| tailwind | 2.0 ms | 3.7 ms | 0.54× | 2.7 ms | 3.5 ms | 0.77× |
+| marked | 1.7 ms | 0.81 ms | 2.08× | 2.2 ms | 1.3 ms | 1.75× |
+| smol-toml | 6.2 ms | 0.89 ms | 7.04× | 9.6 ms | 0.68 ms | 14.26× |
+| @noble/post-quantum | 56 ms | 30 ms | 1.84× | 44 ms | 46 ms | 0.95× |
+| @bufbuild/protobuf | 14 ms | 1.9 ms | 7.40× | 9.6 ms | 1.9 ms | 4.93× |
 <!-- compare:end -->
 
 サイズは minify した ES モジュールのバンドルを gzip のレベル 9 で圧縮したものである。時間は、ウォームアップ後に処理を 1 回実行した時間の中央値である。connect-es の処理では、エンコード済みの応答を返す `fetch` を同じプロセス内に置く。このため、計測するのはクライアントの処理だけ、すなわちリクエストのエンコード、プロトコルの処理、応答のデコードである。
