@@ -60,7 +60,9 @@ var regexpJSFuncs = map[string]bool{
 }
 
 // regexpGoFuncs need Go's engine: leftmost-longest matching, a RuneReader
-// read as far as the match needs, or a pattern given at run time.
+// read as far as the match needs, or a pattern given at run time. A Regexp
+// that matches with a RegExp matches with Go's engine for them (goEngine
+// in the patch of regexp.go).
 var regexpGoFuncs = map[string]bool{
 	"regexp.CompilePOSIX": true, "regexp.MustCompilePOSIX": true, "regexp.MatchReader": true,
 	"(*regexp.Regexp).Longest": true, "(*regexp.Regexp).MatchReader": true,
@@ -68,15 +70,31 @@ var regexpGoFuncs = map[string]bool{
 	"(*regexp.Regexp).UnmarshalText": true,
 }
 
-// RegexpJS returns the jsPattern entries of the patterns the program
-// compiles, if it matches every regular expression with a RegExp
-// (regexpjs.go), or nil.
+// RegexpJS returns the jsPattern entries of the patterns known at compile
+// time that the program compiles and that translateRegexp translates
+// (regexpjs.go), or nil if there are none. Those patterns match with a
+// RegExp, and the others with Go's engine.
 func (p *Program) RegexpJS() map[string]string {
 	p.reachOnce.Do(p.reach)
-	if p.regexpGo || len(p.regexpPatterns) == 0 {
-		return nil
+	var pats map[string]string
+	for expr, e := range p.regexpPatterns {
+		if e == "" {
+			continue
+		}
+		if pats == nil {
+			pats = map[string]string{}
+		}
+		pats[expr] = e
 	}
-	return p.regexpPatterns
+	return pats
+}
+
+// RegexpOnlyJS reports whether the program matches every regular
+// expression with a RegExp, so that it leaves out Go's parser and engines
+// (regexpLeftOut).
+func (p *Program) RegexpOnlyJS() bool {
+	p.reachOnce.Do(p.reach)
+	return !p.regexpGo && len(p.regexpPatterns) > 0
 }
 
 // UnicodeClasses reports whether the program may parse a regular expression

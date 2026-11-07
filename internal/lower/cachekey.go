@@ -171,7 +171,7 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 				exprs = append(exprs, expr)
 			}
 			sort.Strings(exprs)
-			fmt.Fprintf(h, "regexpJS %v\n", pats != nil)
+			fmt.Fprintf(h, "regexpJS %v\n", p.RegexpOnlyJS())
 			for _, expr := range exprs {
 				fmt.Fprintf(h, "%q %q\n", expr, pats[expr])
 			}
