@@ -3,9 +3,11 @@ package lower
 import (
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -230,6 +232,43 @@ var effFree = map[string]bool{
 	"os.runtime_args":                  true,
 	"time.runtimeNano":                 true,
 	"errors.New":                       true,
+	// internal/bytealg's assembly functions, which natives.ts implements:
+	// they only read their arguments.
+	"internal/bytealg.Compare":         true,
+	"internal/bytealg.Count":           true,
+	"internal/bytealg.CountString":     true,
+	"internal/bytealg.Equal":           true,
+	"internal/bytealg.Index":           true,
+	"internal/bytealg.IndexString":     true,
+	"internal/bytealg.IndexByte":       true,
+	"internal/bytealg.IndexByteString": true,
+}
+
+// constPattern reports whether call compiles a regular expression that is
+// a valid constant, which has no effect besides allocating the Regexp:
+// regexp.MustCompile of a pattern known at compile time. The analysis cannot
+// tell by itself, as Go's parser keeps its state in memory it cannot
+// attribute and the program may match with RegExps (regexpjs.go), so a
+// package variable holding such a Regexp kept its package in every bundle
+// that imported it.
+func constPattern(info *types.Info, fn *types.Func, call *ast.CallExpr) bool {
+	if fn.Pkg() == nil || fn.Pkg().Path() != "regexp" || len(call.Args) != 1 {
+		return false
+	}
+	compile := regexp.Compile
+	switch fn.Name() {
+	case "Compile", "MustCompile":
+	case "CompilePOSIX", "MustCompilePOSIX":
+		compile = regexp.CompilePOSIX
+	default:
+		return false
+	}
+	tv, ok := info.Types[call.Args[0]]
+	if !ok || tv.Value == nil || tv.Value.Kind() != constant.String {
+		return false
+	}
+	_, err := compile(constant.StringVal(tv.Value))
+	return err == nil
 }
 
 // effFreeIface are the interfaces whose methods (but those listed) have no
@@ -685,7 +724,7 @@ func (a *effAnalysis) callee(info *types.Info, top *effTop, locals map[*types.Va
 		return c
 	}
 	c.fn = c.fn.Origin()
-	if effFree[c.fn.FullName()] {
+	if effFree[c.fn.FullName()] || !a.p.async[c.fn] && constPattern(info, c.fn, call) {
 		c.free = true
 		return c
 	}

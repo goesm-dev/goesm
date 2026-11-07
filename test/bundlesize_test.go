@@ -43,6 +43,10 @@ func TestBundleSize(t *testing.T) {
 		{"./atoi", 20_000},
 		// 210 KB with regexp's parser and engines.
 		{"./datere", 40_000},
+		// 215 KB when the initializers of an imported package's
+		// variables compiling constant patterns ran though nothing used
+		// the variables, keeping regexp with its parser and engines.
+		{"./unusedre", 16_000},
 		// 553 KB with encoding/json, json v2 and jsontext, which the
 		// runtime's decoder does without.
 		{"./jsondecode", 45_000},
