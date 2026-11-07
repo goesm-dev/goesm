@@ -1953,7 +1953,11 @@ let theFS: any = null;
 // hostValue gives package syscall the host's fs, process and path
 // (patch/syscall/fs_js.go). v is the js.Value to set.
 export function native$syscall$hostValue(v: any, name: string): void {
-  v.ref = toRef(name === "fs" ? hostFS() : name === "path" ? hostPath() : (globalThis as any).process ?? hostProcess());
+  v.ref = toRef(name === "fs" ? hostFS() : name === "path" ? hostPath() : name === "Uint8Array" ? Uint8Array : (globalThis as any).process ?? hostProcess());
+}
+export function native$syscall$hostFlag(name: string): number {
+  const c = hostFS().constants[name];
+  return typeof c === "number" ? c : -1;
 }
 
 // hostPath is node:path for syscall's jsPath.resolve, as wasm_exec_node.js
