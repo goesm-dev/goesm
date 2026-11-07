@@ -487,3 +487,35 @@ func (p *Program) jsonLeftOut() map[string]bool {
 	}
 	return map[string]bool{"encoding/json.marshalV2": true, "encoding/json.unmarshalV2": true}
 }
+
+// jsonErrorTypes are the error types of encoding/json that the runtime
+// returns from the calls it decodes itself (jsonDecode).
+var jsonErrorTypes = map[string]bool{"SyntaxError": true, "UnmarshalTypeError": true, "InvalidUnmarshalError": true}
+
+// keepJSONErrors runs encoding/json's goesmErrors whenever code outside
+// encoding/json names one of jsonErrorTypes, so that the runtime returns
+// errors of those types (err.(*json.UnmarshalTypeError), errors.As) and
+// not of its own (shadowErrors in runtime/src/json.ts). Otherwise only
+// Unmarshal reads goesmErrors, and a program whose calls of Unmarshal are
+// all lowered to jsonDecode leaves the registration out.
+func (p *Program) keepJSONErrors() {
+	var errorsVar *types.Var
+	names := false
+	for _, pkg := range p.Pkgs {
+		if pkg.PkgPath == "encoding/json" {
+			if v, ok := pkg.Types.Scope().Lookup("goesmErrors").(*types.Var); ok {
+				errorsVar = v
+			}
+			continue
+		}
+		for _, obj := range pkg.TypesInfo.Uses {
+			if tn, ok := obj.(*types.TypeName); ok && tn.Pkg() != nil && tn.Pkg().Path() == "encoding/json" && jsonErrorTypes[tn.Name()] {
+				names = true
+				break
+			}
+		}
+	}
+	if names && errorsVar != nil {
+		delete(p.lazyVars, errorsVar)
+	}
+}
