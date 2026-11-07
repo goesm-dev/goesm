@@ -61,10 +61,10 @@ What the Go code adds to a page's JavaScript, measured with `goesm build -minify
 | What the page uses | gzip |
 | --- | ---: |
 | `syscall/js` DOM code (a counter button, [dom.md](dom.md)) | 9 KiB |
-| A function using `strings.Fields`, `Join` and `ToLower` | 15 KiB |
-| The counter written with `honnef.co/go/js/dom/v2` | 50 KiB |
-| `fmt` (hello world) | 90 KiB |
-| Decoding JSON into structs with `encoding/json` (which brings `reflect`) | 193 KiB |
+| A function using `strings.Fields`, `Join` and `ToLower` | 9 KiB |
+| The counter written with `honnef.co/go/js/dom/v2` | 27 KiB |
+| `fmt` (hello world) | 13 KiB |
+| Decoding JSON into structs with `encoding/json` | 16 KiB |
 | A Connect client (protobuf, `net/http`; [compare/rpc](../compare/rpc/rpc.go)) | 484 KiB |
 
 ## Go libraries used from JavaScript and TypeScript
@@ -93,7 +93,7 @@ Go code calls the functions and uses the values of ES modules it declares with `
 These are known gaps between the 75th and 95th percentiles; code that needs them may still work in part.
 
 - **Fields of handles:** a pointer to a struct type with methods reaches JavaScript as the Go object itself, so its fields hold Go's own representation; data is read through methods and functions.
-- **Bundle size.** A package using `fmt.Sprintf` or `fmt.Println` is about 35 KiB gzip: fmt's printer and the parts of `reflect` and `strconv` it uses for any argument that goesm does not format by concatenation. A package variable whose initializer goesm cannot show to be free of effects, such as one calling through an interface or a function value, keeps its package in the bundle even when the importer uses none of it; an initializer that only computes its variable, `regexp.MustCompile` of a constant pattern included, is left out with the unused variable. `net/http`'s client sends requests with `fetch` and leaves out the Transport's own connections, with TLS and HTTP/2, unless the program gives a Transport a dialer of its own: `http.Get` is about 260 KiB, mostly the IDNA tables of `x/net` and the types of `crypto/tls` that requests and responses mention, and about 750 KiB with a custom dialer. Code that uses only parts of `time`, `strings` or `strconv` stays small: six functions of `time` come to 13 KiB. `regexp` with patterns known at compile time matches with the engine's `RegExp` and adds about 5 KiB; a pattern given at run time, or one whose backtracking could take more than quadratic time, such as `(a+)+b` or `\d+\d+$`, keeps Go's engines, about 60 KiB.
+- **Bundle size.** A package calling `fmt.Sprintf` or `fmt.Errorf` with a constant format whose verbs apply to strings, booleans and numbers is about 12 KiB gzip, as goesm formats them by concatenation; any other argument, such as a `%v` of an interface value or a struct, brings fmt's printer and the parts of `reflect` and `strconv` it uses, about 37 KiB. A package variable whose initializer goesm cannot show to be free of effects, such as one calling through an interface or a function value, keeps its package in the bundle even when the importer uses none of it; an initializer that only computes its variable, `regexp.MustCompile` of a constant pattern included, is left out with the unused variable. `net/http`'s client sends requests with `fetch` and leaves out the Transport's own connections, with TLS and HTTP/2, unless the program gives a Transport a dialer of its own: `http.Get` is about 260 KiB, mostly the IDNA tables of `x/net` and the types of `crypto/tls` that requests and responses mention, and about 750 KiB with a custom dialer. Code that uses only parts of `time`, `strings` or `strconv` stays small: six functions of `time` come to 13 KiB. `regexp` with patterns known at compile time matches with the engine's `RegExp` and adds about 5 KiB; a pattern given at run time, or one whose backtracking could take more than quadratic time, such as `(a+)+b` or `\d+\d+$`, keeps Go's engines, about 60 KiB.
 - **HTTP servers:** HTTP/2 and gRPC's own protocol (Connect and gRPC-Web work), TLS (`ListenAndServeTLS`), WebSockets and `Hijack`, trailers, request bodies streamed while the handler runs, client and bidirectional streaming RPCs, and `Serve` on a `net.Listener`.
 - **Workers beyond `fetch`:** bindings such as KV, D1, R2 and Durable Objects are reachable only through `syscall/js`, and `ctx.waitUntil` is not connected, so goroutines still running after the response may be stopped.
 - **Network and processes:** `net.Dial` and `net.Listen` of raw TCP or UDP, database drivers that dial TCP (`pgx`, `go-sql-driver/mysql`), and `os/exec`.
