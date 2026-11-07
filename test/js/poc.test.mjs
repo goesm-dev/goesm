@@ -293,6 +293,9 @@ test("JS calling ABI: handles inside an any, of generic types, have their method
   assert.equal(m.Lookup("outer").Inner().N(), 9);
   // A handle inside a slice of another interface type inside an any.
   assert.equal(m.Lookup("values")[0].N(), 10);
+  // A function field of a struct a method of such a handle takes holds
+  // what JavaScript gives, here a Go function that waits.
+  assert.equal(await m.Lookup("runner").Run({ F: m.LaterFunc("う") }), "later う#");
   // A handle JavaScript passes for an interface its type is never
   // converted to in Go.
   assert.equal(m.Greet(m.NewDog("ポチ")), "ポチ: わん");

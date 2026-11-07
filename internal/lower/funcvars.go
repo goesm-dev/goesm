@@ -547,7 +547,8 @@ func (p *Program) reflectSets() bool {
 // entryABIFuncFields returns the function fields of the struct types that
 // the JavaScript ABI of the entry packages carries, in the arguments and
 // results of their exported functions and of the methods of their handles,
-// and in what those contain. Before SetEntries there are none.
+// and of the methods JavaScript calls on handles that cross inside interface
+// values, and in what those contain. Before SetEntries there are none.
 func (p *Program) entryABIFuncFields() []*types.Var {
 	var out []*types.Var
 	seen := map[types.Type]bool{}
@@ -612,6 +613,14 @@ func (p *Program) entryABIFuncFields() []*types.Var {
 					}
 				}
 			}
+		}
+	}
+	// The handles that cross inside interface values have methods
+	// JavaScript calls too (anyHandleMethods), which no signature above
+	// names.
+	if len(p.Entries) > 0 {
+		for fn := range p.anyHandleMethods() {
+			walkSig(fn.Signature())
 		}
 	}
 	return out

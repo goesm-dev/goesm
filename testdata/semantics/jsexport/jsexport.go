@@ -282,6 +282,8 @@ func Lookup(name string) any {
 		return registry.GetOuter()
 	case "values":
 		return registry.Values()
+	case "runner":
+		return registry.GetRunner()
 	}
 	return nil
 }
