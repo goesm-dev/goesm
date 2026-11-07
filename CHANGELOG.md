@@ -14,6 +14,15 @@ Changes on `main` since v0.0.1-beta.9: [v0.0.1-beta.9...main](https://github.com
 - A package variable initialized with `regexp.MustCompile` or `regexp.Compile` of a valid constant pattern is left out with its initializer when nothing uses it, as other initializers without effects are: importing a package with such variables kept regexp, with Go's parser and engines, in every bundle (118 KB to 10 KB minified for `TestBundleSize/unusedre`).
 - `fmt.Sprintf` and `fmt.Errorf` with a constant format of verbs for strings, booleans and numbers no longer keep fmt's printer, with `reflect`, for the values JavaScript formats differently (an `int` past 2^53, a float `toFixed` does not format as strconv does): the runtime formats those as fmt does. A package calling `Sprintf("%s has %d items", ...)` goes from 34.8 to 11.2 KB gzipped.
 
+### Performance
+
+- `math.Mod`, `Max`, `Min`, `Frexp`, `Ldexp` and `Modf` are natives, and `Sin`, `Cos`, `Tan` and `Sincos` keep their octant in an `int`: their Go bodies took the float apart through a `uint64`, a BigInt.
+- Keccak-f[1600] (SHA-3, SHAKE, ML-KEM, ML-DSA) runs on 32-bit halves of its lanes, and ML-DSA's field arithmetic on 16-bit halves of its products, instead of on BigInts. Issuing and verifying ML-DSA-65 JWTs takes 46 ms on Bun, as with @noble/post-quantum (`compare/pqjwt`).
+- A struct or array argument is passed without a copy when the callee, a declared synchronous function, never modifies, addresses or keeps its parameter and either the argument is a local variable nothing else reaches or the callee writes no memory. A struct or array local variable or named result that no pointer, closure, go or defer statement reaches is returned without a copy.
+- `string(a) == string(b)` of byte slices, the body of `bytes.Equal`, and `string(a) == "ascii"` compare the bytes without making strings. `encoding/binary`'s and `internal/byteorder`'s 64-bit loads and stores put the value together from two 32-bit halves: 3 BigInt operations for a load instead of 15.
+- A map with interface keys enters a key holding a pointer or a channel under the object instead of serializing the key at each access (`sync.Map`, caches keyed by `reflect.Type`).
+- Decoding and encoding a TOML document with go-toml goes from 16 to 10 ms on Bun (`compare/invoice`), and rendering GFM with goldmark from 3.7 to 2.4 ms (`compare/gfm`).
+
 ### Fixes
 
 - fmt formats a `uint` below zero, which goesm's numbers do not wrap to, as its `uint64` conversion, as Go prints `uint(0)-1` (18446744073709551615), instead of as a negative number (`testdata/programs/sprintfconcat`).

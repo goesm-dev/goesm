@@ -52,6 +52,29 @@ export function decodeRune(s: string, i: number): [number, number] {
   return [0xfffd, 1];
 }
 
+// bytesEq is string(a) == string(b) for byte slices, without making the
+// strings.
+export function bytesEq(a: S<number>, b: S<number>): boolean {
+  const n = a === null ? 0 : a.$length;
+  if (n !== (b === null ? 0 : b.$length)) return false;
+  if (n === 0) return true;
+  const x = a!.$array, i = a!.$offset, y = b!.$array, j = b!.$offset;
+  if (x === y && i === j) return true;
+  for (let k = 0; k < n; k++) if (x[i + k] !== y[j + k]) return false;
+  return true;
+}
+
+// bytesEqASCII is string(a) == s for a byte slice and an ASCII constant,
+// whose code units are its bytes.
+export function bytesEqASCII(a: S<number>, s: string): boolean {
+  const n = s.length;
+  if ((a === null ? 0 : a.$length) !== n) return false;
+  if (n === 0) return true;
+  const x = a!.$array, i = a!.$offset;
+  for (let k = 0; k < n; k++) if (x[i + k] !== s.charCodeAt(k)) return false;
+  return true;
+}
+
 export function bytesToString(b: S<number>): string {
   if (b === null) return "";
   const n = b.$length, a = b.$array, o = b.$offset;

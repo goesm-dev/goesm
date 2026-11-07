@@ -14,6 +14,15 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 - 有効な定数パターンの `regexp.MustCompile` か `regexp.Compile` で初期化するパッケージ変数は、ほかの副作用のない初期化子と同じく、使われなければ初期化子ごと出力しないようになりました。このような変数を持つパッケージを import するだけで、Go のパーサーとエンジンを含む regexp がバンドルに残っていました (`TestBundleSize/unusedre` で minify 後 118 KB から 10 KB)。
 - 文字列、真偽値、数値に対する verb だけからなる定数の書式の `fmt.Sprintf` と `fmt.Errorf` は、JavaScript と書式が異なる値 (2^53 を超える `int`、`toFixed` が strconv と異なる書式にする浮動小数点数) のために `reflect` を含む fmt の printer を残さなくなりました。それらの値は runtime が fmt と同じく書式化します。`Sprintf("%s has %d items", ...)` を呼ぶパッケージは gzip で 34.8 KB から 11.2 KB になりました。
 
+### 性能
+
+- `math.Mod`、`Max`、`Min`、`Frexp`、`Ldexp`、`Modf` を native にし、`Sin`、`Cos`、`Tan`、`Sincos` は八分円の番号を `int` で持つようにしました。Go の本体は浮動小数点数を BigInt である `uint64` で分解していました。
+- Keccak-f[1600] (SHA-3、SHAKE、ML-KEM、ML-DSA) はレーンを 32 ビットの半分ずつで、ML-DSA の体の演算は積を 16 ビットの半分ずつで計算し、BigInt を使わなくなりました。ML-DSA-65 の JWT の発行と検証は Bun で 46 ms になり、@noble/post-quantum と同じです (`compare/pqjwt`)。
+- 呼び出し先が宣言された同期関数で、仮引数を変更せず、アドレスを取らず、保持もしないとき、構造体と配列の引数をコピーせずに渡します。ただし、引数がほかから到達できないローカル変数であるか、呼び出し先がメモリに書き込まない場合に限ります。ポインタ、クロージャ、go 文、defer 文のいずれからも到達できない構造体と配列のローカル変数と名前付き戻り値は、コピーせずに返します。
+- バイトスライスどうしの `string(a) == string(b)` (`bytes.Equal` の本体) と `string(a) == "ascii"` は、文字列を作らずにバイトを比べます。`encoding/binary` と `internal/byteorder` の 64 ビットの読み書きは 32 ビットの半分 2 つから値を組み立て、読み込みの BigInt 演算は 15 回から 3 回になりました。
+- interface をキーにする map は、ポインタかチャネルを持つキーを、アクセスのたびにシリアライズせず、そのオブジェクトで登録します (`sync.Map`、`reflect.Type` をキーにするキャッシュ)。
+- go-toml による TOML 文書のデコードとエンコードは Bun で 16 ms から 10 ms (`compare/invoice`)、goldmark による GFM のレンダリングは 3.7 ms から 2.4 ms (`compare/gfm`) になりました。
+
 ### 修正
 
 - goesm の数値が wrap しないために負になった `uint` を、fmt は Go が `uint(0)-1` を 18446744073709551615 と表示するのと同じく `uint64` への変換として書式化するようになりました。以前は負の数として表示していました (`testdata/programs/sprintfconcat`)。

@@ -124,6 +124,9 @@ const doc = readFileSync(new URL("../../docs/concurrency.md", import.meta.url), 
 // those escapes, so the results compare equal when the documents are.
 const normHTML = (html) => html.replace(/&quot;|&#34;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&gt;/g, ">").replace(/\n+/g, "\n").trim();
 
+// marked also puts table rows on the line of their section's tags.
+const normGFM = (html) => normHTML(html).replace(/>\n</g, "><");
+
 // ---- Tailwind CSS ---------------------------------------------------------
 
 // The class names of a landing page, as Tailwind's scanner finds them, two
@@ -131,6 +134,66 @@ const normHTML = (html) => html.replace(/&quot;|&#34;/g, '"').replace(/&#39;|&#x
 const page = readFileSync(new URL("page.html", import.meta.url), "utf8");
 const classes = [...new Set([...page.matchAll(/class="([^"]*)"/g)].flatMap((m) => m[1].split(/\s+/)).filter(Boolean))];
 const twTheme = readFileSync(new URL("node_modules/tailwindcss/theme.css", import.meta.url), "utf8");
+
+
+// ---- marked ------------------------------------------------------------
+
+// A document with GFM tables, task lists, strikethrough and autolinks.
+const gfmDoc = readFileSync(new URL("../../docs/use-cases.ja.md", import.meta.url), "utf8") +
+  "\n\n- [x] done ~~old~~ https://goesm.dev\n- [ ] todo www.example.com\n";
+
+// ---- smol-toml -----------------------------------------------------------
+
+// An invoice of 40 lines, each with one to three receipts.
+const productNames = ["hosting", "storage", "support", "design", "license"];
+const invoiceToml = (() => {
+  const q = (s) => JSON.stringify(s);
+  let t = `format = 2\n\n[invoice]\nid = "INV-2026-0042"\ndate = "2026-11-07"\ntitle = "2026年10月分 ご請求"\nnotes = """\nお支払いは月末までにお願いします。\nThank you!"""\ntaxed = true\ntax_percent = 10\n\n`;
+  t += `[seller]\nname = "株式会社サンプル"\naddress = "東京都千代田区丸の内 1-1-1"\nemail = "billing@example.com"\n\n`;
+  t += `[buyer]\nname = "Example Corp. 経理部"\naddress = "1 Example Way, Springfield"\nemail = "ap@example.org"\n\n[products]\n`;
+  for (const p of productNames) t += `${p} = ${q(p.toUpperCase() + " プラン")}\n`;
+  for (let i = 0; i < 40; i++) {
+    const p = productNames[i % productNames.length];
+    t += `\n[[lines]]\nsku = "SKU-${1000 + i}"\nproduct = "${p}"\ntext = ${q(`${p} #${i} "Pro" 月額`)}\nqty = ${1 + (i % 4)}\nprice = ${1000 + i * 137}\n`;
+    for (let r = 0; r < 1 + (i % 3); r++) {
+      const usd = (i + r) % 2 === 0;
+      t += `\n[[lines.receipts]]\nday = "2026-10-${String(1 + ((i + r) % 28)).padStart(2, "0")}"\ncurrency = "${usd ? "USD" : "JPY"}"\namount = ${usd ? `${10 + i}.${(r * 25) % 100 || 5}` : `${1500 + i * 3}.0`}\nfile = "receipt-${i}-${r}.pdf"\n`;
+    }
+  }
+  return t;
+})();
+
+// ---- @noble/post-quantum -------------------------------------------------
+
+const pqSeed = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+
+async function pqjwt(m) {
+  const pub = m.PublicKey(pqSeed);
+  const out = [pub.length];
+  // A backend verifies far more tokens than it issues.
+  out.push(m.Issue(pqSeed, "k1", "user-0", 1900000000));
+  for (let i = 0; i < 10; i++) out.push(m.Verify(pqTokens[i % pqTokens.length], pub, 1800000000 + i));
+  return out;
+}
+// The tokens are issued when the module is first run, with the module's
+// own Issue, so that each side verifies tokens it signed; both sides sign
+// deterministically, so the tokens are the same.
+let pqTokens = [];
+function pqSetup(m) {
+  pqTokens = Array.from({ length: 5 }, (_, i) => m.Issue(pqSeed, "k1", `user-${i}`, 1900000000 + i));
+}
+
+// ---- @bufbuild/protobuf ----------------------------------------------------
+
+const encodedLists = owners.map((o, i) => taskResponse(o, 10 + (i % 3) * 20));
+function protomsg(m) {
+  const out = [];
+  for (const b of encodedLists) {
+    out.push(m.Decode(b));
+    out.push(latin1(m.Complete(b)));
+  }
+  return out;
+}
 
 export const LIBS = [
   { name: "luxon", pkg: "datetime", lib: "luxon 3.7.2", run: datetime },
@@ -146,6 +209,10 @@ export const LIBS = [
   { name: "astro", pkg: "markdown", impl: "remark", platform: "node", lib: "unified 11.0.5, remark-parse 11.0.0, remark-rehype 11.1.2, rehype-stringify 10.0.1", run: (m) => [m.Render(doc)], norm: normHTML },
   { name: "vue", pkg: "reactive", lib: "@vue/reactivity 3.5.43", run: (m) => [m.Bench(50, 20, 2000)] },
   { name: "tailwind", pkg: "utility", impl: "tailwind", lib: "tailwindcss 4.3.3", run: async (m) => [await m.Build(twTheme, classes)] },
+  { name: "marked", pkg: "gfm", impl: "marked", lib: "marked 18.1.0", run: (m) => [m.Render(gfmDoc)], norm: normGFM },
+  { name: "smol-toml", pkg: "invoice", lib: "smol-toml 1.9.1", run: (m) => [m.Open(invoiceToml), m.Resave(invoiceToml)] },
+  { name: "@noble/post-quantum", pkg: "pqjwt", lib: "@noble/post-quantum 0.7.1 (ML-DSA-65)", run: pqjwt, setupModule: pqSetup },
+  { name: "@bufbuild/protobuf", pkg: "protomsg", lib: "@bufbuild/protobuf 2.16.0", run: protomsg },
 ];
 
 for (const l of LIBS) l.impl ??= l.pkg;

@@ -208,18 +208,23 @@ export function native$math$RoundToEven(x: number): number {
   return d > 0.5 || (d === 0.5 && t % 2 !== 0) ? t + Math.sign(x) : t;
 }
 
+// Abs, Signbit and Copysign go through the bits only for NaN, whose sign
+// bit the JS operators do not keep.
 export function native$math$Abs(x: number): number {
+  if (x === x) return Math.abs(x);
   scratch.setFloat64(0, x);
   scratch.setUint8(0, scratch.getUint8(0) & 0x7f);
   return scratch.getFloat64(0);
 }
 
 export function native$math$Signbit(x: number): boolean {
+  if (x === x) return x < 0 || (x === 0 && 1 / x < 0);
   scratch.setFloat64(0, x);
   return (scratch.getUint8(0) & 0x80) !== 0;
 }
 
 export function native$math$Copysign(f: number, sign: number): number {
+  if (f === f && sign === sign) return sign < 0 || (sign === 0 && 1 / sign < 0) ? -Math.abs(f) : Math.abs(f);
   scratch.setFloat64(0, sign);
   const s = scratch.getUint8(0) & 0x80;
   scratch.setFloat64(0, f);
@@ -229,6 +234,71 @@ export function native$math$Copysign(f: number, sign: number): number {
 
 export function native$math$Inf(sign: number): number {
   return sign >= 0 ? Infinity : -Infinity;
+}
+
+// Mod is fmod: JS's % computes the remainder exactly, with the sign of x,
+// and has Go's special cases (NaN for an infinite x or a zero y, x for an
+// infinite y).
+export function native$math$Mod(x: number, y: number): number {
+  return x % y;
+}
+
+// Max and Min: an infinity of the right sign wins over NaN in Go, and
+// Math.max and Math.min already order -0 below +0.
+export function native$math$Max(x: number, y: number): number {
+  return x === Infinity || y === Infinity ? Infinity : Math.max(x, y);
+}
+
+export function native$math$Min(x: number, y: number): number {
+  return x === -Infinity || y === -Infinity ? -Infinity : Math.min(x, y);
+}
+
+const smallestNormal = 2.2250738585072014e-308;
+
+// Frexp and Ldexp are Go's frexp and ldexp, with the exponent field set in
+// the high 32 bits of the float (DataView is big-endian by default).
+export function native$math$Frexp(f: number): [number, number] {
+  if (f === 0 || f !== f || f === Infinity || f === -Infinity) return [f, 0];
+  let exp = 0;
+  if (Math.abs(f) < smallestNormal) {
+    f *= 4503599627370496; // 2^52
+    exp = -52;
+  }
+  scratch.setFloat64(0, f);
+  const hi = scratch.getUint32(0);
+  exp += ((hi >>> 20) & 0x7ff) - 1022;
+  scratch.setUint32(0, ((hi & 0x800fffff) | (1022 << 20)) >>> 0);
+  return [scratch.getFloat64(0), exp];
+}
+
+export function native$math$Ldexp(frac: number, exp: number): number {
+  if (frac === 0 || frac !== frac || frac === Infinity || frac === -Infinity) return frac;
+  if (Math.abs(frac) < smallestNormal) {
+    frac *= 4503599627370496;
+    exp -= 52;
+  }
+  scratch.setFloat64(0, frac);
+  const hi = scratch.getUint32(0);
+  exp += ((hi >>> 20) & 0x7ff) - 1023;
+  if (exp < -1075) return frac < 0 ? -0 : 0; // underflow
+  if (exp > 1023) return frac < 0 ? -Infinity : Infinity; // overflow
+  let m = 1;
+  if (exp < -1022) {
+    // a denormal: one rounding, by the multiplication
+    exp += 53;
+    m = 1.1102230246251565e-16; // 2^-53
+  }
+  scratch.setUint32(0, ((hi & 0x800fffff) | ((exp + 1023) << 20)) >>> 0);
+  return m * scratch.getFloat64(0);
+}
+
+// Modf: the integer part is the truncation, and both parts keep the sign of
+// f (Modf(-2) = -2, -0).
+export function native$math$Modf(f: number): [number, number] {
+  if (f === 0) return [f, f];
+  const i = Math.trunc(f);
+  const frac = f - i;
+  return [i, frac === 0 && f < 0 ? -0 : frac];
 }
 
 export const native$internal$strconv$float64bits = native$math$Float64bits;
@@ -884,6 +954,157 @@ export function native$crypto$internal$fips140$bigmod$addMulVVW(z: S<number>, x:
   const n = sliceLen(z);
   if (n - 1 < 0 || n - 1 >= sliceLen(x)) runtimePanic(n - 1 < 0 ? `index out of range [${n - 1}]` : `index out of range [${n - 1}] with length ${sliceLen(x)}`);
   return mulAdd32(z!.$array, z!.$offset, n, x!.$array, x!.$offset, y, z!.$array, z!.$offset, 0);
+}
+
+// ---- crypto/internal/fips140/sha3 ----
+
+// keccakF1600Generic(da *[200]byte) permutes the Keccak state, the 25
+// little-endian 64-bit lanes of da. Go's body works on uint64 lanes, which
+// are BigInts here; this does the same permutation on each lane's low and
+// high 32 bits, so SHA-3 and SHAKE (and ML-KEM and ML-DSA, which use them)
+// never touch a BigInt.
+const keccakLo = /* @__PURE__ */ new Int32Array(25);
+const keccakHi = /* @__PURE__ */ new Int32Array(25);
+const keccakBLo = /* @__PURE__ */ new Int32Array(25);
+const keccakBHi = /* @__PURE__ */ new Int32Array(25);
+// The round constants' high and low halves.
+const keccakRCHi = /* @__PURE__ */ Int32Array.of(
+  0, 0, 0x80000000, 0x80000000, 0, 0, 0x80000000, 0x80000000, 0, 0, 0, 0,
+  0, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0x80000000, 0, 0x80000000, 0x80000000, 0x80000000, 0, 0x80000000,
+);
+const keccakRCLo = /* @__PURE__ */ Int32Array.of(
+  0x00000001, 0x00008082, 0x0000808a, 0x80008000, 0x0000808b, 0x80000001, 0x80008081, 0x00008009,
+  0x0000008a, 0x00000088, 0x80008009, 0x8000000a, 0x8000808b, 0x0000008b, 0x00008089, 0x00008003,
+  0x00008002, 0x00000080, 0x0000800a, 0x8000000a, 0x80008081, 0x00008080, 0x80000001, 0x80008008,
+);
+// The rotation of each lane (index x + 5y) and where ρ and π move it.
+const keccakRot = /* @__PURE__ */ Int32Array.of(0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14);
+const keccakPi = /* @__PURE__ */ (() => {
+  const p = new Int32Array(25);
+  for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++) p[x + 5 * y] = y + 5 * ((2 * x + 3 * y) % 5);
+  return p;
+})();
+
+export function native$crypto$internal$fips140$sha3$keccakF1600Generic(da: number[]): void {
+  const lo = keccakLo, hi = keccakHi, bLo = keccakBLo, bHi = keccakBHi;
+  for (let i = 0, o = 0; i < 25; i++, o += 8) {
+    lo[i] = da[o] | (da[o + 1] << 8) | (da[o + 2] << 16) | (da[o + 3] << 24);
+    hi[i] = da[o + 4] | (da[o + 5] << 8) | (da[o + 6] << 16) | (da[o + 7] << 24);
+  }
+  for (let round = 0; round < 24; round++) {
+    // θ: each lane takes the parity of two columns, one of them rotated by 1.
+    for (let x = 0; x < 5; x++) {
+      bLo[x] = lo[x] ^ lo[x + 5] ^ lo[x + 10] ^ lo[x + 15] ^ lo[x + 20];
+      bHi[x] = hi[x] ^ hi[x + 5] ^ hi[x + 10] ^ hi[x + 15] ^ hi[x + 20];
+    }
+    for (let x = 0; x < 5; x++) {
+      const pl = bLo[(x + 4) % 5], ph = bHi[(x + 4) % 5];
+      const nl = bLo[(x + 1) % 5], nh = bHi[(x + 1) % 5];
+      const dl = pl ^ ((nl << 1) | (nh >>> 31));
+      const dh = ph ^ ((nh << 1) | (nl >>> 31));
+      for (let y = 0; y < 25; y += 5) {
+        lo[x + y] ^= dl;
+        hi[x + y] ^= dh;
+      }
+    }
+    // ρ and π: rotate each lane and move it.
+    for (let i = 0; i < 25; i++) {
+      const r = keccakRot[i], l = lo[i], h = hi[i], j = keccakPi[i];
+      if (r === 0) {
+        bLo[j] = l;
+        bHi[j] = h;
+      } else if (r < 32) {
+        bLo[j] = (l << r) | (h >>> (32 - r));
+        bHi[j] = (h << r) | (l >>> (32 - r));
+      } else if (r === 32) {
+        bLo[j] = h;
+        bHi[j] = l;
+      } else {
+        const q = r - 32;
+        bLo[j] = (h << q) | (l >>> (32 - q));
+        bHi[j] = (l << q) | (h >>> (32 - q));
+      }
+    }
+    // χ
+    for (let y = 0; y < 25; y += 5) {
+      for (let x = 0; x < 5; x++) {
+        const a = x + y, b = ((x + 1) % 5) + y, c = ((x + 2) % 5) + y;
+        lo[a] = bLo[a] ^ (~bLo[b] & bLo[c]);
+        hi[a] = bHi[a] ^ (~bHi[b] & bHi[c]);
+      }
+    }
+    // ι
+    lo[0] ^= keccakRCLo[round];
+    hi[0] ^= keccakRCHi[round];
+  }
+  for (let i = 0, o = 0; i < 25; i++, o += 8) {
+    const l = lo[i], h = hi[i];
+    da[o] = l & 0xff;
+    da[o + 1] = (l >>> 8) & 0xff;
+    da[o + 2] = (l >>> 16) & 0xff;
+    da[o + 3] = l >>> 24;
+    da[o + 4] = h & 0xff;
+    da[o + 5] = (h >>> 8) & 0xff;
+    da[o + 6] = (h >>> 16) & 0xff;
+    da[o + 7] = h >>> 24;
+  }
+}
+
+// ---- crypto/internal/fips140/mldsa ----
+
+// The field arithmetic of ML-DSA (mod q = 8380417, Montgomery form with
+// R = 2^32) forms uint64 products of uint32s, BigInts here. These are Go's
+// functions with the products on 32-bit halves, exact for every uint32
+// input, and without data-dependent branches, like Go's.
+const mldsaQ = 8380417;
+const mldsaQNegInv = 4236238847;
+let mulHi = 0;
+let mulLo = 0;
+
+// mul32 sets mulHi and mulLo to the high and low 32 bits of a * b.
+function mul32(a: number, b: number): void {
+  const al = a & 0xffff, ah = a >>> 16, bl = b & 0xffff, bh = b >>> 16;
+  const ll = al * bl, lh = al * bh, hl = ah * bl;
+  const mid = (ll >>> 16) + (lh & 0xffff) + (hl & 0xffff);
+  mulLo = ((mid << 16) | (ll & 0xffff)) >>> 0;
+  mulHi = (ah * bh + (lh >>> 16) + (hl >>> 16) + (mid >>> 16)) >>> 0;
+}
+
+// fieldReduceOnce(a uint32) fieldElement: a - q if a >= q, else a.
+export function native$crypto$internal$fips140$mldsa$fieldReduceOnce(a: number): number {
+  const d = a - mldsaQ;
+  return (d - Math.floor(d * 2.3283064365386963e-10) * mldsaQ) >>> 0;
+}
+
+// montgomeryReduce is fieldMontgomeryReduce(hi<<32 | lo).
+function mldsaMontgomeryReduce(hi: number, lo: number): number {
+  const t = Math.imul(lo, mldsaQNegInv) >>> 0;
+  mul32(t, mldsaQ);
+  const carry = Math.floor((lo + mulLo) * 2.3283064365386963e-10);
+  return native$crypto$internal$fips140$mldsa$fieldReduceOnce((hi + mulHi + carry) >>> 0);
+}
+
+export function native$crypto$internal$fips140$mldsa$fieldFromMontgomery(a: number): number {
+  return mldsaMontgomeryReduce(0, a);
+}
+
+export function native$crypto$internal$fips140$mldsa$fieldMontgomeryMul(a: number, b: number): number {
+  mul32(a, b);
+  return mldsaMontgomeryReduce(mulHi, mulLo);
+}
+
+export function native$crypto$internal$fips140$mldsa$fieldMontgomeryMulSub(a: number, b: number, c: number): number {
+  mul32(a, (b - c + mldsaQ) >>> 0);
+  return mldsaMontgomeryReduce(mulHi, mulLo);
+}
+
+export function native$crypto$internal$fips140$mldsa$fieldMontgomeryAddMul(a: number, b: number, c: number, d: number): number {
+  mul32(a, b);
+  const h = mulHi, l = mulLo;
+  mul32(c, d);
+  const lo = l + mulLo;
+  const carry = Math.floor(lo * 2.3283064365386963e-10);
+  return mldsaMontgomeryReduce((h + mulHi + carry) >>> 0, lo >>> 0);
 }
 
 // ---- maps, slices ----

@@ -282,6 +282,8 @@ func (p *Program) findEffects() {
 	a := &effAnalysis{p: p, decls: map[*types.Func]*ast.FuncDecl{}, infos: map[*types.Func]*types.Info{}, nodes: map[ast.Node]*effNode{}, tops: map[ast.Node]*effTop{}, shared: map[*types.Var]bool{}, models: map[*types.Func]*effNode{}}
 	p.lazyVars = map[*types.Var]bool{}
 	p.lazyInits = map[*types.Func][]*types.Var{}
+	p.eff = a
+	p.shareArgs = shareArgs{}
 	for _, pkg := range p.Pkgs {
 		for _, f := range pkg.Syntax {
 			for _, d := range f.Decls {

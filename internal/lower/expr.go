@@ -808,6 +808,38 @@ func bigOperand(s string) string {
 
 var simpleOperand = regexp.MustCompile(`^(-?[0-9]+n|[A-Za-z_$][A-Za-z0-9_$]*)$`)
 
+// closesAt returns the index of the parenthesis closing the one at s[i],
+// skipping those in string literals, or -1.
+func closesAt(s string, i int) int {
+	depth := 0
+	var quote byte
+	escaped := false
+	for j := i; j < len(s); j++ {
+		c := s[j]
+		switch {
+		case quote != 0:
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == quote:
+				quote = 0
+			}
+		case c == '"' || c == '\'' || c == '`':
+			quote = c
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+			if depth == 0 {
+				return j
+			}
+		}
+	}
+	return -1
+}
+
 // bigWrap truncates a BigInt to the width and signedness of ii.
 func bigWrap(s string, ii intInfo) string {
 	if ii.signed {
@@ -821,6 +853,13 @@ func bigWrap(s string, ii intInfo) string {
 func bigUnwrap(s string, ii intInfo) string {
 	if in, ok := strings.CutSuffix(s, " as bigint)"); ok && strings.HasPrefix(in, "(") {
 		if e := bigUnwrap(in[1:], ii); e != in[1:] {
+			return e
+		}
+	}
+	// A parenthesized operand, (x - n*k) in Go: the operator using it
+	// parenthesizes it again (bigOperand).
+	if len(s) > 2 && s[0] == '(' && closesAt(s, 0) == len(s)-1 {
+		if e := bigUnwrap(s[1:len(s)-1], ii); e != s[1:len(s)-1] {
 			return e
 		}
 	}
@@ -1289,8 +1328,14 @@ func (fe *funcEmitter) binary(e *ast.BinaryExpr) string {
 	case token.LAND, token.LOR:
 		return "(" + fe.expr(e.X) + " " + e.Op.String() + " " + fe.expr(e.Y) + ")"
 	case token.EQL:
+		if s, ok := fe.bytesEq(e.X, e.Y); ok {
+			return s
+		}
 		return fe.eqExpr(fe.expr(e.X), xt, fe.expr(e.Y), yt)
 	case token.NEQ:
+		if s, ok := fe.bytesEq(e.X, e.Y); ok {
+			return "!" + s
+		}
 		return "!" + "(" + fe.eqExpr(fe.expr(e.X), xt, fe.expr(e.Y), yt) + ")"
 	case token.LSS, token.LEQ, token.GTR, token.GEQ:
 		return "(" + fe.cmpOperand(e.X) + " " + e.Op.String() + " " + fe.cmpOperand(e.Y) + ")"
@@ -1298,6 +1343,61 @@ func (fe *funcEmitter) binary(e *ast.BinaryExpr) string {
 		return fe.mark(e) + fe.shift(e.Op, fe.expr(e.X), fe.shiftCount(e.Y), fe.info.TypeOf(e))
 	}
 	return fe.mark(e) + fe.arith(e.Op, fe.expr(e.X), fe.expr(e.Y), fe.info.TypeOf(e))
+}
+
+// bytesEq lowers string(a) == string(b) of byte slices, and string(a) ==
+// "c" of a byte slice and an ASCII constant, as a comparison of the bytes:
+// like gc, without making the strings (bytes.Equal is string(a) ==
+// string(b)).
+func (fe *funcEmitter) bytesEq(x, y ast.Expr) (string, bool) {
+	a, aok := fe.bytesConv(x)
+	b, bok := fe.bytesConv(y)
+	switch {
+	case aok && bok:
+		return "$rt.bytesEq(" + fe.expr(a) + ", " + fe.expr(b) + ")", true
+	case aok || bok:
+		conv, other := a, y
+		if bok {
+			conv, other = b, x
+		}
+		tv := fe.info.Types[other]
+		if tv.Value == nil || tv.Value.Kind() != constant.String {
+			return "", false
+		}
+		c := constant.StringVal(tv.Value)
+		if !isASCII(c) {
+			return "", false
+		}
+		// The constant has no effects, so the operands' order does not
+		// matter.
+		return "$rt.bytesEqASCII(" + fe.expr(conv) + ", " + jsString(c) + ")", true
+	}
+	return "", false
+}
+
+// bytesConv returns b if e is the conversion string(b) of a byte slice b.
+func (fe *funcEmitter) bytesConv(e ast.Expr) (ast.Expr, bool) {
+	call, ok := unparen(e).(*ast.CallExpr)
+	if !ok || len(call.Args) != 1 || call.Ellipsis.IsValid() {
+		return nil, false
+	}
+	if tv, ok := fe.info.Types[call.Fun]; !ok || !tv.IsType() {
+		return nil, false
+	}
+	if b, ok := under(fe.info.TypeOf(e)).(*types.Basic); !ok || b.Kind() != types.String {
+		return nil, false
+	}
+	if tv := fe.info.Types[e]; tv.Value != nil {
+		return nil, false
+	}
+	s, ok := under(fe.info.TypeOf(call.Args[0])).(*types.Slice)
+	if !ok {
+		return nil, false
+	}
+	if b, ok := under(s.Elem()).(*types.Basic); !ok || b.Kind() != types.Uint8 {
+		return nil, false
+	}
+	return call.Args[0], true
 }
 
 // cmpOperand lowers an operand of an ordered comparison. uint and uintptr
@@ -1885,7 +1985,12 @@ func (fe *funcEmitter) args(e *ast.CallExpr, sig *types.Signature) string {
 			return fmt.Sprintf("...((%s: any): [%s] => [%s])(%s)", t, anys, strings.Join(parts, ", "), fe.expr(e.Args[0]))
 		}
 	}
+	share := fe.pe.prog.ShareArgs(fe.info, e) // sharearg.go
 	for i, a := range e.Args {
+		if share&(1<<i) != 0 {
+			vals = append(vals, fe.convert(fe.expr(a), fe.info.TypeOf(a), paramType(i)))
+			continue
+		}
 		vals = append(vals, fe.valueOf(a, paramType(i)))
 	}
 	if sig.Variadic() && !e.Ellipsis.IsValid() {
