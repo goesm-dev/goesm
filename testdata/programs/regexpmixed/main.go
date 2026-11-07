@@ -13,6 +13,18 @@ import (
 	"strings"
 )
 
+// nested is a RuneReader that matches with another Regexp each time it is
+// read, in the middle of the search that reads it.
+type nested struct {
+	r  *strings.Reader
+	re *regexp.Regexp
+}
+
+func (n *nested) ReadRune() (rune, int, error) {
+	n.re.MatchReader(strings.NewReader("ab"))
+	return n.r.ReadRune()
+}
+
 // runes is a RuneReader of any runes, valid or not.
 type runes struct {
 	rs []rune
@@ -63,6 +75,15 @@ func main() {
 	longest := alt.Copy()
 	longest.Longest()
 	fmt.Println(longest.FindString("ab"), longest.FindAllString("ab ab a", -1), alt.FindString("ab"))
+
+	// Copies keep their own mode, also a copy made after Go's engine ran,
+	// and also when a search on one copy runs while a search on the other
+	// waits for its RuneReader.
+	fmt.Println(alt.FindReaderIndex(strings.NewReader("ab")), longest.FindReaderIndex(strings.NewReader("ab")))
+	again := alt.Copy()
+	again.Longest()
+	fmt.Println(again.FindReaderIndex(&nested{strings.NewReader("ab"), alt}), alt.FindReaderIndex(&nested{strings.NewReader("ab"), again}))
+	fmt.Println(again.FindReaderIndex(strings.NewReader("ab")), alt.FindReaderIndex(strings.NewReader("ab")), longest.FindReaderIndex(strings.NewReader("ab")))
 
 	// The translated patterns still match after Go's engine ran.
 	fmt.Println(word.FindAllStringIndex("héllo wörld", -1), word.FindString(string([]byte{0xff, 'z'})))

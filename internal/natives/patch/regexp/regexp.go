@@ -45,8 +45,9 @@ type Regexp struct {
 	// but it is otherwise read-only.
 	longest bool // whether regexp prefers leftmost-longest match
 
-	js   string  // the source of the RegExp it matches with, or ""
-	goRe *Regexp // expr compiled for Go's engine, once goEngine needs it
+	js     string  // the source of the RegExp it matches with, or ""
+	goRe   *Regexp // expr compiled for Go's engine, once goEngine needs it
+	goLong *Regexp // the same, leftmost-longest
 }
 
 // compile uses the RegExp translated from expr if there is one.
@@ -70,18 +71,23 @@ func jsPattern(expr string) string {
 
 // goEngine returns re compiled for Go's engine, for what a RegExp cannot
 // do: read a RuneReader only as far as the match needs, and match
-// leftmost-longest.
+// leftmost-longest. The engines it returns are never changed afterwards, so
+// copies of re that share them, Longest or not, stay independent, also
+// while a search on one of them is waiting for its RuneReader.
 func (re *Regexp) goEngine() *Regexp {
-	if re.goRe == nil {
-		g, err := compileGo(re.expr, syntax.Perl, false)
+	p := &re.goRe
+	if re.longest {
+		p = &re.goLong
+	}
+	if *p == nil {
+		g, err := compileGo(re.expr, syntax.Perl, re.longest)
 		if err != nil {
 			// The pattern was translated, so it parses.
 			panic(compileError(re.expr, err))
 		}
-		re.goRe = g
+		*p = g
 	}
-	re.goRe.longest = re.longest
-	return re.goRe
+	return *p
 }
 
 // compileJS returns the Regexp of expr matched with a RegExp, from the
