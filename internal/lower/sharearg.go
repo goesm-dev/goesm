@@ -51,12 +51,50 @@ func (p *Program) ShareArgs(info *types.Info, call *ast.CallExpr) uint64 {
 	if m, ok := s.calls[call]; ok {
 		return m
 	}
-	if s.calls == nil {
-		s.calls, s.readOnly, s.captured, s.deferred, s.scanned, s.free = map[*ast.CallExpr]uint64{}, map[*types.Var]bool{}, map[*types.Var]bool{}, map[*ast.CallExpr]bool{}, map[*types.Info]bool{}, map[*types.Func]bool{}
-	}
+	s.init()
 	m := p.shareArgsOf(info, call)
 	s.calls[call] = m
 	return m
+}
+
+func (s *shareArgs) init() {
+	if s.calls == nil {
+		s.calls, s.readOnly, s.captured, s.deferred, s.scanned, s.free = map[*ast.CallExpr]uint64{}, map[*types.Var]bool{}, map[*types.Var]bool{}, map[*ast.CallExpr]bool{}, map[*types.Info]bool{}, map[*types.Func]bool{}
+	}
+}
+
+// ReturnsLocal reports whether the result expression e of a return
+// statement is a local variable that no pointer, closure, go or defer
+// statement can reach (privateValue): the function returns the variable's
+// value without a copy, as the variable is not used after the return. The
+// caller makes sure that no other result is the same variable and that it
+// is not a parameter, which the caller may have passed without a copy
+// (ShareArgs).
+func (p *Program) ReturnsLocal(info *types.Info, e ast.Expr) bool {
+	id, ok := unparen(e).(*ast.Ident)
+	if !ok || p.eff == nil {
+		return false
+	}
+	s := &p.shareArgs
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.init()
+	p.scanShare(info)
+	return p.privateValue(info, id)
+}
+
+// PrivateVar reports whether the local variable v is one that no pointer,
+// closure, go or defer statement can reach (see privateValue).
+func (p *Program) PrivateVar(info *types.Info, v *types.Var) bool {
+	if p.eff == nil || v.IsField() || v.Pkg() == nil || v.Parent() == v.Pkg().Scope() {
+		return false
+	}
+	s := &p.shareArgs
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.init()
+	p.scanShare(info)
+	return !p.boxed[v] && !s.captured[v]
 }
 
 func (p *Program) shareArgsOf(info *types.Info, call *ast.CallExpr) uint64 {

@@ -37,7 +37,9 @@ var covered = map[string]bool{
 	"JSONv2":         true, "jsonLeftOut": true,
 	"HTTPDialers": true,
 	"cloned":      true, "HasClone": true, "SyncClone": true, "CallBlocksIn": true,
-	"ShareArgs": true,
+	"ShareArgs":    true,
+	"ReturnsLocal": true,
+	"PrivateVar":   true,
 	// Which of a package and its dependencies are entries, and whether the
 	// package is an entry other packages import, are part of its module key
 	// (moduleKeys in internal/build).
