@@ -299,10 +299,19 @@ func (p *Program) findFuncVars() {
 				id = e
 			case *ast.SelectorExpr:
 				if sel, ok := info.Selections[e]; ok {
-					if sel.Kind() == types.FieldVal {
+					switch fn, _ := sel.Obj().(*types.Func); {
+					case sel.Kind() == types.FieldVal:
 						deps[v] = append(deps[v], sel.Obj().(*types.Var).Origin())
-					} else {
-						bad[v] = true // a method value or expression
+					case fn != nil && !isIface(fn.Signature().Recv().Type()) && !(fn.Pkg() != nil && fn.Pkg().Path() == "sync" && isLock(fn.Name())):
+						// A method value or expression of a concrete
+						// type calls that method, as classifyFunc
+						// takes a call of it to. The value of a Lock
+						// of a mutex may be its waiting variant
+						// (waitLockVals), which lockcheck.go picks
+						// later.
+						vals[v] = append(vals[v], fn.Origin())
+					default:
+						bad[v] = true // a method of an interface, or a Lock
 					}
 					return
 				}

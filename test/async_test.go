@@ -47,6 +47,11 @@ func TestAsyncStaysLocal(t *testing.T) {
 			syncStd: map[string][]string{"sync": {"Pool$Get"}},
 		},
 		{
+			program: "methodvalues",
+			async:   []string{"waiter$wait", "slow$call", "viaIface", "main"},
+			sync:    []string{"move", "bump", "counter$add", "counter$get"},
+		},
+		{
 			program: "paramsync",
 			async:   []string{"apply", "twice", "write", "main"},
 			sync:    []string{"label", "count", "digest", "build", "apply$sync", "twice$sync", "write$sync"},
