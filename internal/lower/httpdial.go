@@ -2,6 +2,7 @@ package lower
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/types"
 )
 
@@ -22,9 +23,9 @@ var transportDialFields = map[string]bool{"Dial": true, "DialContext": true, "Di
 // may store a dialer of its own in a net/http.Transport: a value other than
 // nil, net.Dial or a method value of a *net.Dialer, which dial only the host
 // network net/http's Transport never reaches on a JavaScript host, in one of
-// its Dial, DialContext, DialTLS or DialTLSContext fields, or takes the
-// address of one. Such a Transport connects with its own dialer, and keeps
-// the code of its connections.
+// its Dial, DialContext, DialTLS or DialTLSContext fields, takes the
+// address of one or looks one up by name with reflection. Such a Transport
+// connects with its own dialer, and keeps the code of its connections.
 func (p *Program) HTTPDialers() bool {
 	p.httpDialersOnce.Do(func() {
 		for _, pkg := range p.Pkgs {
@@ -65,6 +66,17 @@ func storesDialer(info *types.Info, f *ast.File) bool {
 		case *ast.UnaryExpr:
 			if isDialField(info, n.X) {
 				found = true // &t.DialContext
+			}
+		case *ast.CallExpr:
+			// reflect.Value's FieldByName("DialContext"), which Set may
+			// store a dialer through. Fields reflection finds by index or
+			// by a name computed at run time are not seen.
+			if sel, ok := ast.Unparen(n.Fun).(*ast.SelectorExpr); ok && sel.Sel.Name == "FieldByName" && len(n.Args) == 1 {
+				if fn, ok := info.Uses[sel.Sel].(*types.Func); ok && fn.Pkg() != nil && fn.Pkg().Path() == "reflect" {
+					if tv := info.Types[n.Args[0]]; tv.Value != nil && tv.Value.Kind() == constant.String && transportDialFields[constant.StringVal(tv.Value)] {
+						found = true
+					}
+				}
 			}
 		}
 		return !found
