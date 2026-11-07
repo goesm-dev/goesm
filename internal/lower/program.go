@@ -100,7 +100,11 @@ type Program struct {
 	ifaceImpls map[string][]ifaceImpl
 	implCache  map[[2]any]bool
 	msets      typeutil.MethodSetCache
-	boxes      sync.Map // boxKey -> *boxInfo (box.go)
+	// ifaceTypes are the types stored in interface values, with what
+	// reflection reaches from them (findIfaceTypes).
+	ifaceTypes *typeutil.Map
+	ifaceFuncs []types.Type // the function types among them Go code stores
+	boxes      sync.Map     // boxKey -> *boxInfo (box.go)
 	// lockCalls are the program's sync.Mutex, RWMutex and Locker Lock and
 	// RLock calls; waitLocks those lowered to a waiting variant, and
 	// escMutexes the mutexes whose address escapes (lockcheck.go).
@@ -256,7 +260,43 @@ func (p *Program) SetEntries(paths []string) {
 	for _, e := range paths {
 		p.Entries[e] = true
 	}
+	// JavaScript calls the exported functions of an entry with functions
+	// of its own or functions Go returned to it: their parameters of
+	// function type, which the first analysis took to hold only what Go
+	// passes them (funcvars.go), hold unknown functions.
+	if p.entryParamsKnown() {
+		p.analyzeBlocking()
+	}
 	p.refineBlocking()
+}
+
+// entryParamsKnown reports whether a parameter of function type of an
+// exported function of an entry package has known values (funcVars).
+func (p *Program) entryParamsKnown() bool {
+	for _, pkg := range p.Pkgs {
+		if !p.Entries[pkg.PkgPath] {
+			continue
+		}
+		for _, f := range pkg.Syntax {
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok || fd.Recv != nil || !fd.Name.IsExported() {
+					continue
+				}
+				fn, ok := pkg.TypesInfo.Defs[fd.Name].(*types.Func)
+				if !ok {
+					continue
+				}
+				params := fn.Signature().Params()
+				for i := 0; i < params.Len(); i++ {
+					if _, ok := p.funcVars[params.At(i)]; ok {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // ImportedEntry reports whether the entry package path is also imported by
@@ -505,6 +545,7 @@ func (p *Program) analyzeBlocking() {
 	p.usesPull = p.usesPullFuncs()
 	p.stdWritten = findStdWrites(p.Pkgs)
 	p.encls = map[ast.Node]*types.Func{}
+	p.findIfaceTypes()
 	p.findFuncVars()
 	var units []*unit
 	add := func(u *unit, encl *types.Func) {
@@ -578,7 +619,6 @@ func (p *Program) analyzeBlocking() {
 			p.funcValues[u.key] = true
 		}
 	}
-	p.findIfaceTypes()
 	p.findParamUses()
 	p.propagateBlocking()
 	for p.findWaitLocks() {

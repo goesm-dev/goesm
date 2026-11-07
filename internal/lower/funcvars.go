@@ -20,7 +20,8 @@ import (
 //     receiver that is only ever called directly: never used as a value,
 //     linked with //go:linkname or called from JavaScript as an export,
 //
-// whose address is never taken, and every value of which, assigned, stored
+// whose address is never taken, which is not an exported field of a struct
+// that reflection can set, and every value of which, assigned, stored
 // in a composite literal or passed as an argument, is a function literal, a
 // declared function, nil, or another such variable, whose values it then
 // holds too.
@@ -160,6 +161,62 @@ func (p *Program) findFuncVars() {
 			if !declared[u] && types.Identical(n.Underlying(), u) {
 				badFields(n)
 				break
+			}
+		}
+	}
+
+	// Reflection sets the exported fields of function type of the structs
+	// it reaches through a pointer from an interface value (findIfaceTypes)
+	// without a store to the field, to a function value it can get: one Go
+	// code stored in an interface value, an element of a slice, array, map
+	// or channel it reaches, or the value of a field of identical type it
+	// reaches. The first two are not known; a field set from a field holds
+	// the other field's values.
+	if p.reflectSets() {
+		var settable, readable []*types.Var
+		loose := p.ifaceFuncs
+		fields := func(st *types.Struct, set bool) {
+			for i := 0; i < st.NumFields(); i++ {
+				if f := st.Field(i); f.Exported() && isFunc(f) {
+					readable = append(readable, f.Origin())
+					if set {
+						settable = append(settable, f.Origin())
+					}
+				}
+			}
+		}
+		p.ifaceTypes.Iterate(func(t types.Type, _ any) {
+			switch u := t.Underlying().(type) {
+			case *types.Pointer:
+				if st, ok := u.Elem().Underlying().(*types.Struct); ok {
+					fields(st, true)
+				}
+			case *types.Struct:
+				fields(u, false)
+			case *types.Slice:
+				loose = append(loose, u.Elem())
+			case *types.Array:
+				loose = append(loose, u.Elem())
+			case *types.Map:
+				loose = append(loose, u.Key(), u.Elem())
+			case *types.Chan:
+				loose = append(loose, u.Elem())
+			}
+		})
+		for _, f := range settable {
+			for _, t := range loose {
+				if types.Identical(t.Underlying(), f.Type().Underlying()) {
+					bad[f] = true
+					break
+				}
+			}
+			if bad[f] {
+				continue
+			}
+			for _, r := range readable {
+				if r != f && types.Identical(r.Type().Underlying(), f.Type().Underlying()) {
+					deps[f] = append(deps[f], r)
+				}
 			}
 		}
 	}
@@ -461,4 +518,22 @@ func (p *Program) findFuncVars() {
 		}
 		p.funcVars[v] = fns
 	}
+}
+
+// reflectSets reports whether the program uses a function of package
+// reflect that stores a value into what a reflect.Value refers to.
+func (p *Program) reflectSets() bool {
+	for _, pkg := range p.Pkgs {
+		for _, obj := range pkg.TypesInfo.Uses {
+			fn, ok := obj.(*types.Func)
+			if !ok || fn.Pkg() == nil || fn.Pkg().Path() != "reflect" {
+				continue
+			}
+			switch fn.FullName() {
+			case "(reflect.Value).Set", "(reflect.Value).SetIterKey", "(reflect.Value).SetIterValue", "reflect.Copy":
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -120,6 +120,15 @@ func MapStrings(xs []string, f func(string) string) []string {
 	return out
 }
 
+// Apply calls f, which JavaScript may pass back from LaterFunc: no Go code
+// calls it, so only JavaScript says what f is.
+func Apply(f func() string) string { return f() + "!" }
+
+// LaterFunc returns a function that waits.
+func LaterFunc(s string) func() string {
+	return func() string { return Later(s) }
+}
+
 // Exclaim is passed to JavaScript as a function.
 func Exclaim() func(string) string {
 	return func(s string) string { return s + "!" }

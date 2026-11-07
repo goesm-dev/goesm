@@ -253,6 +253,8 @@ test("JS calling ABI: functions cross both ways", async () => {
   assert.equal(ex("やった"), "やった!");
   // A Go function that comes back to Go is called directly.
   assert.deepEqual(m.MapStrings(["x"], ex), ["x!"]);
+  // A Go function that waits comes back to an export no Go code calls.
+  assert.equal(await m.Apply(m.LaterFunc("あ")), "later あ!");
 });
 
 test("JS calling ABI: handles of other packages' types have their methods", async () => {

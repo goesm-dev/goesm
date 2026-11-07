@@ -22,7 +22,7 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### 性能
 
-- 構造体型の関数フィールドと関数の仮引数のうち、既知の関数 (宣言された関数か関数リテラル) だけを持つものを通した呼び出しは、それらの関数のどれかがブロックするときだけブロックします。このような変数の呼び出しはすでにそうなっていました。`sync.Pool` の `Get` は `New` を呼びますが、どれかのプールの `New` がブロックしない限り同期関数のままです。呼び出し元がブロックしない関数だけを渡す関数は、同じシグネチャの別の関数値がブロックしても同期関数のままです。到達できるコードが呼ばない関数 (goesm はスタブとして出力します) と、定数の条件で実行されない分岐は、呼び出し元を async にしなくなりました (`testdata/programs/funcfields`)。
+- 構造体型の関数フィールドと関数の仮引数のうち、既知の関数 (宣言された関数か関数リテラル) だけを持つものを通した呼び出しは、それらの関数のどれかがブロックするときだけブロックします。このような変数の呼び出しはすでにそうなっていました。`sync.Pool` の `Get` は `New` を呼びますが、どれかのプールの `New` がブロックしない限り同期関数のままです。呼び出し元がブロックしない関数だけを渡す関数は、同じシグネチャの別の関数値がブロックしても同期関数のままです。到達できるコードが呼ばない関数 (goesm はスタブとして出力します) と、定数の条件で実行されない分岐は、呼び出し元を async にしなくなりました (`testdata/programs/funcfields`)。`reflect.Value.Set` を呼ぶプログラムで、reflection がポインタを通して到達する構造体のエクスポートされたフィールドは、reflection が値を入れられるフィールドです。このフィールドは、reflection がそこで得られる関数値も持つものとして扱います。Go のコードがインターフェース値に入れる関数値と、reflection が到達する同じ型のフィールドの関数値です (`testdata/programs/reflectset`、`reflectcopy`)。
 - `math.Mod`、`Max`、`Min`、`Frexp`、`Ldexp`、`Modf` を native にし、`Sin`、`Cos`、`Tan`、`Sincos` は八分円の番号を `int` で持つようにしました。Go の本体は浮動小数点数を BigInt である `uint64` で分解していました。
 - Keccak-f[1600] (SHA-3、SHAKE、ML-KEM、ML-DSA) はレーンを 32 ビットの半分ずつで、ML-DSA の体の演算は積を 16 ビットの半分ずつで計算し、BigInt を使わなくなりました。ML-DSA-65 の JWT の発行と検証は Bun で 46 ms になり、@noble/post-quantum と同じです (`compare/pqjwt`)。
 - 呼び出し先が宣言された同期関数で、仮引数を変更せず、アドレスを取らず、保持もしないとき、構造体と配列の引数をコピーせずに渡します。ただし、引数がほかから到達できないローカル変数であるか、呼び出し先がメモリに書き込まない場合に限ります。ポインタ、クロージャ、go 文、defer 文のいずれからも到達できない構造体と配列のローカル変数と名前付き戻り値は、コピーせずに返します。
@@ -35,6 +35,7 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### 修正
 
+- エントリーパッケージのエクスポートされた関数が関数の仮引数を呼ぶとき、その型の関数値のどれかがブロックするなら、その関数は async になります。JavaScript は Go から受け取った関数をその仮引数に渡すことがあるためです。Go のコードがそのような関数を渡さない仮引数 (`func Apply(f func() string) string`) は Go が渡すものだけを持つと扱われ、`Apply` はブロックする `f` の Promise で計算していました (`test/js/poc.test.mjs`)。
 - goesm の数値が wrap しないために負になった `uint` を、fmt は Go が `uint(0)-1` を 18446744073709551615 と表示するのと同じく `uint64` への変換として書式化するようになりました。以前は負の数として表示していました (`testdata/programs/sprintfconcat`)。
 - ポスト量子暗号が native Go と一致するようになりました (`testdata/programs/pqcrypto`: ML-KEM、ML-DSA、SHA-3 と SHAKE、X25519、HKDF、ML-KEM-768 + X25519 を含む `crypto/hpke` のすべての KEM、KDF、AEAD)。
   - core type が配列である型パラメータの値 (`crypto/internal/fips140/mlkem` の `func polyAdd[T ~[n]fieldElement](a, b T)`) への添字アクセスが lowering に失敗し ("interface conversion: types.Type is *types.Interface, not *types.Array")、その関数は呼ぶと panic する stub になっていました。
