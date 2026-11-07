@@ -108,6 +108,31 @@ export function sliceElemPtr(s: Slice<any> | null, i: number): any {
   return arrayElemPtr(s!.$array, s!.$offset + i);
 }
 
+// sameElem is &s[i] == &t[j] of slices (elemAddrEq in the lowering):
+// whether the elements are one, through the array views too, without
+// making the pointers.
+export function sameElem(s: Slice<any> | null, i: number, t: Slice<any> | null, j: number): boolean {
+  const n = s === null ? 0 : s.$length;
+  if (i < 0 || i >= n) indexError(i, n);
+  const m = t === null ? 0 : t.$length;
+  if (j < 0 || j >= m) indexError(j, m);
+  let a = s!.$array;
+  let x = s!.$offset + i;
+  const v = arrayViews.get(a);
+  if (v !== undefined) {
+    a = v.a;
+    x += v.off;
+  }
+  let b = t!.$array;
+  let y = t!.$offset + j;
+  const w = arrayViews.get(b);
+  if (w !== undefined) {
+    b = w.a;
+    y += w.off;
+  }
+  return a === b && x === y;
+}
+
 // fieldRef, arrayElemRef and sliceElemRef are &o.k, &a[i] and &s[i] without
 // the cache that keeps pointer identity, for pointers that are only loaded
 // from and stored to (reflect's addressable Values); canonical returns the

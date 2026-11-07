@@ -41,6 +41,16 @@ func TestTranslateRegexp(t *testing.T) {
 		{`^\d+\d+\d+$`, ""}, // cubic
 		{`a\s*\s*\s*b`, ""}, // likewise
 		{`a(`, ""},          // Go reports the error
+		// A repeated subexpression that matches the empty string only as
+		// its last choice loses it (denull).
+		{`(?:[ \t]|(?:\r\n|\n){0,1})*>`, `(?:[\u0009\u0020]|\u000d\u000a|\u000a)*\u003e`},
+		{`(?:a|b?)*c`, `(?:a|b)*c`},
+		{`x(?:y|z*)+`, `x(?:y|z+)*`},
+		{`(?:|a)*b`, ""},     // the empty string first
+		{`(?:a?|b)*c`, ""},   // likewise, before b
+		{`(?:a|b??)*c`, ""},  // likewise, non-greedy
+		{`(?:a|(b)?)*c`, ""}, // a capture
+		{`(?:a|\b)*c`, ""},   // an assertion
 	} {
 		e, ok := translateRegexp(c.expr)
 		if js, _, _ := strings.Cut(e, "\x00"); js != c.js || ok != (c.js != "") {
