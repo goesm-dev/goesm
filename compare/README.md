@@ -14,6 +14,10 @@ What does it cost to write in Go, with goesm, what a web app would otherwise get
 | [Astro](https://astro.build/) | the same `markdown` | the same document with remark and rehype (unified 11), Astro's renderer, built for Node.js where Astro renders Markdown |
 | [Vue](https://vuejs.org/) | [`reactive`](reactive/reactive.go), refs, computed values and effects written in Go | build 50 chains of 20 computed values, a diamond and an effect over them, then change the refs 2,000 times, against @vue/reactivity 3.5.43 |
 | [Tailwind CSS](https://tailwindcss.com/) 4.3.3 | [`utility`](utility/utility.go), a utility-first CSS generator written in Go | build the stylesheet for the 154 class names of a landing page ([js/page.html](js/page.html)) from Tailwind's default theme; the Go side's CSS must be byte for byte Tailwind's |
+| [marked](https://marked.js.org/) 18.1.0 | [`gfm`](gfm/gfm.go) with goldmark's GFM extensions | render a GitHub Flavored Markdown document (tables, task lists, strikethrough, autolinks) to HTML |
+| [smol-toml](https://github.com/squirrelchat/smol-toml) 1.9.1 | [`invoice`](invoice/invoice.go) with [go-toml](https://github.com/pelletier/go-toml) v2 | decode an invoice of 40 lines with their receipts from TOML into typed values, total it, and encode it back to TOML |
+| [@noble/post-quantum](https://github.com/paulmillr/noble-post-quantum) 0.7.1 | [`pqjwt`](pqjwt/pqjwt.go) with `crypto/mldsa` | derive an ML-DSA-65 key from a seed, issue a JWT signed with it, and verify 10 tokens |
+| [@bufbuild/protobuf](https://github.com/bufbuild/protobuf-es) 2.16.0 | [`protomsg`](protomsg/protomsg.go) with protobuf-go | decode 20 binary protobuf responses into the generated types, summarize them, mark their tasks done and encode them again |
 
 For a framework, the comparison takes the part a page depends on most: rendering for React, the Markdown renderer for VitePress and Astro, the reactivity system for Vue, and for Tailwind the compiler that turns a page's class names into CSS. The Go side is ordinary Go code, as one would write it for a native program: `fmt.Errorf` with `%w`, `time.Parse`, the generated protobuf types, `html/template`. Go has no reactivity system to compare, so `reactive` is one written for this comparison with the algorithm of Vue 3.5's: each computation's sources and each source's subscribers are doubly linked lists of the same links, with version numbers, so that a computation that reads the same sources as on its last run reuses its links, and a computed value whose sources did not change is not recomputed. `utility` is likewise written for this comparison. It reads the theme's CSS and builds the utilities from it the way Tailwind does, and takes Tailwind's static utilities, static variants and property order from tables that [js/gen-utility.mjs](js/gen-utility.mjs) generates from the tailwindcss package. It covers the utilities a typical page uses and the variants that do not take a value; `group-*`, `peer-*`, `not-*`, `max-*` and the other compound or functional variants are left out. The JavaScript side is the library's usual API. The Markdown renderers escape a few characters differently, so their HTML is compared with those escapes undone. [js/libs.mjs](js/libs.mjs) holds the inputs and the workloads, and [js/impl/](js/impl) the JavaScript versions.
 
@@ -24,31 +28,39 @@ Three comparisons also have a second Go package under [light/](light), shown as 
 <!-- compare:start -->
 | Library | Go package | goesm gzip | JS gzip | ratio |
 | --- | --- | --- | --- | --- |
-| luxon | `datetime` | 21.2 KiB | 21.7 KiB | 0.98× |
-| neverthrow | `result` | 48.5 KiB | 2.4 KiB | 20.30× |
-| neverthrow (light) | `light/result` | 19.4 KiB | 2.4 KiB | 8.11× |
-| connect-es | `rpc` | 1226.0 KiB | 32.9 KiB | 37.31× |
-| connect-es (light) | `light/rpc` | 14.8 KiB | 32.9 KiB | 0.45× |
-| react | `render` | 315.7 KiB | 64.3 KiB | 4.91× |
-| react (light) | `light/render` | 15.9 KiB | 64.3 KiB | 0.25× |
-| vitepress | `markdown` | 163.6 KiB | 40.4 KiB | 4.05× |
-| astro | `markdown` | 163.6 KiB | 47.2 KiB | 3.46× |
-| vue | `reactive` | 6.8 KiB | 5.3 KiB | 1.29× |
-| tailwind | `utility` | 64.9 KiB | 72.2 KiB | 0.90× |
+| luxon | `datetime` | 19.8 KiB | 21.7 KiB | 0.91× |
+| neverthrow | `result` | 41.0 KiB | 2.4 KiB | 17.18× |
+| neverthrow (light) | `light/result` | 15.5 KiB | 2.4 KiB | 6.49× |
+| connect-es | `rpc` | 949.6 KiB | 32.9 KiB | 28.90× |
+| connect-es (light) | `light/rpc` | 14.1 KiB | 32.9 KiB | 0.43× |
+| react | `render` | 215.1 KiB | 64.3 KiB | 3.34× |
+| react (light) | `light/render` | 11.5 KiB | 64.3 KiB | 0.18× |
+| vitepress | `markdown` | 150.8 KiB | 40.4 KiB | 3.73× |
+| astro | `markdown` | 150.8 KiB | 47.2 KiB | 3.19× |
+| vue | `reactive` | 7.0 KiB | 5.3 KiB | 1.32× |
+| tailwind | `utility` | 54.0 KiB | 72.2 KiB | 0.75× |
+| marked | `gfm` | 158.9 KiB | 13.4 KiB | 11.85× |
+| smol-toml | `invoice` | 100.7 KiB | 6.6 KiB | 15.23× |
+| @noble/post-quantum | `pqjwt` | 101.7 KiB | 9.5 KiB | 10.66× |
+| @bufbuild/protobuf | `protomsg` | 197.6 KiB | 18.1 KiB | 10.92× |
 
 | Library | node 26.10.0 goesm | node 26.10.0 JS | ratio | bun 1.4.2 goesm | bun 1.4.2 JS | ratio |
 | --- | --- | --- | --- | --- | --- | --- |
-| luxon | 1.9 ms | 8.3 ms | 0.23× | 4.0 ms | 7.1 ms | 0.57× |
-| neverthrow | 0.47 ms | 0.50 ms | 0.94× | 0.56 ms | 0.55 ms | 1.02× |
-| neverthrow (light) | 0.41 ms | 0.46 ms | 0.89× | 0.55 ms | 0.47 ms | 1.17× |
-| connect-es | 16 ms | 2.3 ms | 7.09× | 20 ms | 1.9 ms | 10.29× |
-| connect-es (light) | 1.6 ms | 2.3 ms | 0.70× | 1.2 ms | 2.0 ms | 0.59× |
-| react | 2.7 ms | 1.6 ms | 1.67× | 3.6 ms | 1.9 ms | 1.89× |
-| react (light) | 0.17 ms | 1.6 ms | 0.11× | 0.19 ms | 1.8 ms | 0.11× |
-| vitepress | 0.35 ms | 0.21 ms | 1.71× | 0.51 ms | 0.14 ms | 3.63× |
-| astro | 0.31 ms | 2.0 ms | 0.15× | 0.39 ms | 2.5 ms | 0.16× |
-| vue | 5.4 ms | 5.6 ms | 0.97× | 5.7 ms | 5.3 ms | 1.07× |
-| tailwind | 2.3 ms | 4.0 ms | 0.56× | 2.8 ms | 3.2 ms | 0.88× |
+| luxon | 3.3 ms | 7.4 ms | 0.44× | 5.7 ms | 7.5 ms | 0.76× |
+| neverthrow | 0.39 ms | 0.37 ms | 1.05× | 0.50 ms | 0.47 ms | 1.07× |
+| neverthrow (light) | 0.35 ms | 0.36 ms | 0.96× | 0.54 ms | 0.46 ms | 1.17× |
+| connect-es | 17 ms | 2.2 ms | 7.93× | 20 ms | 1.8 ms | 11.14× |
+| connect-es (light) | 1.5 ms | 2.2 ms | 0.71× | 1.1 ms | 2.0 ms | 0.54× |
+| react | 2.4 ms | 1.1 ms | 2.07× | 2.7 ms | 1.7 ms | 1.57× |
+| react (light) | 0.15 ms | 1.4 ms | 0.11× | 0.17 ms | 1.7 ms | 0.10× |
+| vitepress | 0.30 ms | 0.19 ms | 1.56× | 0.52 ms | 0.14 ms | 3.78× |
+| astro | 0.32 ms | 1.9 ms | 0.17× | 0.41 ms | 2.5 ms | 0.17× |
+| vue | 4.8 ms | 5.4 ms | 0.89× | 5.2 ms | 4.6 ms | 1.13× |
+| tailwind | 2.0 ms | 4.1 ms | 0.50× | 2.8 ms | 3.5 ms | 0.80× |
+| marked | 2.1 ms | 0.80 ms | 2.59× | 3.7 ms | 1.3 ms | 2.75× |
+| smol-toml | 8.2 ms | 0.96 ms | 8.55× | 16 ms | 0.69 ms | 23.51× |
+| @noble/post-quantum | 57 ms | 28 ms | 2.04× | 46 ms | 47 ms | 0.99× |
+| @bufbuild/protobuf | 13 ms | 1.9 ms | 6.72× | 9.9 ms | 1.9 ms | 5.28× |
 <!-- compare:end -->
 
 Sizes are of the minified ES module bundle, compressed with gzip at level 9. Times are the median of one workload run, after a warmup. The connect-es workload answers `fetch` in-process with encoded responses, so it times the client alone: encoding the request, the protocol and decoding the response.
