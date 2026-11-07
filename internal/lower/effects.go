@@ -361,6 +361,7 @@ func (p *Program) findEffects() {
 			}
 		}
 	}
+	p.keepJSONErrors()
 }
 
 // panics reports whether body calls panic itself, as an init function
