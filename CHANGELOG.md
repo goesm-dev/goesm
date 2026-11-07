@@ -8,6 +8,24 @@ The changes in each goesm version, newest first. Every tagged version is a semve
 
 Changes on `main` since v0.0.1-beta.9: [v0.0.1-beta.9...main](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.9...main).
 
+### Bundle size
+
+- `net/http`'s client leaves out the Transport's own connections, with TLS, HTTP/2, X.509 and the elliptic curves, when no package of the program but net/http gives a Transport a dialer other than a `net.Dialer`'s or `net.Dial`: every request then goes through `fetch`. A package calling `http.Get` goes from 2.6 MB to 980 KB minified (757 to 262 KB gzipped, `TestBundleSize/httpget`), and `compare/rpc`'s Connect client from 951 to 484 KiB gzipped. A Transport that would still need its own connections, one with a `net.Dialer` that sets a local address, a resolver or a control function, or any Transport on a host without `fetch`, returns an error; on a JavaScript host it could only fail to dial.
+- A package variable initialized with `regexp.MustCompile` or `regexp.Compile` of a valid constant pattern is left out with its initializer when nothing uses it, as other initializers without effects are: importing a package with such variables kept regexp, with Go's parser and engines, in every bundle (118 KB to 10 KB minified for `TestBundleSize/unusedre`).
+- `fmt.Sprintf` and `fmt.Errorf` with a constant format of verbs for strings, booleans and numbers no longer keep fmt's printer, with `reflect`, for the values JavaScript formats differently (an `int` past 2^53, a float `toFixed` does not format as strconv does): the runtime formats those as fmt does. A package calling `Sprintf("%s has %d items", ...)` goes from 34.8 to 11.2 KB gzipped.
+
+### Fixes
+
+- fmt formats a `uint` below zero, which goesm's numbers do not wrap to, as its `uint64` conversion, as Go prints `uint(0)-1` (18446744073709551615), instead of as a negative number (`testdata/programs/sprintfconcat`).
+- Post-quantum cryptography matches native Go (`testdata/programs/pqcrypto`: ML-KEM, ML-DSA, SHA-3 and SHAKE, X25519, HKDF and every KEM, KDF and AEAD of `crypto/hpke`, including ML-KEM-768 + X25519):
+  - Indexing a value of a type parameter whose core type is an array (`func polyAdd[T ~[n]fieldElement](a, b T)` in `crypto/internal/fips140/mlkem`) failed to lower ("interface conversion: types.Type is *types.Interface, not *types.Array") and the function became a stub that panics.
+  - A function declared without a body and a one-argument `//go:linkname` pulls the function another package pushes to its symbol, as it does with two arguments: `crypto/internal/fips140hash.Unwrap`, which `hmac.New` and `hkdf.Key` call, panicked with `crypto/sha3` hashes.
+  - `chacha20poly1305` (`crypto/hpke`'s ChaCha20-Poly1305, `crypto/tls`) panicked with "invalid buffer overlap of output and input": the vendored `alias.AnyOverlap` compared addresses from `reflect.Value.Pointer`, so every pair of slices overlapped. It compares backing arrays and offsets, like `crypto/internal/fips140/alias`.
+
+### Tools
+
+- The TS→Go source maps of `goesm emit-ts` (inline and in `<module>.ts.map`) name the `.go` files relative to the module's directory instead of by absolute path, so that they work where the tree is moved or published.
+
 ## v0.0.1-beta.9
 
 Tagged on 2026-10-30. Changes since v0.0.1-beta.8: [v0.0.1-beta.8...v0.0.1-beta.9](https://github.com/goesm-dev/goesm/compare/v0.0.1-beta.8...v0.0.1-beta.9).
@@ -28,10 +46,6 @@ Tagged on 2026-10-30. Changes since v0.0.1-beta.8: [v0.0.1-beta.8...v0.0.1-beta.
 
 ### Fixes
 
-- Post-quantum cryptography matches native Go (`testdata/programs/pqcrypto`: ML-KEM, ML-DSA, SHA-3 and SHAKE, X25519, HKDF and every KEM, KDF and AEAD of `crypto/hpke`, including ML-KEM-768 + X25519):
-  - Indexing a value of a type parameter whose core type is an array (`func polyAdd[T ~[n]fieldElement](a, b T)` in `crypto/internal/fips140/mlkem`) failed to lower ("interface conversion: types.Type is *types.Interface, not *types.Array") and the function became a stub that panics.
-  - A function declared without a body and a one-argument `//go:linkname` pulls the function another package pushes to its symbol, as it does with two arguments: `crypto/internal/fips140hash.Unwrap`, which `hmac.New` and `hkdf.Key` call, panicked with `crypto/sha3` hashes.
-  - `chacha20poly1305` (`crypto/hpke`'s ChaCha20-Poly1305, `crypto/tls`) panicked with "invalid buffer overlap of output and input": the vendored `alias.AnyOverlap` compared addresses from `reflect.Value.Pointer`, so every pair of slices overlapped. It compares backing arrays and offsets, like `crypto/internal/fips140/alias`.
 - `reflect.Type`'s `String` of an unnamed struct type shows the fields' tags, as Go does (`struct { F int "json:\"f\"" }`), and is `struct {}` for an empty one.
 
 ### Blocking analysis

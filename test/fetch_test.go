@@ -18,25 +18,32 @@ func TestFetch(t *testing.T) {
 		fmt.Fprintf(w, "hello %s", r.URL.Path)
 	}))
 	defer srv.Close()
-	dir := testdata("fetch")
-	bin := filepath.Join(t.TempDir(), "fetch")
-	build := exec.Command("go", "build", "-o", bin, ".")
-	build.Dir = dir
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
-	}
-	want := runProgram(t, bin, srv.URL)
-	if want.stdout != "default: 200 hello /default\nnet.Dialer: 200 hello /dialer\ncustom: error: custom dialer called\n" {
-		t.Fatalf("unexpected native output: %+v", want)
-	}
-	js := buildPkg(t, dir, ".")
-	runtimes := []string{"node"}
-	if hasBun(t) {
-		runtimes = append(runtimes, "bun")
-	}
-	for _, rt := range runtimes {
-		if got := runProgram(t, rt, js, srv.URL); got != want {
-			t.Errorf("%s: %+v\nnative Go: %+v", rt, got, want)
+	for _, c := range []struct{ pkg, want string }{
+		{".", "default: 200 hello /default\nnet.Dialer: 200 hello /dialer\ncustom: error: custom dialer called\n"},
+		// Without a custom dialer in the program, the Transport's own
+		// connections are left out.
+		{"./fetchonly", "default: 200 hello /default\nnet.Dialer: 200 hello /dialer\nclone: 200 hello /clone\n"},
+	} {
+		dir := testdata("fetch")
+		bin := filepath.Join(t.TempDir(), "fetch")
+		build := exec.Command("go", "build", "-o", bin, c.pkg)
+		build.Dir = dir
+		if out, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("go build: %v\n%s", err, out)
+		}
+		want := runProgram(t, bin, srv.URL)
+		if want.stdout != c.want {
+			t.Fatalf("%s: unexpected native output: %+v", c.pkg, want)
+		}
+		js := buildPkg(t, dir, c.pkg)
+		runtimes := []string{"node"}
+		if hasBun(t) {
+			runtimes = append(runtimes, "bun")
+		}
+		for _, rt := range runtimes {
+			if got := runProgram(t, rt, js, srv.URL); got != want {
+				t.Errorf("%s, %s: %+v\nnative Go: %+v", c.pkg, rt, got, want)
+			}
 		}
 	}
 }

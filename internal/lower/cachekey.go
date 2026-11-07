@@ -161,6 +161,9 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 		if pkg.PkgPath == "encoding/json" {
 			fmt.Fprintf(h, "jsonV2 %v\n", p.JSONv2())
 		}
+		if pkg.PkgPath == "net/http" {
+			fmt.Fprintf(h, "httpDialers %v\n", p.HTTPDialers())
+		}
 		if pkg.PkgPath == "regexp" {
 			pats := p.RegexpJS()
 			exprs := make([]string, 0, len(pats))

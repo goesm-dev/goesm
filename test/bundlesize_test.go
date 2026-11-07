@@ -36,13 +36,23 @@ func TestBundleSize(t *testing.T) {
 		// KB with regexp's parser and engines, which a pattern known at
 		// compile time and translated to a RegExp does not need.
 		{"./regex", 60_000},
-		// A pattern regexp's engines match, without the tables.
-		{"./regexgo", 230_000},
+		// A pattern regexp's engines match, without the tables. Its
+		// earlier pattern, (\w+)@(\w+), became a RegExp and the case
+		// stopped testing the engines.
+		{"./regexgo", 160_000},
 		// 35 KB when the runtime's printing of panic values kept every
 		// Error method, NumError's with strconv.Quote and its tables.
 		{"./atoi", 20_000},
 		// 210 KB with regexp's parser and engines.
 		{"./datere", 40_000},
+		// 215 KB when the initializers of an imported package's
+		// variables compiling constant patterns ran though nothing used
+		// the variables, keeping regexp with its parser and engines.
+		{"./unusedre", 16_000},
+		// 2.6 MB with the Transport's own connections (TLS, HTTP/2,
+		// X.509), which a program giving no Transport a dialer of its own
+		// does not use, as it sends its requests with fetch.
+		{"./httpget", 1_100_000},
 		// 553 KB with encoding/json, json v2 and jsontext, which the
 		// runtime's decoder does without.
 		{"./jsondecode", 45_000},

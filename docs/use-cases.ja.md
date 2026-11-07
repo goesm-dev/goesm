@@ -56,16 +56,16 @@ export default { fetch: Handler() };
 
 出力は TypeScript で書かれた ES モジュールなので、Vite、Rolldown、Turbopack、webpack、esbuild はプラグインなしでバンドルできます。Go は JSX の中に書くのではなく、他のモジュールと同じように JSX から呼びます。生成するファイルはすべて `// @ts-nocheck` で始まります。そのため、`noUnusedLocals` や ES2017 のターゲットといったプロジェクト側の厳しい設定は生成コードを検査し直さず、export された型だけが呼び出し側に届きます。残る設定は 2 つです。1 つは、モジュールを `.ts` 付きの名前で import する場合に TypeScript の `allowImportingTsExtensions` が必要になることで、拡張子なしで import すれば不要です。もう 1 つは、goesm の出力を `node_modules` のパッケージとして配布する場合に Next.js の `transpilePackages` が必要になることです。
 
-Go のコードがページの JavaScript に加える量を、`goesm build -minify` で minify して gzip した大きさで示します。Connect のクライアントだけは Vite 8 で計測しました。
+Go のコードがページの JavaScript に加える量を、`goesm build -minify` で minify して gzip した大きさで示します。
 
 | ページが使うもの | gzip |
 | --- | ---: |
 | `syscall/js` による DOM 操作。[dom.ja.md](dom.ja.md) のカウンターのボタン | 9 KiB |
-| `strings.Fields`、`Join`、`ToLower` を使う関数 | 15 KiB |
-| 同じカウンターを `honnef.co/go/js/dom/v2` で書いたもの | 50 KiB |
-| `fmt` による hello world | 90 KiB |
-| `reflect` を伴う `encoding/json` による構造体への JSON のデコード | 193 KiB |
-| protobuf と `net/http` を伴う Connect のクライアント | 1.3 MiB |
+| `strings.Fields`、`Join`、`ToLower` を使う関数 | 9 KiB |
+| 同じカウンターを `honnef.co/go/js/dom/v2` で書いたもの | 27 KiB |
+| `fmt` による hello world | 13 KiB |
+| `encoding/json` による構造体への JSON のデコード | 16 KiB |
+| protobuf と `net/http` を伴う Connect のクライアント ([compare/rpc](../compare/rpc/rpc.go)) | 484 KiB |
 
 ## JavaScript と TypeScript から使う Go のライブラリ
 
@@ -93,7 +93,7 @@ Go のコードは、`//goesm:import` で宣言した ES モジュールの関�
 75 パーセンタイルから 95 パーセンタイルの間で分かっている不足を挙げます。これらを必要とするコードも、一部は動くことがあります。
 
 - **ハンドルのフィールド:** メソッドを持つ構造体型へのポインタは Go のオブジェクトそのままで JavaScript に渡るので、そのフィールドには Go の内部表現が入っています。データはメソッドや関数を通して読みます。
-- **バンドルの大きさ。** `fmt.Sprintf` か `fmt.Println` を使うパッケージは gzip 後に約 35 KiB になります。その中身は、goesm が文字列の連結で書式化しない引数に使う fmt の printer と、それが使う `reflect` と `strconv` の一部です。`errors.New` 以外の関数呼び出しで初期化するパッケージ変数があると、import した側が何も使わなくても、そのパッケージはバンドルに残ります。`regexp.MustCompile` がその例です。`net/http` のクライアントは、リクエストを `fetch` で送るにもかかわらず TLS と HTTP/2 のコードを残します。`time`、`strings`、`strconv` の一部だけを使うコードは小さく収まります。`time` の 6 つの関数を使うパッケージは 13 KiB です。コンパイル時にわかるパターンの `regexp` はエンジンの `RegExp` で照合し、増えるのは約 5 KiB です。実行時に与えるパターンと、`(a+)+b` や `\d+\d+$` のようにバックトラックが入力の長さの 2 乗を超える時間になり得るパターンでは Go のエンジンが残り、約 60 KiB になります。
+- **バンドルの大きさ。** 文字列、真偽値、数値に対する verb だけからなる定数の書式で `fmt.Sprintf` か `fmt.Errorf` を呼ぶパッケージは、goesm が文字列の連結で書式化するので gzip 後に約 12 KiB です。interface の値や構造体の `%v` のようにそれ以外の引数があると、fmt の printer と、それが使う `reflect` と `strconv` の一部が加わり、約 37 KiB になります。interface や関数値を通した呼び出しのように、副作用のないことを goesm が確かめられない初期化子を持つパッケージ変数があると、import した側が何も使わなくても、そのパッケージはバンドルに残ります。変数の値を計算するだけの初期化子は、定数パターンの `regexp.MustCompile` を含め、使われない変数とともに除かれます。`net/http` のクライアントはリクエストを `fetch` で送り、プログラムが Transport に独自の dialer を与えない限り、TLS と HTTP/2 を含む Transport 自身の接続処理を出力しません。`http.Get` を使うパッケージは約 260 KiB で、その大半は `x/net` の IDNA の表と、リクエストとレスポンスが参照する `crypto/tls` の型です。独自の dialer を与えると約 750 KiB になります。`time`、`strings`、`strconv` の一部だけを使うコードは小さく収まります。`time` の 6 つの関数を使うパッケージは 13 KiB です。コンパイル時にわかるパターンの `regexp` はエンジンの `RegExp` で照合し、増えるのは約 5 KiB です。実行時に与えるパターンと、`(a+)+b` や `\d+\d+$` のようにバックトラックが入力の長さの 2 乗を超える時間になり得るパターンでは Go のエンジンが残り、約 60 KiB になります。
 - **HTTP サーバー:** HTTP/2 と gRPC 本来のプロトコル、TLS による `ListenAndServeTLS`、WebSocket と `Hijack`、トレーラー、ハンドラの実行中に読むストリーミングのリクエストボディ、クライアントストリーミングと双方向ストリーミングの RPC、`net.Listener` を渡す `Serve` はまだありません。Connect と gRPC-Web は動きます。
 - **fetch 以外の Workers の機能:** KV、D1、R2、Durable Objects などのバインディングは `syscall/js` を通してしか使えません。`ctx.waitUntil` にはつながっていないので、レスポンスの後も動いている goroutine は止められることがあります。
 - **ネットワークとプロセス:** 生の TCP や UDP に対する `net.Dial` と `net.Listen`、`pgx` や `go-sql-driver/mysql` のように TCP で接続するデータベースドライバ、`os/exec` は使えません。
@@ -101,7 +101,7 @@ Go のコードは、`//goesm:import` で宣言した ES モジュールの関�
 - **64 ビットの `int` と `uint`:** 2^53 未満では正確ですが、オーバーフローしても折り返しません。`int64` と `uint64` は正確です。
 - **並列実行:** goroutine は 1 本の JavaScript スレッドを共有し、待つ箇所でだけ切り替わります。これは `GOMAXPROCS=1` でプリエンプションのない Go と同じです。待たずに長く計算する Go のコードは、他の goroutine、タイマー、リクエストを待たせます。`runtime.Gosched` を呼ばずにフラグをポーリングするコードは止まったままになります。並列に動かす処理は Worker に切り出します。実行モデル、データ競合、メモリ安全性は [docs/concurrency.ja.md](concurrency.ja.md) にまとめています。
 - **panic:** goroutine の中で誰も recover しない panic は、Go と同じくプロセスを終了させます。Go のコードが Next.js のような Node.js のサーバーにライブラリとして組み込まれている場合も同じです。`js.FuncOf` のコールバックの中の panic は、呼び出し元ではなく `reportError` に渡ります。
-- **配布:** Node.js は `node_modules` の下の `.ts` ファイルから型を取り除かないので、npm パッケージとして公開した goesm の出力にはバンドラが必要です。ソースマップは `.go` ファイルを絶対パスで示します。
+- **配布:** Node.js は `node_modules` の下の `.ts` ファイルから型を取り除かないので、npm パッケージとして公開した goesm の出力にはバンドラが必要です。
 - **ツール:** `syscall/js` を import するパッケージは、`GOOS=js GOARCH=wasm` を指定しない限り、build、vet、gopls での読み込みができません。
 
 ## 対象外

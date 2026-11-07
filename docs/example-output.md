@@ -60,7 +60,7 @@ const $goesm = { path: "example.com/app/main", funcs: { Result: { fn: Result, ty
 export { $Result$js1 as "Result", $goesm };
 ```
 
-The entry package's `Result` is exported through a wrapper, `$Result$js1`, which converts arguments and results for JavaScript callers and turns a nil dereference into a Go panic ([js-exports.md](js-exports.md)); Go code calls `Result` itself. Each module ends with an inline TS→Go source map (`//# sourceMappingURL=data:...`), also written next to it as `<module>.ts.map`.
+The entry package's `Result` is exported through a wrapper, `$Result$js1`, which converts arguments and results for JavaScript callers and turns a nil dereference into a Go panic ([js-exports.md](js-exports.md)); Go code calls `Result` itself. Each module ends with an inline TS→Go source map (`//# sourceMappingURL=data:...`), also written next to it as `<module>.ts.map`. Both name the `.go` files relative to the module's directory.
 
 ### Using it from a bundler or a TypeScript-aware runtime
 
