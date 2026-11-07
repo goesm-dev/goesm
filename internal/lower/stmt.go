@@ -830,7 +830,9 @@ func (fe *funcEmitter) ifStmt(s *ast.IfStmt, label string) {
 	w := fe.w
 	if val, ok := constCond(fe.info, s.Cond); ok {
 		// A constant condition: only the branch that runs (inspectLive).
-		w.ln("%s{", labelPrefix(label))
+		// It stays under if (true), so that code after a branch that
+		// returns is not unreachable to linters.
+		w.ln("%sif (true) {", labelPrefix(label))
 		w.indent++
 		if s.Init != nil {
 			fe.stmt(s.Init, "")

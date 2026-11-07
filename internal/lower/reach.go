@@ -395,6 +395,69 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 		pkg := p.byTypes[f.Pkg()]
 		return pkg != nil && p.std[pkg]
 	}
+	// Reflection reads a field without a selector, and a function read
+	// that way can be called through reflect.Value.Call, or after a type
+	// assertion of its Interface() to its function type. Once reachable
+	// code can do either, the fields that may be called are live.
+	reflectCalls := false     // reflect.Value.Call or CallSlice
+	var asserted []types.Type // the function types asserted to
+	// An assertion to a type parameter asserts to the function types
+	// instantiations pass as type arguments.
+	var typeArgs []types.Type
+	for _, pkg := range p.Pkgs {
+		for _, inst := range pkg.TypesInfo.Instances {
+			for i := 0; i < inst.TypeArgs.Len(); i++ {
+				if t := inst.TypeArgs.At(i); isSignature(t) {
+					typeArgs = append(typeArgs, t)
+				}
+			}
+		}
+	}
+	paramAsserted := false
+	callable := func(f *types.Var) bool {
+		if reflectCalls {
+			return true
+		}
+		for _, t := range asserted {
+			if types.Identical(t, f.Type()) {
+				return true
+			}
+		}
+		if paramAsserted {
+			for _, t := range typeArgs {
+				if types.Identical(t, f.Type()) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	recheckFields := func() {
+		for f := range pendingField {
+			if callable(f) {
+				liveField(f)
+			}
+		}
+	}
+	assertTo := func(info *types.Info, e ast.Expr) {
+		if e == nil {
+			return
+		}
+		tv, ok := info.Types[e]
+		if !ok || !tv.IsType() {
+			return
+		}
+		switch {
+		case isTypeParam(tv.Type):
+			if !paramAsserted && len(typeArgs) > 0 {
+				paramAsserted = true
+				recheckFields()
+			}
+		case isSignature(tv.Type):
+			asserted = append(asserted, tv.Type)
+			recheckFields()
+		}
+	}
 	strs := &knownStrings{byTypes: p.byTypes}
 	constPattern := map[*ast.Ident]bool{} // a patternFuncs callee with a pattern known at compile time, without \p
 	knownPattern := map[*ast.Ident]string{}
@@ -429,8 +492,14 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 				if sel, ok := b.info.Selections[n]; ok && sel.Kind() == types.FieldVal && !assigned[n] {
 					liveField(sel.Obj().(*types.Var).Origin())
 				}
+			case *ast.TypeAssertExpr:
+				assertTo(b.info, n.Type)
+			case *ast.CaseClause:
+				for _, e := range n.List {
+					assertTo(b.info, e)
+				}
 			case *ast.Ident:
-				if f := p.funcFieldStores[n]; f != nil && !fieldLive[f] && stdField(f) {
+				if f := p.funcFieldStores[n]; f != nil && !fieldLive[f] && stdField(f) && !callable(f) {
 					if fn, ok := b.info.Uses[n].(*types.Func); ok {
 						pendingField[f] = append(pendingField[f], fn.Origin())
 						return true
@@ -492,6 +561,10 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 			fn, ok := b.info.Uses[id].(*types.Func)
 			if !ok {
 				return true
+			}
+			if name := fn.FullName(); !reflectCalls && (name == "(reflect.Value).Call" || name == "(reflect.Value).CallSlice") {
+				reflectCalls = true
+				recheckFields()
 			}
 			if b.pkg != "reflect" && (reflectEnum[fn.FullName()] || reflectLike(fn)) && fn.Name() != "NumMethod" {
 				name := ""
@@ -955,4 +1028,9 @@ func recovered(info *types.Info, body ast.Node, e ast.Expr) bool {
 		return only
 	})
 	return only && declared && assigned
+}
+
+func isSignature(t types.Type) bool {
+	_, ok := t.Underlying().(*types.Signature)
+	return ok
 }

@@ -101,6 +101,12 @@ func join(xs []string) string {
 	return s
 }
 
+// shape gets its Area from a value of an unnamed struct type, without a
+// store to the field: area blocks, since that function does.
+type shape struct{ Area func() int }
+
+func area(s shape) int { return s.Area() }
+
 var ch = make(chan int, 1)
 
 func main() {
@@ -114,4 +120,6 @@ func main() {
 	fmt.Println(len(makers[0]()), anys[0]())
 	visits[0](4)
 	fmt.Println(sum)
+	var sq shape = struct{ Area func() int }{func() int { ch <- 9; return <-ch }}
+	fmt.Println(area(sq))
 }

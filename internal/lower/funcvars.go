@@ -101,6 +101,69 @@ func (p *Program) findFuncVars() {
 			}
 		}
 	}
+	// A value of an unnamed struct type is assignable to a named struct
+	// type of the same underlying type, which then holds its function
+	// fields without a store to them: the function fields of the named
+	// types some unnamed struct type of the program is identical to are
+	// not known.
+	var unnamed []*types.Struct
+	var named []types.Type
+	seenType := map[types.Type]bool{}
+	hasFuncField := func(st *types.Struct) bool {
+		for i := 0; i < st.NumFields(); i++ {
+			if isFunc(st.Field(i)) {
+				return true
+			}
+		}
+		return false
+	}
+	addType := func(t types.Type) {
+		if t == nil || seenType[t] {
+			return
+		}
+		seenType[t] = true
+		switch t := t.(type) {
+		case *types.Struct:
+			if hasFuncField(t) {
+				unnamed = append(unnamed, t)
+			}
+		case *types.Named:
+			if st, ok := t.Underlying().(*types.Struct); ok && hasFuncField(st) {
+				named = append(named, t)
+			}
+		}
+	}
+	for _, pkg := range p.Pkgs {
+		for _, tv := range pkg.TypesInfo.Types {
+			addType(tv.Type)
+		}
+		for _, obj := range pkg.TypesInfo.Defs {
+			if obj != nil {
+				addType(obj.Type())
+			}
+		}
+		for _, inst := range pkg.TypesInfo.Instances {
+			addType(inst.Type)
+		}
+	}
+	// The struct type of a type declaration is the named type's
+	// underlying type, not a type of values.
+	declared := map[types.Type]bool{}
+	for _, n := range named {
+		declared[n.Underlying()] = true
+		if o := n.(*types.Named).Origin(); o != nil {
+			declared[o.Underlying()] = true
+		}
+	}
+	for _, n := range named {
+		for _, u := range unnamed {
+			if !declared[u] && types.Identical(n.Underlying(), u) {
+				badFields(n)
+				break
+			}
+		}
+	}
+
 	asValue := map[*types.Func]bool{}
 	for _, pkg := range p.Pkgs {
 		for id, obj := range pkg.TypesInfo.Uses {
