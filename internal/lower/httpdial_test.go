@@ -30,6 +30,8 @@ func TestStoresDialer(t *testing.T) {
 		{`type E struct{ http.Transport }; var e E; e.DialContext = dial`, true},
 		{`t := &http.Transport{}; p := &t.DialContext; _ = p`, true},
 		{`t := &http.Transport{}; t.DialContext, t.Dial = nil, nil`, false},
+		{`t := &http.Transport{}; reflect.ValueOf(t).Elem().FieldByName("DialContext").Set(reflect.ValueOf(dial))`, true},
+		{`t := &http.Transport{}; _ = reflect.ValueOf(t).Elem().FieldByName("MaxIdleConns")`, false},
 	} {
 		src := `package p
 
@@ -37,10 +39,11 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"reflect"
 	"time"
 )
 
-var _ = time.Second
+var _, _ = time.Second, reflect.ValueOf
 
 func dial(ctx context.Context, network, addr string) (net.Conn, error) { return nil, nil }
 
