@@ -16,6 +16,18 @@ import (
 // transportRoundTrip is the Transport's own round trip, which dials.
 const transportRoundTrip = "(*net/http.Transport).roundTrip"
 
+// transportDials are the Transport's functions left out with its round
+// trip: the round trip and the dialing of the connections it waits for.
+// Only the round trip queues a connection to dial (getConn, queueForDial),
+// so a Transport that never runs it never dials, even when closing its
+// idle connections hands a freed slot to the next waiting dial
+// (decConnsPerHost).
+var transportDials = map[string]bool{
+	transportRoundTrip:                  true,
+	"(*net/http.Transport).dialConnFor": true,
+	"(*net/http.Transport).dialConn":    true,
+}
+
 // transportDialFields are the fields of net/http.Transport holding dialers.
 var transportDialFields = map[string]bool{"Dial": true, "DialContext": true, "DialTLS": true, "DialTLSContext": true}
 

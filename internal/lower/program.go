@@ -9,6 +9,7 @@ package lower
 import (
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"sort"
@@ -77,6 +78,9 @@ type Program struct {
 	// funcVars are the function variables that only hold the functions
 	// listed (funcvars.go).
 	funcVars map[*types.Var][]any
+	// funcFieldStores are the declared functions stored in fields of
+	// funcVars, by the identifier that stores them (reach.go).
+	funcFieldStores map[*ast.Ident]*types.Var
 
 	units []*unit
 	// funcValues are the functions that can be called through a function
@@ -173,6 +177,13 @@ type Program struct {
 	// (reach.go).
 	reachedInits map[*types.Func]bool
 	reachOnce    sync.Once
+	// leftOutFuncs are the functions reach leaves out as never called,
+	// which are lowered as synchronous stubs (leftOut in emit.go).
+	leftOutFuncs map[*types.Func]bool
+	// fieldLeftOut are the standard library functions only stored in
+	// function fields that reachable code never calls or reads (reach.go),
+	// lowered as stubs (leftOut in emit.go).
+	fieldLeftOut map[*types.Func]bool
 	// lazyVars are the package variables whose initializers have no
 	// effect, and lazyInits the init functions that only assign the
 	// package variables listed (effects.go).
@@ -349,6 +360,48 @@ func isAggregate(t types.Type) bool {
 
 func unparen(e ast.Expr) ast.Expr { return ast.Unparen(e) }
 
+// constCond reports the value of an if statement's condition that is a
+// constant, like Go's `const debug = false; if debug { ... }`.
+func constCond(info *types.Info, cond ast.Expr) (val, ok bool) {
+	tv, found := info.Types[cond]
+	if !found || tv.Value == nil || tv.Value.Kind() != constant.Bool {
+		return false, false
+	}
+	return constant.BoolVal(tv.Value), true
+}
+
+// inspectLive is ast.Inspect, without the branches of if statements that a
+// constant condition never runs. Go compiles no code for them, and neither
+// does goesm (ifStmt), so the analyses of what the code calls leave them out.
+func inspectLive(info *types.Info, root ast.Node, f func(ast.Node) bool) {
+	var visit func(n ast.Node) bool
+	visit = func(n ast.Node) bool {
+		s, ok := n.(*ast.IfStmt)
+		if !ok {
+			return f(n)
+		}
+		val, ok := constCond(info, s.Cond)
+		if !ok {
+			return f(n)
+		}
+		if !f(n) {
+			return false
+		}
+		if s.Init != nil {
+			ast.Inspect(s.Init, visit)
+		}
+		ast.Inspect(s.Cond, visit)
+		if val {
+			ast.Inspect(s.Body, visit)
+		} else if s.Else != nil {
+			ast.Inspect(s.Else, visit)
+		}
+		f(nil)
+		return false
+	}
+	ast.Inspect(root, visit)
+}
+
 // analyzeAddrs finds variables whose address is taken explicitly (&x) or
 // implicitly (x.M() with a pointer receiver), and package variables assigned
 // from other packages (ES module bindings are read-only for importers).
@@ -422,18 +475,24 @@ func (p *Program) analyzeAddrs() {
 // conservatively by signature over the whole program, interface methods by
 // the types stored in interface values (see findIfaceTypes).
 type unit struct {
-	key        any // *types.Func or *ast.FuncLit
-	sig        *types.Signature
-	isMethod   bool
-	name       string
-	blocking   bool
-	callees    []any
+	key      any // *types.Func or *ast.FuncLit
+	sig      *types.Signature
+	isMethod bool
+	name     string
+	blocking bool
+	callees  []any
+	// varFns are the functions the function variables it calls hold
+	// (funcvars.go); one that never runs is never stored either.
+	varFns     []any
 	dynSigs    []*types.Signature
 	ifaceCalls []ifaceCall
-	// sites are the static calls of declared functions, and paramDyn and
-	// paramIface the calls through tracked parameters (paramsync.go).
+	// sites are the static calls of declared functions, and paramDyn,
+	// paramFns and paramIface the calls through tracked parameters
+	// (paramsync.go); paramFns are the functions a tracked parameter of
+	// known values (funcvars.go) holds.
 	sites      []callSite
 	paramDyn   []paramDyn
+	paramFns   []any
 	paramIface []ifaceCall
 	lockCalls  []*ast.CallExpr // sync Lock and RLock calls (lockcheck.go)
 	goexit     bool            // calls runtime.Goexit
@@ -593,6 +652,9 @@ func (p *Program) refineBlocking() {
 		}
 		p.async, p.asyncA = map[any]bool{}, map[*types.Func]bool{}
 		for k, v := range async {
+			if fn, ok := k.(*types.Func); ok && p.leftOutFuncs[fn] {
+				continue // a stub
+			}
 			if v && !p.live(k) {
 				p.async[k] = true
 			}
@@ -933,11 +995,19 @@ func (p *Program) unitBlocksIn(u *unit, units []*unit, assume *types.Func) bool 
 	if p.syncOnly[u.key] {
 		return false
 	}
+	if fn, ok := u.key.(*types.Func); ok && p.leftOutFuncs[fn] {
+		return false // a stub
+	}
 	if u.blocking {
 		return true
 	}
 	for _, c := range u.callees {
 		if p.async[c] {
+			return true
+		}
+	}
+	for _, c := range u.varFns {
+		if p.async[c] && (p.live == nil || p.live(c)) {
 			return true
 		}
 	}
@@ -948,6 +1018,11 @@ func (p *Program) unitBlocksIn(u *unit, units []*unit, assume *types.Func) bool 
 	}
 	dynSigs, ifaceCalls := u.dynSigs, u.ifaceCalls
 	if assume == nil {
+		for _, c := range u.paramFns {
+			if p.async[c] && (p.live == nil || p.live(c)) {
+				return true
+			}
+		}
 		for _, d := range u.paramDyn {
 			if p.nonEsc[d.fn][d.idx] {
 				if p.paramBlocks(d.fn, d.idx, d.sig, map[paramKey]bool{}) {
@@ -1018,7 +1093,7 @@ func (p *Program) scanUnit(pkg *packages.Package, key any, sig *types.Signature,
 	var inGo map[*ast.CallExpr]bool
 	// The channel operations of a select with a default case never wait.
 	var nowait map[ast.Node]bool
-	ast.Inspect(body, func(n ast.Node) bool {
+	inspectLive(info, body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.FuncLit:
 			return false // separate unit
@@ -1101,6 +1176,7 @@ func (p *Program) classifyCall(info *types.Info, call *ast.CallExpr, u *unit, is
 	if pc := p.paramCalls[call]; pc.fn != nil {
 		c := &unit{}
 		p.classifyFunc(info, call.Fun, c)
+		u.paramFns = append(u.paramFns, c.varFns...)
 		for _, sig := range c.dynSigs {
 			u.paramDyn = append(u.paramDyn, paramDyn{pc.fn, pc.idx, sig})
 		}
@@ -1143,7 +1219,7 @@ func (p *Program) classifyFunc(info *types.Info, fun ast.Expr, u *unit) {
 			return
 		case *types.Var:
 			if fns, ok := p.funcVars[obj]; ok {
-				u.callees = append(u.callees, fns...)
+				u.varFns = append(u.varFns, fns...)
 				return
 			}
 		}
@@ -1158,13 +1234,18 @@ func (p *Program) classifyFunc(info *types.Info, fun ast.Expr, u *unit) {
 					u.callees = append(u.callees, fn.Origin())
 				}
 				return
+			case types.FieldVal:
+				if fns, ok := p.funcVars[sel.Obj().(*types.Var).Origin()]; ok {
+					u.varFns = append(u.varFns, fns...)
+					return
+				}
 			}
 		} else if obj, ok := info.Uses[f.Sel].(*types.Func); ok {
 			u.callees = append(u.callees, obj.Origin())
 			return
 		} else if v, ok := info.Uses[f.Sel].(*types.Var); ok {
 			if fns, ok := p.funcVars[v]; ok {
-				u.callees = append(u.callees, fns...)
+				u.varFns = append(u.varFns, fns...)
 				return
 			}
 		}

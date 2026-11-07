@@ -113,14 +113,23 @@ func (p *Program) UnicodeClasses() bool {
 // quoting of a pattern that failed to compile (leftOut in emit.go).
 var regexpLeftOut = map[string]bool{"regexp.compileGo": true, "(*regexp.Regexp).findGo": true, "regexp.quote": true, "regexp.compileError": true}
 
-// reach computes calledMethods, unicodeClasses, regexpPatterns and
-// regexpGo. If the program can match with RegExps, it does so again
-// without what that leaves out, whose panics, for one, would make the
-// runtime call Error methods.
+// FieldLeftOut reports whether reachable code only stores fn in function
+// fields it never calls (fieldLeftOut).
+func (p *Program) FieldLeftOut(fn *types.Func) bool {
+	p.reachOnce.Do(p.reach)
+	return p.fieldLeftOut[fn]
+}
+
+// reach computes calledMethods, unicodeClasses, regexpPatterns,
+// regexpGo, leftOutFuncs and fieldLeftOut. If the program can match with
+// RegExps, it does so again without what that leaves out, whose panics,
+// for one, would make the runtime call Error methods.
 func (p *Program) reach() {
 	left := p.jsonLeftOut()
 	if !p.HTTPDialers() {
-		left[transportRoundTrip] = true
+		for name := range transportDials {
+			left[name] = true
+		}
 	}
 	p.reachFrom(left)
 	if !p.regexpGo && len(p.regexpPatterns) > 0 {
@@ -128,6 +137,12 @@ func (p *Program) reach() {
 			left[name] = true
 		}
 		p.reachFrom(left)
+	}
+	p.leftOutFuncs = map[*types.Func]bool{}
+	for _, u := range p.units {
+		if fn, ok := u.key.(*types.Func); ok && (left[fn.FullName()] || p.fieldLeftOut[fn]) {
+			p.leftOutFuncs[fn] = true
+		}
 	}
 }
 
@@ -360,6 +375,26 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 		use(fn)
 	}
 
+	// A declared function stored in a function field of a standard
+	// library struct whose values are known (funcvars.go) is reached once
+	// reachable code calls or reads the field: DefaultTransport's
+	// Proxy: ProxyFromEnvironment, which only dialing calls.
+	pendingField := map[*types.Var][]*types.Func{}
+	fieldLive := map[*types.Var]bool{}
+	liveField := func(f *types.Var) {
+		if fieldLive[f] {
+			return
+		}
+		fieldLive[f] = true
+		for _, fn := range pendingField[f] {
+			use(fn)
+		}
+		delete(pendingField, f)
+	}
+	stdField := func(f *types.Var) bool {
+		pkg := p.byTypes[f.Pkg()]
+		return pkg != nil && p.std[pkg]
+	}
 	strs := &knownStrings{byTypes: p.byTypes}
 	constPattern := map[*ast.Ident]bool{} // a patternFuncs callee with a pattern known at compile time, without \p
 	knownPattern := map[*ast.Ident]string{}
@@ -383,7 +418,25 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 				stored.conv(b.info.TypeOf(e), b.lhs[0].Type())
 			}
 		}
-		ast.Inspect(b.node, func(n ast.Node) bool {
+		assigned := map[ast.Expr]bool{} // the fields assigned, which are not read
+		inspectLive(b.info, b.node, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.AssignStmt:
+				for _, l := range n.Lhs {
+					assigned[ast.Unparen(l)] = true
+				}
+			case *ast.SelectorExpr:
+				if sel, ok := b.info.Selections[n]; ok && sel.Kind() == types.FieldVal && !assigned[n] {
+					liveField(sel.Obj().(*types.Var).Origin())
+				}
+			case *ast.Ident:
+				if f := p.funcFieldStores[n]; f != nil && !fieldLive[f] && stdField(f) {
+					if fn, ok := b.info.Uses[n].(*types.Func); ok {
+						pendingField[f] = append(pendingField[f], fn.Origin())
+						return true
+					}
+				}
+			}
 			if call, ok := n.(*ast.CallExpr); ok && len(call.Args) == 1 && !runtimeCalls {
 				// The runtime prints a panic value with its Error or
 				// String method (formatPanicValue), as soon as it panics:
@@ -493,6 +546,14 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 			}
 			return true
 		})
+	}
+	p.fieldLeftOut = map[*types.Func]bool{}
+	for _, fns := range pendingField {
+		for _, fn := range fns {
+			if !seen[fn] && !p.reachedFuncs[fn.FullName()] {
+				p.fieldLeftOut[fn] = true
+			}
+		}
 	}
 }
 

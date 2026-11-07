@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/types/typeutil"
 )
 
@@ -256,13 +257,68 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 				}
 			}
 		}
+		// The interface types whose values reach JavaScript: those the ABI
+		// of an entry carries, those an entry converts to another
+		// interface type, and those the program's own packages convert to
+		// one of these. A value of another interface type that the
+		// program's own packages give a handle (an *http.Client as a
+		// connect.HTTPClient) stays in Go.
+		var toJS []types.Type
+		reaches := func(t types.Type) bool {
+			for _, u := range toJS {
+				if types.Identical(t, u) {
+					return true
+				}
+			}
+			return false
+		}
+		own := func(pkg *packages.Package) bool { return p.Entries[pkg.PkgPath] || !p.std[pkg] && !p.Deps[pkg] }
+		eachConv := func(pkg *packages.Package, conv func(src, dst types.Type)) {
+			info := pkg.TypesInfo
+			for _, f := range pkg.Syntax {
+				for _, d := range f.Decls {
+					switch d := d.(type) {
+					case *ast.FuncDecl:
+						if d.Body != nil {
+							p.findConversions(info, d.Body, info.Defs[d.Name].(*types.Func).Signature(), conv)
+						}
+					case *ast.GenDecl:
+						p.findConversions(info, d, nil, conv)
+					}
+				}
+			}
+		}
 		for _, pkg := range p.Pkgs {
-			if !p.Entries[pkg.PkgPath] && (p.std[pkg] || p.Deps[pkg]) {
+			if p.Entries[pkg.PkgPath] {
+				toJS = append(toJS, abiIfaces(pkg.Types, false)...)
+				eachConv(pkg, func(src, dst types.Type) {
+					if src != nil && dst != nil && isIface(dst) && isIface(src) && !reaches(src) {
+						toJS = append(toJS, src)
+					}
+				})
+			}
+		}
+		for grown := true; grown; {
+			grown = false
+			for _, pkg := range p.Pkgs {
+				if own(pkg) && !p.Entries[pkg.PkgPath] {
+					eachConv(pkg, func(src, dst types.Type) {
+						if src != nil && dst != nil && isIface(src) && isIface(dst) && reaches(dst) && !reaches(src) {
+							toJS = append(toJS, src)
+							grown = true
+						}
+					})
+				}
+			}
+		}
+		for _, pkg := range p.Pkgs {
+			if !own(pkg) {
 				continue
 			}
 			info := pkg.TypesInfo
+			entry := p.Entries[pkg.PkgPath]
 			conv := func(src, dst types.Type) {
-				if src != nil && dst != nil && isIface(dst) && !isIface(src) {
+				if src != nil && dst != nil && isIface(dst) && !isIface(src) && (entry || reaches(dst)) {
 					visit(src, true)
 				}
 			}
@@ -324,7 +380,12 @@ func (p *Program) anyHandleMethods() map[*types.Func]bool {
 // abiCarriesIface reports whether the JS calling ABI of pkg, its exported
 // functions and the exported methods of its types, carries a value of an
 // interface type other than error, which can hold a handle of any type.
-func abiCarriesIface(pkg *types.Package) bool {
+func abiCarriesIface(pkg *types.Package) bool { return len(abiIfaces(pkg, true)) > 0 }
+
+// abiIfaces returns the interface types other than error that the JS calling
+// ABI of pkg carries (abiCarriesIface), or only the first one found.
+func abiIfaces(pkg *types.Package, first bool) []types.Type {
+	var found []types.Type
 	errType := types.Universe.Lookup("error").Type()
 	seen := map[types.Type]bool{}
 	var walk func(t types.Type) bool
@@ -349,7 +410,8 @@ func abiCarriesIface(pkg *types.Package) bool {
 		seen[t] = true
 		switch u := t.Underlying().(type) {
 		case *types.Interface:
-			return true
+			found = append(found, t)
+			return first
 		case *types.Pointer:
 			// JavaScript calls the methods of a handle, whatever its
 			// type's name.
@@ -398,19 +460,19 @@ func abiCarriesIface(pkg *types.Package) bool {
 		switch obj := scope.Lookup(name).(type) {
 		case *types.Func:
 			if obj.Exported() && obj.Signature().TypeParams().Len() == 0 && exported(obj.Signature()) {
-				return true
+				return found
 			}
 		case *types.TypeName:
 			if n, ok := obj.Type().(*types.Named); ok && obj.Exported() && n.TypeParams().Len() == 0 {
 				for _, fn := range handleMethods(n) {
 					if exported(fn.Signature()) {
-						return true
+						return found
 					}
 				}
 			}
 		}
 	}
-	return false
+	return found
 }
 
 // handleMethods are the methods JavaScript calls on a handle of type *n:

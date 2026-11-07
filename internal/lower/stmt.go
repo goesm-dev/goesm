@@ -828,6 +828,35 @@ func (fe *funcEmitter) lvalueOf(e ast.Expr, prepare int) lvalue {
 
 func (fe *funcEmitter) ifStmt(s *ast.IfStmt, label string) {
 	w := fe.w
+	if val, ok := constCond(fe.info, s.Cond); ok {
+		// A constant condition: only the branch that runs (inspectLive).
+		w.ln("%s{", labelPrefix(label))
+		w.indent++
+		if s.Init != nil {
+			fe.stmt(s.Init, "")
+		}
+		switch e := s.Else.(type) {
+		case nil:
+			if val {
+				fe.block(s.Body.List)
+			}
+		case *ast.BlockStmt:
+			if val {
+				fe.block(s.Body.List)
+			} else {
+				fe.block(e.List)
+			}
+		case *ast.IfStmt:
+			if val {
+				fe.block(s.Body.List)
+			} else {
+				fe.ifStmt(e, "")
+			}
+		}
+		w.indent--
+		w.ln("}")
+		return
+	}
 	if s.Init != nil {
 		w.ln("%s{", labelPrefix(label))
 		w.indent++
