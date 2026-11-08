@@ -36,6 +36,7 @@ Changes on `main` since v0.0.1-beta.9: [v0.0.1-beta.9...main](https://github.com
 
 ### Fixes
 
+- The `[]byte` of a `json.Marshal` call that may block, one for a value whose `MarshalJSON` waits, is kept as the slice it returns when the function uses it only as `string(b)` and `len(b)`. goesm gave such a local the string of the fast encoder, which lowers only calls that do not block, so `string(b)` was the slice object, not a string, and `len` was undefined (`testdata/programs/jsonmarshalwait`).
 - An exported function of an entry package that calls a function parameter is async when some function value of the parameter's type blocks, as JavaScript may pass it one that Go returned to it. The same holds for a function field of a struct type the exports take or return. A parameter no Go code passes such a function to, `func Apply(f func() string) string`, was taken to hold only what Go passes, and `Apply` computed with the Promise of a blocking `f` (`test/js/poc.test.mjs`).
 - fmt formats a `uint` below zero, which goesm's numbers do not wrap to, as its `uint64` conversion, as Go prints `uint(0)-1` (18446744073709551615), instead of as a negative number (`testdata/programs/sprintfconcat`).
 - Post-quantum cryptography matches native Go (`testdata/programs/pqcrypto`: ML-KEM, ML-DSA, SHA-3 and SHAKE, X25519, HKDF and every KEM, KDF and AEAD of `crypto/hpke`, including ML-KEM-768 + X25519):
