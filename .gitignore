@@ -4,3 +4,8 @@ node_modules
 /goesm
 testdata/**/_golden*/
 /bin/
+
+.env
+.env.*
+.env*.local
+.envrc.local
