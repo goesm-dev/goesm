@@ -136,10 +136,12 @@ type Program struct {
 	stdWritten map[string]bool
 
 	// //go:linkname pulls (bodyless functions) and the functions providing
-	// their symbols (see linkname.go).
-	linkPulls    map[*types.Func]string
-	linkProvides map[*types.Func]string
-	linkTargets  map[*types.Func]*types.Func
+	// their symbols (see linkname.go): linkProvidesAll for every pull,
+	// linkProvides for the pulls reachable code calls (reach.go).
+	linkPulls       map[*types.Func]string
+	linkProvides    map[*types.Func]string
+	linkProvidesAll map[*types.Func]string
+	linkTargets     map[*types.Func]*types.Func
 
 	// ifaceMethods are the methods of the program's interface types, by
 	// name, and allMethods is set when reflection enumerates methods; they

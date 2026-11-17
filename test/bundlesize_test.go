@@ -68,6 +68,14 @@ func TestBundleSize(t *testing.T) {
 		// an interface type were kept, Dump with fmt, though only values
 		// of type any, which hold no *item, reach JavaScript.
 		{"./ifacehandle", 32_000},
+		// 390 KB when importing net/http for its constants ran the
+		// initializers of the host's feature checks (syscall/js reads),
+		// GODEBUG settings, the server's registration with the host,
+		// crypto/x509's anyPolicyOID (fmt for a panic) and os.Stdin
+		// (a case of runtime.GOOS for the BSDs), and when every
+		// //go:linkname provider was kept, net/textproto's
+		// readMIMEHeader with fmt.
+		{"./httpstatus", 120_000},
 	} {
 		t.Run(c.pkg[2:], func(t *testing.T) {
 			out := t.TempDir()

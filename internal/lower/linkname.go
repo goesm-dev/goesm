@@ -22,7 +22,10 @@ import (
 // symbols once its package variables are initialized; a call that comes
 // earlier and returns nothing is deferred until then (Go would run it at
 // once, against the statically initialized variables), anything else
-// panics.
+// panics. A package registers only the symbols of the pulls reachable code
+// calls (reach.go): net/http pulls net/textproto's readMIMEHeader, and
+// registering it in every program importing net/http, even for its
+// constants, kept the parser with fmt.
 //
 // The standard library's own pulls into the runtime keep being implemented
 // by goesm's natives.
@@ -65,6 +68,7 @@ func linkSymbol(fn *types.Func) string {
 // provide their symbols.
 func (p *Program) analyzeLinknames() {
 	p.linkPulls = map[*types.Func]string{}
+	p.linkProvidesAll = map[*types.Func]string{}
 	p.linkProvides = map[*types.Func]string{}
 	p.linkTargets = map[*types.Func]*types.Func{}
 	providers := map[string]*types.Func{}
@@ -141,7 +145,7 @@ func (p *Program) analyzeLinknames() {
 			continue // a pull of a pull: no Go body to call
 		}
 		p.linkPulls[pl.fn] = pl.sym
-		p.linkProvides[target] = pl.sym
+		p.linkProvidesAll[target] = pl.sym
 		p.linkTargets[pl.fn] = target
 	}
 }
