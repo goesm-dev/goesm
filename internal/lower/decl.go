@@ -616,7 +616,7 @@ func (pe *pkgEmitter) emitFuncBody(w *writer, file *ast.File, fd *ast.FuncDecl, 
 	pe.inBounds, pe.hdrLoops = inBoundsIndices(pe.info, fd.Body)
 	pe.scalar = scalarRangeVars(pe.info, fd.Body)
 	pe.split = split64Vars(pe.info, fd.Body, pe.prog.boxed)
-	pe.strBytes, pe.strMarshal = stringBytesVars(pe.info, fd.Body, pe.prog.boxed)
+	pe.strBytes, pe.strMarshal = stringBytesVars(pe.info, fd.Body, pe.prog.boxed, fe.callBlocks)
 	pe.freshIfaces = freshIfaceVars(pe.info, fd.Body)
 	fe.funcBody(fd.Recv, fd.Type, fd.Body, sig)
 	pe.byteBools, pe.byteBoolMakes, pe.inBounds, pe.hdrLoops, pe.split, pe.scalar = nil, nil, nil, nil, nil, nil

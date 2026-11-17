@@ -22,6 +22,7 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### 性能
 
+- `protojson.Unmarshal` (`google.golang.org/protobuf/encoding/protojson`) の処理時間が入力の大きさに比例するようになりました。このデコーダーは、文字列の終わりを探すたびに入力の残りを `unsafe.String` で文字列に変換していました。JavaScript の文字列はバイト配列とメモリを共有できないため、goesm ではこの変換で残りのバイトがコピーされ、デコードに入力の長さの 2 乗に比例する時間がかかっていました。goesm は、この関数を宣言している版のモジュールに対して、バイトを直接走査するようデコーダーのこの関数にパッチを当てます (`internal/natives/patch/google.golang.org/protobuf`)。16,000 個の文字列からなる 277 KB の配列のデコードは、Node.js で 570 ms から 239 ms になりました。モジュールのパッケージに対するパッチは、置き換える宣言をすべて持つファイルにだけ当たります (`TestModulePatch`)。そのため、別の版のモジュールはその版のソースからコンパイルされます (`testdata/usecases/libs/protojson`)。
 - 構造体型の関数フィールドと関数の仮引数のうち、既知の関数 (宣言された関数か関数リテラル) だけを持つものを通した呼び出しは、それらの関数のどれかがブロックするときだけブロックします。このような変数の呼び出しはすでにそうなっていました。`sync.Pool` の `Get` は `New` を呼びますが、どれかのプールの `New` がブロックしない限り同期関数のままです。呼び出し元がブロックしない関数だけを渡す関数は、同じシグネチャの別の関数値がブロックしても同期関数のままです。到達できるコードが呼ばない関数 (goesm はスタブとして出力します) と、定数の条件で実行されない分岐は、呼び出し元を async にしなくなりました (`testdata/programs/funcfields`)。`reflect.Value.Set` を呼ぶプログラムで、reflection がポインタを通して到達する構造体のエクスポートされたフィールドは、reflection が値を入れられるフィールドです。このフィールドは、reflection がそこで得られる関数値も持つものとして扱います。Go のコードがインターフェース値に入れる関数値と、reflection が到達する同じ型のフィールドの関数値です (`testdata/programs/reflectset`、`reflectcopy`)。
 - 関数の変数かフィールドに入れた具体型のメソッド値とメソッド式 (`h := hooks{onMove: c.add}`) は、そのメソッドを持つものとして扱います。それを通した呼び出しは、そのメソッドがブロックするときだけブロックします。これまでは呼び出し元が async になっていました。interface 型のメソッド値と、mutex の `Lock` と `RLock` のメソッド値は、これまでどおり未知の関数を持つものとして扱います (`testdata/programs/methodvalues`)。
 - `math.Mod`、`Max`、`Min`、`Frexp`、`Ldexp`、`Modf` を native にし、`Sin`、`Cos`、`Tan`、`Sincos` は八分円の番号を `int` で持つようにしました。Go の本体は浮動小数点数を BigInt である `uint64` で分解していました。
@@ -36,6 +37,7 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### 修正
 
+- ブロックすることがある `json.Marshal` の呼び出し (待つ `MarshalJSON` を持つ値に対するもの) の `[]byte` は、関数が `string(b)` と `len(b)` にしか使わないときも、返されたスライスとして保持するようになりました。goesm はこのような局所変数に高速なエンコーダーの文字列を割り当てていましたが、このエンコーダーはブロックしない呼び出しだけを lower します。そのため `string(b)` が文字列ではなくスライスのオブジェクトになり、`len` は undefined になっていました (`testdata/programs/jsonmarshalwait`)。
 - エントリーパッケージのエクスポートされた関数が関数の仮引数を呼ぶとき、その型の関数値のどれかがブロックするなら、その関数は async になります。JavaScript は Go から受け取った関数をその仮引数に渡すことがあるためです。export が受け取るか返す構造体型の関数フィールドも同じです。Go のコードがそのような関数を渡さない仮引数 (`func Apply(f func() string) string`) は Go が渡すものだけを持つと扱われ、`Apply` はブロックする `f` の Promise で計算していました (`test/js/poc.test.mjs`)。
 - goesm の数値が wrap しないために負になった `uint` を、fmt は Go が `uint(0)-1` を 18446744073709551615 と表示するのと同じく `uint64` への変換として書式化するようになりました。以前は負の数として表示していました (`testdata/programs/sprintfconcat`)。
 - ポスト量子暗号が native Go と一致するようになりました (`testdata/programs/pqcrypto`: ML-KEM、ML-DSA、SHA-3 と SHAKE、X25519、HKDF、ML-KEM-768 + X25519 を含む `crypto/hpke` のすべての KEM、KDF、AEAD)。
