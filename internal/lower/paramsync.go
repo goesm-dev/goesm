@@ -411,36 +411,53 @@ func (p *Program) argBlocks(info *types.Info, arg ast.Expr, us map[string]paramU
 
 // funcArgBlocks reports whether calling the function value e may block.
 func (p *Program) funcArgBlocks(info *types.Info, e ast.Expr) bool {
+	return p.funcArgBlocker(info, e) != nil
+}
+
+// funcArgBlocker returns what makes calling the function value e block:
+// the blocking function or literal it is, the blocking method its method
+// value calls, or e itself when the function is not known; nil if calling
+// it does not block.
+func (p *Program) funcArgBlocker(info *types.Info, e ast.Expr) any {
+	key := func(k any) any {
+		if p.async[k] {
+			return k
+		}
+		return nil
+	}
 	switch f := e.(type) {
 	case *ast.FuncLit:
-		return p.async[f]
+		return key(f)
 	case *ast.Ident:
 		switch obj := info.Uses[f].(type) {
 		case *types.Func:
 			if obj.Origin() == obj {
-				return p.async[obj]
+				return key(obj)
 			}
 		case *types.Var:
 			if lit := p.localLits[obj]; lit != nil {
-				return p.async[lit]
+				return key(lit)
 			}
 		}
 	case *ast.SelectorExpr:
 		if sel, ok := info.Selections[f]; ok {
 			fn, _ := sel.Obj().(*types.Func)
 			if sel.Kind() != types.MethodVal || fn == nil || p.waitLockVals[f] != nil {
-				return true
+				return e
 			}
 			if recv := fn.Signature().Recv(); recv != nil && isIface(recv.Type()) {
-				return p.ifaceCallBlocks(sel.Recv(), fn, map[types.Type]bool{})
+				if b := p.ifaceCallBlocker(sel.Recv(), fn, map[types.Type]bool{}); b != nil {
+					return b
+				}
+				return nil
 			}
-			return p.async[fn.Origin()]
+			return key(fn.Origin())
 		}
 		if fn, ok := info.Uses[f.Sel].(*types.Func); ok && fn.Origin() == fn {
-			return p.async[fn]
+			return key(fn)
 		}
 	}
-	return true
+	return e
 }
 
 // findClones settles which functions get a synchronous clone: those some
@@ -805,13 +822,21 @@ func (p *Program) ifaceHas(fn *types.Func) bool {
 // a static call of fn may, or, when fn is callable dynamically, a function
 // value may.
 func (p *Program) paramBlocks(fn *types.Func, idx int, sig *types.Signature, seen map[paramKey]bool) bool {
+	return p.paramBlocker(fn, idx, sig, seen) != nil
+}
+
+// paramBlocker returns what makes a call through the function parameter
+// idx of fn block (see funcArgBlocker and dynSigBlocker), or nil.
+func (p *Program) paramBlocker(fn *types.Func, idx int, sig *types.Signature, seen map[paramKey]bool) any {
 	k := paramKey{fn, idx}
 	if seen[k] {
-		return false
+		return nil
 	}
 	seen[k] = true
-	if p.dynCallable(fn) && p.dynSigBlocks(sig, &unit{encl: fn}, p.units) {
-		return true
+	if p.dynCallable(fn) {
+		if b := p.dynSigBlocker(sig, &unit{encl: fn}, p.units); b != nil {
+			return b
+		}
 	}
 	for _, r := range p.sitesOf[fn] {
 		if p.live != nil && r.owner != nil && !p.live(r.owner) {
@@ -819,7 +844,7 @@ func (p *Program) paramBlocks(fn *types.Func, idx int, sig *types.Signature, see
 		}
 		arg := siteArg(r.s, idx)
 		if arg == nil {
-			return true
+			return r.s.call
 		}
 		switch e := unparen(arg).(type) {
 		case *ast.Ident:
@@ -827,35 +852,35 @@ func (p *Program) paramBlocks(fn *types.Func, idx int, sig *types.Signature, see
 			case *types.Nil:
 				continue
 			case *types.Func:
-				if p.funcArgBlocks(r.s.info, e) {
-					return true
+				if b := p.funcArgBlocker(r.s.info, e); b != nil {
+					return b
 				}
 				continue
 			case *types.Var:
 				if p.localLits[obj] != nil {
-					if p.funcArgBlocks(r.s.info, e) {
-						return true
+					if b := p.funcArgBlocker(r.s.info, e); b != nil {
+						return b
 					}
 					continue
 				}
 				if t, ok := p.tracked[r.owner][obj]; ok && r.owner != nil && p.nonEsc[r.owner][t.idx] && t.via == nil {
-					if p.paramBlocks(r.owner, t.idx, sig, seen) {
-						return true
+					if b := p.paramBlocker(r.owner, t.idx, sig, seen); b != nil {
+						return b
 					}
 					continue
 				}
 			}
 		case *ast.FuncLit, *ast.SelectorExpr:
 			if p.argOnly[e] {
-				if p.funcArgBlocks(r.s.info, e) {
-					return true
+				if b := p.funcArgBlocker(r.s.info, e); b != nil {
+					return b
 				}
 				continue
 			}
 		}
-		if p.dynSigBlocks(sig, &unit{encl: r.owner}, p.units) {
-			return true
+		if b := p.dynSigBlocker(sig, &unit{encl: r.owner}, p.units); b != nil {
+			return b
 		}
 	}
-	return false
+	return nil
 }
