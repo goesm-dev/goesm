@@ -23,7 +23,7 @@ import (
 // parses and type-checks them itself, the way go/packages does, because the
 // files mem adds may import packages the go command did not list for the
 // package (go/packages' importer only resolves the listed imports).
-func loadMem(cfg *packages.Config, mem *memOverlay, root string, patterns []string) ([]*packages.Package, error) {
+func loadMem(cfg *packages.Config, mem *memOverlay, root, modcache string, patterns []string) ([]*packages.Package, error) {
 	// The packages the added and replaced files import are loaded too.
 	extra := map[string]bool{}
 	for name, data := range mem.files {
@@ -71,7 +71,7 @@ func loadMem(cfg *packages.Config, mem *memOverlay, root string, patterns []stri
 	}
 
 	// Parse.
-	parse := replacingParser(root, mem)
+	parse := replacingParser(root, modcache, mem)
 	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
 	var wg sync.WaitGroup
 	parseErrs := map[*packages.Package][]error{}
