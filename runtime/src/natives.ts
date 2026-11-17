@@ -479,6 +479,11 @@ function int32Copy(a: number[], off: number, n: number): Int32Array | null {
 export function native$encoding$json$fastMarshal(v: Iface | null): S<number> {
   return jsonMarshal(v);
 }
+// Encoder.Encode of plain values (see the patch of v2_stream.go): Marshal's
+// text, with <, > and & as they are unless escapeHTML is set.
+export function native$encoding$json$fastEncode(v: Iface | null, escapeHTML: boolean): S<number> {
+  return jsonMarshal(v, escapeHTML);
+}
 export function native$encoding$json$fastUnmarshal(data: S<number>, v: Iface | null): boolean {
   return jsonUnmarshal(data, v);
 }
