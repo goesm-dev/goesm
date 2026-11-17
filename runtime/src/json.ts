@@ -21,6 +21,7 @@
 import {
   BoxMode, Cell, GoMap, Iface, Kind, Slice, Type, addMethods, append, bytesToString, errorType, fromJSString, funcOf, hasMethods, interfaceOf, makeMap, mapOf,
   named, noteASCII, ptrIface, ptrTo, reach, setBox, setUnderlying, sliceLit, sliceOf, stringToBytes, structOf, tBool, tFloat64, tInt64, tString, topString, typeArgsName,
+  utf8Bytes, utf8Text,
 } from "./index.ts";
 import type { S } from "./index.ts";
 
@@ -789,7 +790,7 @@ class Decoder {
         return new Iface(tString, this.str());
       case 0x7b: {
         this.i++;
-        const mt = mapOf(tString, t), m = makeMap(tString);
+        const mt = untypedMap$(), m = makeMap(tString);
         if (this.ws() === 0x7d) { this.i++; return new Iface(mt, m); }
         for (;;) {
           const k = this.str();
@@ -805,7 +806,7 @@ class Decoder {
       case 0x5b: {
         this.i++;
         const a: any[] = [];
-        const st = sliceOf(t);
+        const st = untypedSlice$();
         if (this.ws() === 0x5d) { this.i++; return new Iface(st, sliceLit(a)); }
         for (;;) {
           a.push(this.any(t, depth + 1));
@@ -1026,6 +1027,107 @@ export function jsonUnmarshalString(s: string, x: Iface | null): boolean {
   return x !== null && x.t.kind === Kind.Pointer && jsonUnmarshalTo(s, x.t, x.v);
 }
 
+// ---- Untyped values through JSON.parse ----
+//
+// A value decoded into an empty interface, a map[string]any or a []any is
+// all maps, slices, strings, numbers and booleans, which the engine's
+// JSON.parse reads several times faster than the one-pass decoder: the
+// result is converted to Go values. Go keeps the last of repeated names in
+// an object, as JSON.parse does, and turns an escaped lone surrogate into
+// U+FFFD, as fromJSString does. Invalid UTF-8, a number out of range,
+// nesting past the depth the decoder allows and any syntax error leave the
+// value to the one-pass decoder, and so to Go.
+
+// parsesAny reports whether parsed decodes values of type t: an empty
+// interface, or a map with string keys or a slice of one.
+function parsesAny(t: Type): boolean {
+  const empty = (u: Type) => u.kind === Kind.Interface && u.imethods.length === 0;
+  switch (t.kind) {
+    case Kind.Interface: return t.imethods.length === 0;
+    case Kind.Map: return t.key!.kind === Kind.String && empty(t.elem!);
+    case Kind.Slice: return empty(t.elem!);
+  }
+  return false;
+}
+
+// parsed decodes the JSON text s into a new value of type t, a type
+// parsesAny accepts, and returns undefined if the one-pass decoder must.
+// It throws Abort when the text needs Go's code.
+function parsed(s: string, t: Type): any {
+  const text = utf8Text(s);
+  return text === null ? undefined : parsedText(text, text === s, t);
+}
+
+// parsedText is parsed of the JSON text as a JS string, which is ascii if
+// all its characters are ASCII.
+function parsedText(text: string, ascii: boolean, t: Type): any {
+  let x: any;
+  try {
+    x = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (x === null) return null;
+  // Strings are Go strings already when the text is ASCII and has no
+  // escapes of other characters.
+  ascii &&= text.indexOf("\\u") < 0;
+  switch (t.kind) {
+    case Kind.Interface:
+      return untyped(x, ascii, 0);
+    case Kind.Map:
+      if (typeof x !== "object" || Array.isArray(x)) abort();
+      return untypedMap(x, t.key!, ascii, 0);
+  }
+  if (!Array.isArray(x)) abort();
+  return untypedSlice(x, ascii, 0);
+}
+
+// untyped converts x, a value of JSON.parse, into the dynamic value of an
+// empty interface as Go decodes it: map[string]any, []any, float64,
+// string, bool or nil, whatever the interface's name. ascii is set when
+// every string is ASCII, so already a Go string.
+function untyped(x: any, ascii: boolean, depth: number): Iface | null {
+  switch (typeof x) {
+    case "string":
+      return new Iface(tString, ascii ? x : goText(x));
+    case "number":
+      if (!Number.isFinite(x)) abort();
+      return new Iface(tFloat64, x);
+    case "boolean":
+      return new Iface(tBool, x);
+  }
+  if (x === null) return null;
+  if (Array.isArray(x)) return new Iface(untypedSlice$(), untypedSlice(x, ascii, depth));
+  return new Iface(untypedMap$(), untypedMap(x, tString, ascii, depth));
+}
+
+// untypedSlice converts the array x into a slice of interfaces, in place:
+// JSON.parse makes arrays at their exact length, without holes.
+function untypedSlice(x: any[], ascii: boolean, depth: number): Slice<any> {
+  if (depth > 100) abort();
+  for (let i = 0; i < x.length; i++) x[i] = untyped(x[i], ascii, depth + 1);
+  return sliceLit(x);
+}
+
+// untypedMap converts the object x into a map of interfaces with keys of
+// the string type kt.
+function untypedMap(x: any, kt: Type, ascii: boolean, depth: number): GoMap<string, any> {
+  if (depth > 100) abort();
+  const m = makeMap<string, any>(kt), es = m.entries;
+  for (const k in x) es.set(ascii ? k : goText(k), untyped(x[k], ascii, depth + 1)); // direct: string keys
+  return m;
+}
+
+const nonASCIIText = /[\u0080-\uffff]/;
+const goText = (x: string) => (nonASCIIText.test(x) ? fromJSString(x) : x);
+
+// untypedMap$ and untypedSlice$ return map[string]any and []any, the types
+// of the maps and slices Go decodes into an empty interface of any name.
+let untypedMapType: Type | null = null;
+let untypedSliceType: Type | null = null;
+const untypedMap$ = () => (untypedMapType ??= mapOf(tString, anyType));
+const untypedSlice$ = () => (untypedSliceType ??= sliceOf(anyType));
+
 // The decoder of jsonUnmarshalTo, which no Go code runs during. It is made
 // on first use, as a top-level value would keep the decoder in every bundle.
 let dec: Decoder | null = null;
@@ -1040,6 +1142,13 @@ export function jsonUnmarshalTo(s: string, t: Type, p: any): boolean {
   d.s = s;
   d.i = 0;
   try {
+    if (!agg && p.v === null && parsesAny(e)) {
+      const v = parsed(s, e);
+      if (v !== undefined) {
+        p.v = v;
+        return true;
+      }
+    }
     // A struct is decoded into a copy, which replaces it once all is well.
     const cur = agg ? p.$clone(e) : p.v;
     const v = decoderOf(e)(d, cur, 0);
@@ -1864,6 +1973,28 @@ export function jsonDecode(s: string, t: Type, p: any, strict: boolean): any {
   if (agg) d.val(e, p);
   else p.v = d.val(e, p.v);
   return d.err;
+}
+
+// jsonDecodeBytes is jsonDecode of the []byte b. A value parsed decodes is
+// decoded from the bytes, without making the string of them first.
+export function jsonDecodeBytes(b: S<number>, t: Type, p: any, strict: boolean): any {
+  const e = t.elem!;
+  if (p !== null && p.v === null && b !== null && b.$array instanceof Uint8Array && parsesAny(e) && fullPlain(e)) {
+    const v = b.$array.subarray(b.$offset, b.$offset + b.$length);
+    const text = utf8Bytes(v);
+    if (text !== null) {
+      try {
+        const x = parsedText(text, text.length === v.length, e);
+        if (x !== undefined) {
+          p.v = x;
+          return null;
+        }
+      } catch (err) {
+        if (err !== Abort) throw err;
+      }
+    }
+  }
+  return jsonDecode(bytesToString(b), t, p, strict);
 }
 
 function giveUp(strict: boolean): undefined {

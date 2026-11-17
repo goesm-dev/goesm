@@ -164,8 +164,10 @@ func (fe *funcEmitter) jsonCall(e *ast.CallExpr) (string, bool) {
 		return "", false
 	}
 	// The runtime decodes JSON text in a JS string: s of []byte(s) as it
-	// is, other []byte values converted.
+	// is, other []byte values converted. jsonDecodeBytes converts them only
+	// if it cannot decode the bytes as they are.
 	var setS, s, data string
+	decode := "$rt.jsonDecode("
 	conv, isConv := ast.Unparen(e.Args[0]).(*ast.CallExpr)
 	if isConv = isConv && len(conv.Args) == 1 && fe.isStringToBytes(conv); isConv {
 		setS, s = temp(fe.expr(conv.Args[0]))
@@ -173,7 +175,8 @@ func (fe *funcEmitter) jsonCall(e *ast.CallExpr) (string, bool) {
 	} else {
 		var b string
 		setS, b = temp(fe.expr(e.Args[0]))
-		s, data = "$rt.bytesToString("+b+")", b
+		s, data = b, b
+		decode = "$rt.jsonDecodeBytes("
 	}
 	if pt, ok := fe.info.TypeOf(e.Args[1]).(*types.Pointer); ok {
 		// A pointer goes to the runtime as it is, and is boxed only for Go's
@@ -181,12 +184,12 @@ func (fe *funcEmitter) jsonCall(e *ast.CallExpr) (string, bool) {
 		// need.
 		setP, p := temp(fe.expr(e.Args[1]))
 		if fe.jsonDecodes(pt.Elem(), e.Args[1]) {
-			return "(" + setS + setP + "$rt.jsonDecode(" + s + ", " + fe.desc(pt) + ", " + p + ", true))", true
+			return "(" + setS + setP + decode + s + ", " + fe.desc(pt) + ", " + p + ", true))", true
 		}
 		r := fe.declareName("$j")
 		fe.temps = append(fe.temps, r)
 		call := fe.mark(e) + fe.expr(e.Fun) + "(" + data + ", " + fe.convert(p, pt, anyT) + ")"
-		return "(" + setS + setP + "(" + r + " = $rt.jsonDecode(" + s + ", " + fe.desc(pt) + ", " + p + ", false)) !== undefined ? " + r + " : " + call + ")", true
+		return "(" + setS + setP + "(" + r + " = " + decode + s + ", " + fe.desc(pt) + ", " + p + ", false)) !== undefined ? " + r + " : " + call + ")", true
 	}
 	if !isConv {
 		return "", false
