@@ -274,7 +274,7 @@ func (pe *pkgEmitter) leftOut(fd *ast.FuncDecl) bool {
 		return fd.Recv != nil && transportDials[pe.info.Defs[fd.Name].(*types.Func).FullName()] && !pe.prog.HTTPDialers()
 	case "regexp":
 		switch fd.Name.Name {
-		case "compileGo", "findGo", "quote", "compileError":
+		case "compileGo", "findText", "findGo", "quote", "compileError":
 			return pe.prog.RegexpOnlyJS()
 		}
 	}

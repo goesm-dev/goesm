@@ -37,6 +37,12 @@ func TestTranslateRegexp(t *testing.T) {
 		{`(\w+)@(\w+)`, `([0-9A-Z\u005fa-z]+)\u0040([0-9A-Z\u005fa-z]+)`},
 		// Quadratic too: no start is in the run of spaces.
 		{`u:\s*([^;]+);`, `u\u003a[\u0009-\u000a\u000c-\u000d\u0020]*((?:[\u0000-\u003a\u003c-\ud7ff\ue000-\uffff]|\ud800[\udc00-\udfff]|[\ud801-\udbfe][\udc00-\udfff]|\udbff[\udc00-\udfff])+)\u003b`},
+		// Ambiguous, and starts in the run, but the first way tried
+		// from the run always ends the match.
+		{`-?\d+\.?\d*`, `\u002d?[0-9]+\u002e?[0-9]*`},
+		{`\d+\d*(?:\bx)?`, `[0-9]+[0-9]*(?:\bx)?`},
+		{`\d+\.?\d*\b`, ""}, // the assertion can fail after the split
+		{`\d+\.?\d*x`, ""},
 		{`\d+\d+$`, ""},     // quadratic from each start, and starts in the run
 		{`^\d+\d+\d+$`, ""}, // cubic
 		{`a\s*\s*\s*b`, ""}, // likewise

@@ -10,11 +10,13 @@
 // with jsPattern, whose body the lowering writes, and find runs the RegExp
 // (exec.go). The other patterns, a RuneReader and leftmost-longest
 // matching use Go's engine, which a program whose every match runs a
-// RegExp leaves out. replaceAll and matches convert a []byte to a string
+// RegExp leaves out. The methods that read a RuneReader call findReader
+// (exec.go). replaceAll and matches convert a []byte to a string
 // once for all the searches they make.
 package regexp
 
 import (
+	"io"
 	"iter"
 	"regexp/syntax"
 	"strings"
@@ -269,4 +271,35 @@ func MustCompile(str string) *Regexp {
 // err's Error method.
 func compileError(str string, err error) string {
 	return `regexp: Compile(` + quote(str) + `): ` + err.Error()
+}
+
+// MatchReader reports whether the text returned by the [io.RuneReader]
+// contains any match of the regular expression re.
+func (re *Regexp) MatchReader(r io.RuneReader) bool {
+	return re.findReader(r, 0, 0, nil) != nil
+}
+
+// FindReaderIndex returns the location of the leftmost match for re in r.
+// The match starts at byte index m[0] and ends just before byte index m[1].
+// The return value is nil for no match.
+//
+// FindReaderIndex may read arbitrarily far from r,
+// including reading beyond the returned match.
+func (re *Regexp) FindReaderIndex(r io.RuneReader) (m []int) {
+	m = re.findReader(r, 0, 2, nil)
+	if m == nil {
+		return nil
+	}
+	return m[0:2]
+}
+
+// FindReaderSubmatchIndex returns the first match for re in r, including submatches.
+// The overall match is at byte index m[0] up to m[1],
+// the first submatch is at byte index m[2] up to m[3], and so on.
+// The return value is nil for no match.
+//
+// FindReaderSubmatchIndex may read arbitrarily far from r,
+// including reading beyond the returned match.
+func (re *Regexp) FindReaderSubmatchIndex(r io.RuneReader) []int {
+	return re.pad(re.findReader(r, 0, re.prog.NumCap, nil))
 }
