@@ -5,6 +5,7 @@
 // toJSString / fromJSString.
 
 import { indexError, runtimePanic, sliceError } from "./panic.ts";
+import { $R } from "./results.ts";
 import { newBytes, Slice } from "./slice.ts";
 import type { S } from "./slice.ts";
 
@@ -26,6 +27,42 @@ export function encodeRune(r: number): string {
   if (r < 0x800) return String.fromCharCode(0xc0 | (r >> 6), 0x80 | (r & 0x3f));
   if (r < 0x10000) return String.fromCharCode(0xe0 | (r >> 12), 0x80 | ((r >> 6) & 0x3f), 0x80 | (r & 0x3f));
   return String.fromCharCode(0xf0 | (r >> 18), 0x80 | ((r >> 12) & 0x3f), 0x80 | ((r >> 6) & 0x3f), 0x80 | (r & 0x3f));
+}
+
+// decodeRuneAt decodes the UTF-8 sequence at s[i] and returns its rune,
+// leaving its width in $R.r1, as a function with two results does: invalid
+// encodings yield 0xFFFD and 1, like utf8.DecodeRuneInString. Loops over a
+// string's runes (range, []rune(s), fmt's widths) call it instead of
+// decodeRune, which allocates its [rune, width] array for each rune.
+export function decodeRuneAt(s: string, i: number): number {
+  const c0 = s.charCodeAt(i);
+  if (c0 < 0x80) {
+    $R.r1 = 1;
+    return c0;
+  }
+  const c1 = s.charCodeAt(i + 1);
+  if (c0 >= 0xc2 && c0 <= 0xdf) {
+    if ((c1 & 0xc0) === 0x80) {
+      $R.r1 = 2;
+      return ((c0 & 0x1f) << 6) | (c1 & 0x3f);
+    }
+  } else if (c0 >= 0xe0 && c0 <= 0xef) {
+    const c2 = s.charCodeAt(i + 2);
+    const lo = c0 === 0xe0 ? 0xa0 : 0x80, hi = c0 === 0xed ? 0x9f : 0xbf;
+    if (c1 >= lo && c1 <= hi && (c2 & 0xc0) === 0x80) {
+      $R.r1 = 3;
+      return ((c0 & 0x0f) << 12) | ((c1 & 0x3f) << 6) | (c2 & 0x3f);
+    }
+  } else if (c0 >= 0xf0 && c0 <= 0xf4) {
+    const c2 = s.charCodeAt(i + 2), c3 = s.charCodeAt(i + 3);
+    const lo = c0 === 0xf0 ? 0x90 : 0x80, hi = c0 === 0xf4 ? 0x8f : 0xbf;
+    if (c1 >= lo && c1 <= hi && (c2 & 0xc0) === 0x80 && (c3 & 0xc0) === 0x80) {
+      $R.r1 = 4;
+      return ((c0 & 0x07) << 18) | ((c1 & 0x3f) << 12) | ((c2 & 0x3f) << 6) | (c3 & 0x3f);
+    }
+  }
+  $R.r1 = 1;
+  return 0xfffd;
 }
 
 // decodeRune decodes the UTF-8 sequence at s[i]; returns [rune, width]. Invalid
@@ -185,19 +222,58 @@ export function stringToBytes(s: string): Slice<number> {
   return new Slice(a as any, 0, a.length, a.length);
 }
 
+// runesToString is string(r) of a []rune: the UTF-8 bytes of the runes,
+// written as code units to runeUnits and decoded a chunk at a time with the
+// engine's UTF-16 decoder, as latin1Bytes does, instead of a concatenation
+// for each rune.
 export function runesToString(r: S<number>): string {
   if (r === null) return "";
-  let s = "";
-  for (let i = 0; i < r.$length; i++) s += encodeRune(r.$array[r.$offset + i]);
-  return s;
+  const a = r.$array, n = r.$length, off = r.$offset;
+  const w = runeUnits;
+  let out = "", k = 0;
+  for (let i = 0; i < n; i++) {
+    let c = a[off + i];
+    if (c >= 0 && c < 0x80) {
+      w[k++] = c;
+    } else {
+      if (c < 0 || c > 0x10ffff || (c >= 0xd800 && c <= 0xdfff)) c = 0xfffd;
+      if (c < 0x800) {
+        w[k++] = 0xc0 | (c >> 6);
+      } else {
+        if (c < 0x10000) {
+          w[k++] = 0xe0 | (c >> 12);
+        } else {
+          w[k++] = 0xf0 | (c >> 18);
+          w[k++] = 0x80 | ((c >> 12) & 0x3f);
+        }
+        w[k++] = 0x80 | ((c >> 6) & 0x3f);
+      }
+      w[k++] = 0x80 | (c & 0x3f);
+    }
+    if (k >= chunk) {
+      out += utf16.decode(w.subarray(0, k));
+      k = 0;
+    }
+  }
+  return k === 0 ? out : out + utf16.decode(w.subarray(0, k));
 }
+
+// runeUnits holds a chunk of runesToString's bytes (chunk, declared below)
+// and room for the 4 of one more rune.
+const runeUnits = /* @__PURE__ */ new Uint16Array(8192 + 4);
 
 export function stringToRunes(s: string): Slice<number> {
   const a: number[] = [];
-  for (let i = 0; i < s.length; ) {
-    const [r, w] = decodeRune(s, i);
-    a.push(r);
-    i += w;
+  const n = s.length;
+  for (let i = 0; i < n; ) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) {
+      a.push(c);
+      i++;
+    } else {
+      a.push(decodeRuneAt(s, i));
+      i += $R.r1;
+    }
   }
   return new Slice(a, 0, a.length, a.length);
 }
@@ -263,7 +339,7 @@ export function toJSString(s: string): string {
       i++;
       continue;
     }
-    // The common valid sequences inline, the rest through decodeRune.
+    // The common valid sequences inline, the rest through decodeRuneAt.
     const c1 = s.charCodeAt(i + 1);
     if (c >= 0xc2 && c <= 0xdf && (c1 & 0xc0) === 0x80) {
       units.push(((c & 0x1f) << 6) | (c1 & 0x3f));
@@ -272,10 +348,10 @@ export function toJSString(s: string): string {
       units.push(((c & 0x0f) << 12) | ((c1 & 0x3f) << 6) | (s.charCodeAt(i + 2) & 0x3f));
       i += 3;
     } else {
-      const [r, w] = decodeRune(s, i);
+      const r = decodeRuneAt(s, i);
       if (r > 0xffff) units.push(0xd7c0 + (r >> 10), 0xdc00 | (r & 0x3ff));
       else units.push(r);
-      i += w;
+      i += $R.r1;
     }
   }
   return out + String.fromCharCode.apply(null, units);
