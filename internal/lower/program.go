@@ -219,6 +219,9 @@ type Program struct {
 	// dialer of its own (HTTPDialers).
 	httpDialers     bool
 	httpDialersOnce sync.Once
+	// recovers are the declared functions that call recover (Recovers).
+	recovers     map[*types.Func]bool
+	recoversOnce sync.Once
 
 	// pureEmitters answer returnsPure for the functions of imported
 	// packages (PureEmitter).
@@ -1600,6 +1603,42 @@ func (p *Program) RangeBlocks(info *types.Info, s *ast.RangeStmt) bool {
 	u := &unit{encl: p.encls[s]}
 	p.classifyFunc(info, s.X, u)
 	return p.unitBlocks(u, p.units)
+}
+
+// Recovers reports whether the body of the declared function fn (an
+// origin) calls recover itself, not in a function literal.
+func (p *Program) Recovers(fn *types.Func) bool {
+	p.recoversOnce.Do(func() {
+		p.recovers = map[*types.Func]bool{}
+		for _, pkg := range p.Pkgs {
+			info := pkg.TypesInfo
+			for _, f := range pkg.Syntax {
+				for _, d := range f.Decls {
+					fd, ok := d.(*ast.FuncDecl)
+					if !ok || fd.Body == nil {
+						continue
+					}
+					ast.Inspect(fd.Body, func(n ast.Node) bool {
+						switch n := n.(type) {
+						case *ast.FuncLit:
+							return false
+						case *ast.CallExpr:
+							if id, ok := unparen(n.Fun).(*ast.Ident); ok {
+								if b, ok := info.Uses[id].(*types.Builtin); ok && b.Name() == "recover" {
+									if fn, ok := info.Defs[fd.Name].(*types.Func); ok {
+										p.recovers[fn] = true
+									}
+									return false
+								}
+							}
+						}
+						return true
+					})
+				}
+			}
+		}
+	})
+	return p.recovers[fn]
 }
 
 // LitAsync reports whether a function literal may block.

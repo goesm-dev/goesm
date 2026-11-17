@@ -161,6 +161,33 @@ let current: Defers | null = null;
 // not stop it, and the goroutine ends without crashing the program.
 export class Goexit {}
 
+// deferReturn and deferThrow run the deferred call fn of a synchronous
+// function with a single defer statement, at the top level of its body,
+// whose deferred function cannot recover (see lower's simpleDefer): such a
+// function needs no Defers, only a try statement. fn is null if the defer
+// statement has not run. deferReturn runs it when the function returns,
+// deferThrow when the function's body throws e, and returns what the
+// function throws then, as Defers.run would: an os.Exit unwinds without
+// running deferred calls. While fn runs, no recover() recovers anything, as
+// with the token of a deferred call to a function that does not recover.
+export function deferReturn(fn: (() => unknown) | null): void {
+  if (fn === null) return;
+  const prev = current;
+  current = null;
+  try {
+    fn();
+  } finally {
+    current = prev;
+  }
+}
+
+export function deferThrow(fn: (() => unknown) | null, e: unknown): unknown {
+  if (e instanceof ProgramExit) return e;
+  e = goThrown(e);
+  deferReturn(fn);
+  return e;
+}
+
 export class Defers {
   private list: Array<() => any> = [];
   private toks: Array<string | undefined> = [];
