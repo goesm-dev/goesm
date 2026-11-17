@@ -117,13 +117,13 @@ func load(dir, root, modcache string, overlay map[string][]byte, patterns ...str
 		Env:        append(os.Environ(), TargetEnv...),
 		BuildFlags: []string{"-tags=" + strings.Join(BuildTags, ",")},
 		Fset:       fset,
-		ParseFile:  replacingParser(root, mem),
+		ParseFile:  replacingParser(root, modcache, mem),
 		Overlay:    goOverlay,
 	}
 	var roots []*packages.Package
 	var err error
 	if mem != nil {
-		roots, err = loadMem(cfg, mem, root, patterns)
+		roots, err = loadMem(cfg, mem, root, modcache, patterns)
 	} else {
 		roots, err = packages.Load(cfg, patterns...)
 	}
@@ -255,9 +255,13 @@ func goEnv(dir string) (goroot, modcache string) {
 // first file of such a package to be parsed becomes the replacement, the
 // others become empty files (only their package clause is kept).
 //
+// A file of a module in the module cache gets the natives patch of its
+// package and file name too, when internal/natives has one and the file
+// still declares everything the patch replaces (see modulePatch).
+//
 // mem holds the part of an overlay the go command does not accept (see
 // splitOverlay), whose files the parser reads from memory.
-func replacingParser(goroot string, mem *memOverlay) func(*token.FileSet, string, []byte) (*ast.File, error) {
+func replacingParser(goroot, modcache string, mem *memOverlay) func(*token.FileSet, string, []byte) (*ast.File, error) {
 	src := filepath.Join(goroot, "src") + string(filepath.Separator)
 	var mu sync.Mutex
 	replaced := map[string]bool{} // package dirs whose replacement was handed out
@@ -280,6 +284,9 @@ func replacingParser(goroot string, mem *memOverlay) func(*token.FileSet, string
 			if names := natives.Patched(importPath); importPath != "" && names != nil {
 				return patch(fset, f, names, importPath, filepath.Base(filename))
 			}
+			if modPath, ok := moduleImportPath(modcache, pkgDir); importPath == "" && ok {
+				return modulePatch(fset, f, modPath, filepath.Base(filename))
+			}
 			return f, nil
 		}
 		mu.Lock()
@@ -295,6 +302,75 @@ func replacingParser(goroot string, mem *memOverlay) func(*token.FileSet, string
 		}
 		return &ast.File{Package: f.Package, Name: f.Name, FileStart: f.FileStart, FileEnd: f.FileEnd}, nil
 	}
+}
+
+// moduleImportPath returns the import path of the package in directory dir
+// of the module cache modcache: dir without the cache and the module
+// version, with the cache's escaped capitals ("!a" for "A") restored.
+func moduleImportPath(modcache, dir string) (string, bool) {
+	if modcache == "" {
+		return "", false
+	}
+	rel, err := filepath.Rel(modcache, dir)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return "", false
+	}
+	rel = filepath.ToSlash(rel)
+	at := strings.IndexByte(rel, '@')
+	if at < 0 {
+		return "", false
+	}
+	rest := ""
+	if slash := strings.IndexByte(rel[at:], '/'); slash >= 0 {
+		rest = rel[at+slash:]
+	}
+	var b strings.Builder
+	escaped := false
+	for _, c := range rel[:at] + rest {
+		switch {
+		case c == '!':
+			escaped = true
+			continue
+		case escaped && 'a' <= c && c <= 'z':
+			c -= 'a' - 'A'
+		}
+		escaped = false
+		b.WriteRune(c)
+	}
+	return b.String(), true
+}
+
+// modulePatch applies the natives patch of file base of package importPath,
+// a package of a module, to f. Unlike a standard library package, whose
+// source is that of the Go version goesm supports, a module comes in many
+// versions, so the patch is applied only when f declares every function,
+// type, variable and constant the patch replaces, and replaces only those of
+// f; any other version keeps its own source.
+func modulePatch(fset *token.FileSet, f *ast.File, importPath, base string) (*ast.File, error) {
+	p, ok := natives.Patch(importPath, base)
+	if !ok {
+		return f, nil
+	}
+	pf, err := parser.ParseFile(token.NewFileSet(), p.Name, p.Src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	has := map[string]bool{}
+	for _, d := range f.Decls {
+		for _, n := range natives.DeclNames(d) {
+			has[n] = true
+		}
+	}
+	names := map[string]bool{}
+	for _, d := range pf.Decls {
+		for _, n := range natives.DeclNames(d) {
+			if !has[n] {
+				return f, nil
+			}
+			names[n] = true
+		}
+	}
+	return patch(fset, f, names, importPath, base)
 }
 
 // patch applies the natives patches of package importPath to its file f

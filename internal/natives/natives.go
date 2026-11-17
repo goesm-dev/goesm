@@ -8,6 +8,12 @@
 // The set is fixed and owned by goesm. Nothing outside this directory can add
 // replacements, so importing a dependency never extends the compiler.
 //
+// A few patches are for packages of widely used modules, where a function
+// written for gc's memory layout is very slow under goesm. Modules come in
+// many versions, so such a patch applies only to a file that declares
+// everything the patch replaces (internal/loader's modulePatch); the
+// directory of the patch is the package's import path, without a version.
+//
 // Functions declared without a body in a replacement, like the standard
 // library's own assembly and linkname declarations, are implemented by the
 // TypeScript runtime (runtime/src/natives.ts, see runtime.NativeName).
@@ -57,8 +63,8 @@ func Replacement(importPath string) (f File, ok bool) {
 	return File{}, false
 }
 
-// Patch returns the patch of the standard library file base (a file name)
-// of package importPath. A patch is Go source: its declarations replace the
+// Patch returns the patch of the standard library or module file base (a
+// file name) of package importPath. A patch is Go source: its declarations replace the
 // package's declarations of the same names (see Patched) and are added to
 // that file, together with its imports. Patches change a few functions of a
 // package that is otherwise compiled from its original source.

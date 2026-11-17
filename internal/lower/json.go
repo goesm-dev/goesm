@@ -39,7 +39,10 @@ func isJSONFunc(info *types.Info, e *ast.CallExpr, name string) bool {
 
 // stringBytesVars returns the []byte locals of body defined by json.Marshal
 // and used only as string(b) and len(b), with the calls that define them.
-func stringBytesVars(info *types.Info, body *ast.BlockStmt, boxed map[*types.Var]bool) (map[*types.Var]bool, map[*ast.CallExpr]bool) {
+// A call that may block (json.Marshal of a program whose MarshalJSON
+// methods wait) is left out: jsonCall lowers only calls that do not, and
+// the local of any other call holds the []byte it returns.
+func stringBytesVars(info *types.Info, body *ast.BlockStmt, boxed map[*types.Var]bool, blocks func(*ast.CallExpr) bool) (map[*types.Var]bool, map[*ast.CallExpr]bool) {
 	if body == nil || containsGoto(body) {
 		return nil, nil
 	}
@@ -54,7 +57,7 @@ func stringBytesVars(info *types.Info, body *ast.BlockStmt, boxed map[*types.Var
 			}
 			call, isCall := ast.Unparen(n.Rhs[0]).(*ast.CallExpr)
 			id, isID := n.Lhs[0].(*ast.Ident)
-			if !isCall || !isID || call.Ellipsis.IsValid() || !isJSONFunc(info, call, "Marshal") {
+			if !isCall || !isID || call.Ellipsis.IsValid() || !isJSONFunc(info, call, "Marshal") || blocks(call) {
 				break
 			}
 			if v, isVar := info.Defs[id].(*types.Var); isVar && isByteSlice(v.Type()) && !boxed[v] {
