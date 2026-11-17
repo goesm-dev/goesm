@@ -6,7 +6,7 @@
 
 // Like natives.ts, which imports it, this uses the runtime only through its
 // public module, so that split builds share one runtime.
-import { decodeRune, goThrown, Goexit, ProgramExit, tBool, tFloat64, tInt, tInt16, tInt32, tInt64, tInt8, tString, tUint, tUint16, tUint32, tUint64, tUint8, tUintptr } from "./index.ts";
+import { $R, decodeRuneAt, goThrown, Goexit, ProgramExit, tBool, tFloat64, tInt, tInt16, tInt32, tInt64, tInt8, tString, tUint, tUint16, tUint32, tUint64, tUint8, tUintptr } from "./index.ts";
 import type { Iface, Type } from "./index.ts";
 import type { S } from "./index.ts";
 
@@ -154,7 +154,13 @@ function padded(s: string, wid: number, minus: boolean): string {
 // runeCount is utf8.RuneCountInString(s).
 function runeCount(s: string): number {
   let n = 0;
-  for (let i = 0; i < s.length; n++) i += s.charCodeAt(i) < 0x80 ? 1 : decodeRune(s, i)[1];
+  for (let i = 0; i < s.length; n++) {
+    if (s.charCodeAt(i) < 0x80) i++;
+    else {
+      decodeRuneAt(s, i);
+      i += $R.r1;
+    }
+  }
   return n;
 }
 
