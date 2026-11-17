@@ -108,6 +108,23 @@ A panic that reaches JavaScript is thrown as an `Error` whose `name` is `"GoPani
 
 A Go function that blocks, for example on a channel, a mutex, `time.Sleep` or a JavaScript Promise imported with `await`, returns a Promise of its converted result, and its error result rejects the Promise. A function JavaScript passes to Go is called synchronously, and its result is used as it is returned.
 
+A function also blocks when it calls one that does, and a call of an interface method or of a function value blocks when one of the functions it may call in the program does. `goesm emit-ts -blocking` writes why, next to each built package's module: `<package>.blocking.json` lists the package's functions and function literals that block, each with the chain of calls from its own body down to the operation that waits. Each step has the position of the call or operation and says what it calls; at a call of an interface method or a function value, it names a method or a function that blocks among those the call may reach:
+
+```json
+[
+  {
+    "name": "main.Load",
+    "file": "/src/app/main.go", "line": 12, "column": 6,
+    "steps": [
+      { "file": "/src/app/main.go", "line": 13, "column": 9, "what": "calls the method Read of io.Reader, which may be (*main.pipe).Read" },
+      { "file": "/src/app/main.go", "line": 30, "column": 9, "what": "receives from a channel" }
+    ]
+  }
+]
+```
+
+A function literal has an empty `name` and the position of its `func`. Positions follow `//line` directives, as diagnostics do, so a tool that generates Go from another file (gosfc) can show the chain in that file.
+
 ## Servers on the edge
 
 An `http.Handler` result is a fetch handler, for Cloudflare Workers, `Deno.serve`, `Bun.serve` and service workers:

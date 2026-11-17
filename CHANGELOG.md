@@ -64,6 +64,7 @@ Changes on `main` since v0.0.1-beta.9: [v0.0.1-beta.9...main](https://github.com
 
 ### Tools
 
+- `goesm emit-ts -blocking` writes `<package>.blocking.json` next to each built package's module: the package's functions and function literals that block, each with the chain of calls down to the operation that waits, through the calls of interface methods, function values and function parameters, naming a method or function that blocks among those each such call may reach ([docs/js-exports.md](docs/js-exports.md#functions-that-block)).
 - The TS→Go source maps of `goesm emit-ts` (inline and in `<module>.ts.map`) name the `.go` files relative to the module's directory instead of by absolute path, so that they work where the tree is moved or published.
 
 ## v0.0.1-beta.9
