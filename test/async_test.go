@@ -57,6 +57,18 @@ func TestAsyncStaysLocal(t *testing.T) {
 			sync:    []string{"label", "count", "digest", "build", "apply$sync", "twice$sync", "write$sync"},
 			syncStd: map[string][]string{"fmt": {"Sprintf", "Fprintf$sync"}},
 		},
+		{
+			// Go's engines read a RuneReader through their input
+			// interface: only the methods that take one may wait.
+			program: "regexpwait",
+			async:   []string{"waiting$ReadRune", "readers", "main"},
+			sync:    []string{"text", "longInput"},
+			syncStd: map[string][]string{"regexp": {
+				"MustCompile", "Regexp$MatchString", "Regexp$Match", "Regexp$FindAllString", "Regexp$FindStringSubmatch",
+				"Regexp$FindStringSubmatchIndex", "Regexp$FindAllIndex", "Regexp$ReplaceAllString", "Regexp$Split",
+				"Regexp$findIn$sync", "machine$match$sync", "Regexp$onePassIn$sync", "Regexp$backtrackIn$sync",
+			}},
+		},
 	} {
 		t.Run(c.program, func(t *testing.T) {
 			bundle := buildPkg(t, testdata("programs"), "./"+c.program)

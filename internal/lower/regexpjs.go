@@ -284,10 +284,12 @@ type rxAnalysis struct {
 }
 
 // rxInfo is what the automaton needs of a subexpression: whether it can
-// match the empty string, its first positions and its last positions.
+// match the empty string, its first positions and its last positions, and
+// whether it can match the empty string without an empty-width assertion
+// (free) and the last positions after which the rest of it can (ends).
 type rxInfo struct {
-	nullable    bool
-	first, last []int
+	nullable, free    bool
+	first, last, ends []int
 }
 
 func (a *rxAnalysis) pos(set []rune) rxInfo {
@@ -297,7 +299,7 @@ func (a *rxAnalysis) pos(set []rune) rxInfo {
 	p := len(a.sets)
 	a.sets = append(a.sets, set)
 	a.follow = append(a.follow, map[int]bool{})
-	return rxInfo{first: []int{p}, last: []int{p}}
+	return rxInfo{first: []int{p}, last: []int{p}, ends: []int{p}}
 }
 
 func (a *rxAnalysis) link(from, to []int) {
@@ -310,7 +312,7 @@ func (a *rxAnalysis) link(from, to []int) {
 
 func (a *rxAnalysis) concat(x, y rxInfo) rxInfo {
 	a.link(x.last, y.first)
-	r := rxInfo{nullable: x.nullable && y.nullable}
+	r := rxInfo{nullable: x.nullable && y.nullable, free: x.free && y.free}
 	r.first = x.first
 	if x.nullable {
 		r.first = union(x.first, y.first)
@@ -319,14 +321,20 @@ func (a *rxAnalysis) concat(x, y rxInfo) rxInfo {
 	if y.nullable {
 		r.last = union(y.last, x.last)
 	}
+	r.ends = y.ends
+	if y.free {
+		r.ends = union(y.ends, x.ends)
+	}
 	return r
 }
 
 func (a *rxAnalysis) alt(x, y rxInfo) rxInfo {
 	return rxInfo{
 		nullable: x.nullable || y.nullable,
+		free:     x.free || y.free,
 		first:    union(x.first, y.first),
 		last:     union(x.last, y.last),
+		ends:     union(x.ends, y.ends),
 	}
 }
 
@@ -344,7 +352,7 @@ func union(x, y []int) []int {
 	return r
 }
 
-var empty = rxInfo{nullable: true}
+var empty = rxInfo{nullable: true, free: true}
 
 // build adds the positions of re, with each counted repetition expanded,
 // and returns its rxInfo.
@@ -458,7 +466,11 @@ func (a *rxAnalysis) safe(re *syntax.Regexp) bool {
 			starts = append(starts, a.sets[p]...)
 		}
 	}
-	return a.ambiguity(succ, starts) < 2
+	ends := make([]bool, n)
+	for _, p := range root.ends {
+		ends[p+1] = true
+	}
+	return a.ambiguity(succ, starts, ends) < 2
 }
 
 func plus1(ps []int) []int {
@@ -482,12 +494,18 @@ const maxAmbiguityStates = 100
 // at q, and 2 if one does. With starts, the runes a match of a pattern that
 // can start anywhere starts with, degree 1 is 2 if a state on a cycle
 // through p accepts one of them: the runs where the matches from two starts
-// try every split could then overlap. Neither is the case for
+// try every split could then overlap. A state p from which every state
+// reachable, p too, is in ends, which a match can end at without an
+// empty-width assertion, adds nothing: the first way a backtracking
+// matcher tries from p succeeds, as each state it reaches either reads the
+// next rune or ends the match. -?\d+\.?\d* can split a run of digits
+// between \d+ and \d*, and starts with a digit, but the matcher reads the
+// run with \d+ and ends the match. Neither is the case for
 // ^(?:(\d+)h)?(?:(\d+)m)?$, which is not deterministic (both groups start
 // with a digit) but whose wrong guess fails at the h. Weideman et al.,
 // "Analyzing Matching Time Behavior of Backtracking Regular Expression
 // Matchers by Using Ambiguity of NFA" (2016).
-func (a *rxAnalysis) ambiguity(succ [][]int, starts []rune) int {
+func (a *rxAnalysis) ambiguity(succ [][]int, starts []rune, ends []bool) int {
 	n := len(succ)
 	same := func(x, y int) bool { return overlaps(a.sets[x-1], a.sets[y-1]) }
 	// The pair automaton: (x, y) -> (x', y') where both runs read a rune
@@ -535,9 +553,22 @@ func (a *rxAnalysis) ambiguity(succ [][]int, starts []rune) int {
 		}
 		return false
 	}
+	// ending reports whether p and every state reachable from it are in
+	// ends.
+	ending := func(p int) bool {
+		if !ends[p] {
+			return false
+		}
+		for q, ok := range reach(p, func(v int) []int { return succ[v] }, n) {
+			if ok && !ends[q] {
+				return false
+			}
+		}
+		return true
+	}
 	ida := make([][]int, n) // p -> the states q of such pairs
 	for p := 1; p < n; p++ {
-		if !onCycle[p] {
+		if !onCycle[p] || ending(p) {
 			continue
 		}
 		from := reach(p*n+p, pairSucc, n*n)
