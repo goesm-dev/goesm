@@ -111,7 +111,10 @@ func (p *Program) UnicodeClasses() bool {
 // regexpLeftOut are the functions of package regexp that a program
 // matching with RegExps never calls: Go's parser and engines, and the
 // quoting of a pattern that failed to compile (leftOut in emit.go).
-var regexpLeftOut = map[string]bool{"regexp.compileGo": true, "(*regexp.Regexp).findGo": true, "regexp.quote": true, "regexp.compileError": true}
+var regexpLeftOut = map[string]bool{
+	"regexp.compileGo": true, "(*regexp.Regexp).findText": true, "(*regexp.Regexp).findGo": true,
+	"regexp.quote": true, "regexp.compileError": true,
+}
 
 // FieldLeftOut reports whether reachable code only stores fn in function
 // fields it never calls (fieldLeftOut).
