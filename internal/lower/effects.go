@@ -266,6 +266,71 @@ var effFree = map[string]bool{
 	"internal/bytealg.IndexString":     true,
 	"internal/bytealg.IndexByte":       true,
 	"internal/bytealg.IndexByteString": true,
+	// goesm's natives for strings, strconv and unicode compute their
+	// results from their arguments alone: a package variable joining
+	// constants with strings.Join, or formatting a number, had an effect.
+	"strings.byteString":       true,
+	"strings.splitAll":         true,
+	"strings.joinAll":          true,
+	"strings.isASCII":          true,
+	"strings.trimASCIISpace":   true,
+	"strings.trimUnicodeSpace": true,
+	"strings.explodeAll":       true,
+	"strings.upperASCII":       true,
+	"strings.lowerASCII":       true,
+	"strings.replacerOf":       true,
+	"strings.replaceAll":       true,
+	"strconv.formatFloat64JS":  true,
+	"strconv.parseFloat64JS":   true,
+	"strconv.isPrint":          true,
+	"strconv.isSpace":          true,
+	"unicode/utf8.isASCII":     true,
+	"unicode.upperRune":        true,
+	"unicode.lowerRune":        true,
+	// syscall/js's natives that read JavaScript values or make new ones:
+	// Global, Value.Get, Type, Truthy, String and the like, as the
+	// initializers of the wasm port's net/http feature checks call them
+	// (jsFetchMissing, uint8Array). The analysis takes reading a property
+	// as having no effect, as reading a field of a Go struct has none;
+	// writes (valueSet, valueSetIndex, valueDelete), calls and new stay
+	// effects.
+	"syscall/js.nullRef":         true,
+	"syscall/js.globalRef":       true,
+	"syscall/js.boolVal":         true,
+	"syscall/js.floatVal":        true,
+	"syscall/js.stringVal":       true,
+	"syscall/js.valueEqual":      true,
+	"syscall/js.valueIsNaN":      true,
+	"syscall/js.valueType":       true,
+	"syscall/js.valueGet":        true,
+	"syscall/js.valueGetJS":      true,
+	"syscall/js.valueIndex":      true,
+	"syscall/js.valueLength":     true,
+	"syscall/js.valueFloat":      true,
+	"syscall/js.valueTruthy":     true,
+	"syscall/js.valueString":     true,
+	"syscall/js.valueInstanceOf": true,
+	// js.FuncOf makes a JavaScript function, which does nothing until
+	// JavaScript calls it.
+	"syscall/js.makeFunc": true,
+	// The patch of net/http's server hands the runtime hostServeJS in the
+	// initializer of hostServing, which ListenAndServe reads, and which
+	// runs in a program whose entry package returns a Handler (serving in
+	// findEffects). A program that uses net/http's client, or only its
+	// constants, leaves the server out.
+	"net/http.hostSetServer": true,
+	// Reading the environment: os.Getenv and syscall.Getenv copy it once
+	// (under a sync.Once), and a GODEBUG setting is looked up once and
+	// cached. Its only output, the stack GODEBUG's bisect patterns print,
+	// is a debugging tool, and IncNonDefault counts for runtime/metrics.
+	// The initializers that read a setting or a variable
+	// (http2.DebugGoroutines, crypto/fips140's enabled, net/http's
+	// httpmuxgo121 in init) kept godebug's table and bisect in every
+	// program importing net/http.
+	"os.Getenv":                                 true,
+	"syscall.Getenv":                            true,
+	"(*internal/godebug.Setting).Value":         true,
+	"(*internal/godebug.Setting).IncNonDefault": true,
 }
 
 // constPattern reports whether call compiles a regular expression that is
@@ -321,12 +386,17 @@ func (p *Program) findEffects() {
 			a.findShared(pkg.TypesInfo, f)
 		}
 	}
+	// net/http's hostServing hands the runtime the function that serves
+	// requests, which the fetch handlers of the export wrappers call
+	// without referring to the variable: its initializer runs in a program
+	// whose entry package returns a Handler.
+	serving := p.hostServing()
 	for _, pkg := range p.Pkgs {
 		info := pkg.TypesInfo
 		embeds := embedDirectives(pkg.Syntax, info)
 		for _, in := range info.InitOrder {
 			v := initVar(in)
-			if v == nil || embeds[v] != nil {
+			if v == nil || embeds[v] != nil || v == serving {
 				continue
 			}
 			n := a.nodeOf(in.Rhs, info, nil, in.Rhs, "var "+v.Pkg().Path()+"."+v.Name())
@@ -751,7 +821,9 @@ func (a *effAnalysis) callee(info *types.Info, top *effTop, locals map[*types.Va
 		return c
 	}
 	c.fn = c.fn.Origin()
-	if effFree[c.fn.FullName()] || !a.p.async[c.fn] && constPattern(info, c.fn, call) {
+	// A function of effFree that is async in this program (os.Getenv,
+	// whose sync.Once may wait) is an effect, as the lowering awaits it.
+	if !a.p.async[c.fn] && (effFree[c.fn.FullName()] || constPattern(info, c.fn, call)) {
 		c.free = true
 		return c
 	}
@@ -1308,7 +1380,7 @@ func (a *effAnalysis) analyze(n *effNode) effSummary {
 	b.classes()
 	info := n.info
 	s := &b.sum
-	ast.Inspect(n.node, func(x ast.Node) bool {
+	inspectRuns(info, n.node, func(x ast.Node) bool {
 		if s.impure {
 			return false
 		}
@@ -1405,7 +1477,11 @@ func (b *effBody) call(call *ast.CallExpr) {
 			b.storeElems(call.Args[0], call.Args[1:], true, pos)
 		case "clear", "delete":
 			b.sum.record(b.class(call.Args[0]), func() string { return "clear or delete at " + b.where(pos) })
-		case "close", "print", "println":
+		case "close":
+			// Closing a channel writes the channel: context's init closes
+			// closedchan, which it made itself.
+			b.sum.record(b.class(call.Args[0]), func() string { return "close at " + b.where(pos) })
+		case "print", "println":
 			s.taint(func() string { return bi.Name() + " at " + b.where(pos) })
 		}
 		return
@@ -1579,4 +1655,135 @@ func (s *effSummary) join(o *effSummary) {
 		s.record(effTarget{effGlobal, v}, nil)
 	}
 	s.result = s.result.join(o.result)
+}
+
+// onlyPanics reports whether a list of statements is one call of panic.
+// Computing its value happens only on the way to a panic, which is not an
+// effect here (an initializer that would panic is left out with its unused
+// variable): crypto/x509's anyPolicyOID formats an error with fmt.Sprintf
+// if OIDs could not be made of constants, which kept fmt in every program
+// importing net/http.
+func onlyPanics(info *types.Info, list []ast.Stmt) bool {
+	if len(list) != 1 {
+		return false
+	}
+	es, ok := list[0].(*ast.ExprStmt)
+	if !ok {
+		return false
+	}
+	call, ok := ast.Unparen(es.X).(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	bi := builtinOf(info, ast.Unparen(call.Fun))
+	return bi != nil && bi.Name() == "panic"
+}
+
+// inspectRuns is inspectLive, without the blocks that only panic
+// (onlyPanics), and without the clauses of a switch statement on a
+// constant that never run: those whose cases are constants
+// other than the tag, and the default clause when a case is the tag. Go
+// compiles no code for them either. os.NewFile, which os.Stdin's initializer
+// calls, checks the file's type only in a case of runtime.GOOS for the BSDs,
+// through a function value the analysis cannot follow. The lowering still
+// emits these clauses, which never run.
+func inspectRuns(info *types.Info, root ast.Node, f func(ast.Node) bool) {
+	var visit func(n ast.Node) bool
+	visit = func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.BlockStmt:
+			if onlyPanics(info, n.List) {
+				return false
+			}
+		case *ast.CaseClause:
+			if onlyPanics(info, n.Body) {
+				return false
+			}
+		case *ast.CommClause:
+			if onlyPanics(info, n.Body) {
+				return false
+			}
+		}
+		sw, ok := n.(*ast.SwitchStmt)
+		if !ok {
+			return f(n)
+		}
+		dead := deadClauses(info, sw)
+		if dead == nil {
+			return f(n)
+		}
+		if !f(n) {
+			return false
+		}
+		if sw.Init != nil {
+			inspectLive(info, sw.Init, visit)
+		}
+		inspectLive(info, sw.Tag, visit)
+		for _, cl := range sw.Body.List {
+			if !dead[cl] {
+				inspectLive(info, cl, visit)
+			}
+		}
+		f(nil)
+		return false
+	}
+	inspectLive(info, root, visit)
+}
+
+// deadClauses returns the clauses of s that never run, if s switches on a
+// constant: a clause whose cases are all constants that differ from it, or
+// the default clause when a case equals it, unless the clause before it
+// falls through. It returns nil if all of them may run.
+func deadClauses(info *types.Info, s *ast.SwitchStmt) map[ast.Stmt]bool {
+	if s.Tag == nil {
+		return nil
+	}
+	tag, ok := info.Types[s.Tag]
+	if !ok || tag.Value == nil {
+		return nil
+	}
+	var dead map[ast.Stmt]bool
+	matched := false
+	var def ast.Stmt
+	for i, cl := range s.Body.List {
+		cc := cl.(*ast.CaseClause)
+		if i > 0 && fallsThrough(s.Body.List[i-1].(*ast.CaseClause)) {
+			continue
+		}
+		if cc.List == nil {
+			def = cl
+			continue
+		}
+		never := true
+		for _, e := range cc.List {
+			tv, ok := info.Types[e]
+			if !ok || tv.Value == nil || constant.Compare(tv.Value, token.EQL, tag.Value) {
+				never = false
+				matched = matched || ok && tv.Value != nil
+			}
+		}
+		if never {
+			if dead == nil {
+				dead = map[ast.Stmt]bool{}
+			}
+			dead[cl] = true
+		}
+	}
+	if matched && def != nil {
+		if dead == nil {
+			dead = map[ast.Stmt]bool{}
+		}
+		dead[def] = true
+	}
+	return dead
+}
+
+// fallsThrough reports whether a case clause ends with a fallthrough
+// statement.
+func fallsThrough(cc *ast.CaseClause) bool {
+	if len(cc.Body) == 0 {
+		return false
+	}
+	br, ok := cc.Body[len(cc.Body)-1].(*ast.BranchStmt)
+	return ok && br.Tok == token.FALLTHROUGH
 }

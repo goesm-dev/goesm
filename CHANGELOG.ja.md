@@ -10,6 +10,13 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### バンドルサイズ
 
+- 定数のためだけに `net/http` を import するプログラム (switch の中の `http.StatusNotFound`) は minify 後 390 KB から 111 KB (gzip で 114 KB から 35 KB、`TestBundleSize/httpstatus`) に、`http.Get` を呼ぶプログラムは 603 KB から 562 KB (`httpget`) になりました。net/http を import すると、パッケージの初期化の解析が副作用とみなす初期化子が実行され、fmt、math/big、サーバー、X.509、GODEBUG の表がこのようなプログラムすべてに残っていました:
+  - `//go:linkname` の提供側は、到達できるコードがそれを引き込む関数を呼ぶときだけ残し、そのシンボルを登録します。net/http は net/textproto の `readMIMEHeader` を引き込み、MIME のパーサーが fmt とともに残っていました。
+  - net/http のサーバーは、リクエストを処理する関数を `init` 関数ではなくパッケージ変数の初期化子で runtime に渡します。その変数は `ListenAndServe` が読みます。エントリーのパッケージに `Handler` を返すエクスポートされた関数があるプログラムでは、export のラッパーがその `Handler` から fetch ハンドラーを作るので、初期化子を必ず実行します。
+  - JavaScript の値を読むか新しく作る syscall/js の native (`Global`、`Value.Get`、`Type`、`Truthy`、`String`、`FuncOf` など) は、Go の構造体のフィールドを読むのと同じく、解析では副作用を持ちません。net/http の wasm 版の機能の確認がこれらを呼びます。書き込み、呼び出し、`New` はこれまでどおり副作用です。
+  - 環境を一度だけ読んで保持する `os.Getenv`、`syscall.Getenv` と GODEBUG の設定の参照 (`internal/godebug.Setting.Value`)、引数だけから結果を計算する strings、strconv、unicode の goesm の native も副作用を持ちません。
+  - 解析は、`panic` の呼び出しだけからなるブロックと case、定数に対する switch の実行されることのない節を飛ばします。Go もこれらのコードを生成しません。crypto/x509 の `anyPolicyOID` は panic のメッセージを `fmt.Sprintf` で作り、`os.Stdin` の裏の `os.NewFile` は BSD 向けの `runtime.GOOS` の case でファイルの種類を調べます。初期化子が作ったチャネルを閉じることも副作用ではなくなりました (context の `closedchan`)。
+
 - net/http 以外のどの package も Transport に `net.Dialer` のものか `net.Dial` 以外の dialer を与えないプログラムでは、`net/http` のクライアントは TLS、HTTP/2、X.509、楕円曲線を含む Transport 自身の接続処理を出力せず、すべてのリクエストを `fetch` で送るようになりました。アイドル接続のプールが渡す接続を dial する処理と、dial のときだけ呼ぶ `DefaultTransport` の `Proxy` (`ProxyFromEnvironment`) も同じく出力しません。`http.Get` を呼ぶパッケージは minify 後 2.6 MB から 603 KB (gzip で 757 KB から 167 KB、`TestBundleSize/httpget`) に、`compare/rpc` の Connect クライアントは gzip で 951 KiB から 395 KiB になりました。それでも自身の接続処理が必要になる Transport は error を返します。local address、resolver、control 関数のいずれかを設定した `net.Dialer` を持つ Transport と、`fetch` のない host 上の Transport がこれにあたります。JavaScript の host ではどちらも dial に失敗するだけでした。
 - 有効な定数パターンの `regexp.MustCompile` か `regexp.Compile` で初期化するパッケージ変数は、ほかの副作用のない初期化子と同じく、使われなければ初期化子ごと出力しないようになりました。このような変数を持つパッケージを import するだけで、Go のパーサーとエンジンを含む regexp がバンドルに残っていました (`TestBundleSize/unusedre` で minify 後 118 KB から 10 KB)。
 - 文字列、真偽値、数値に対する verb だけからなる定数の書式の `fmt.Sprintf` と `fmt.Errorf` は、JavaScript と書式が異なる値 (2^53 を超える `int`、`toFixed` が strconv と異なる書式にする浮動小数点数) のために `reflect` を含む fmt の printer を残さなくなりました。それらの値は runtime が fmt と同じく書式化します。`Sprintf("%s has %d items", ...)` を呼ぶパッケージは gzip で 34.8 KB から 11.2 KB になりました。
