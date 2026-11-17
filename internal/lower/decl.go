@@ -345,6 +345,12 @@ func (pe *pkgEmitter) emitStructClass(name string, s *types.Struct, named *types
 			} else {
 				sets = append(sets, fmt.Sprintf("$rt.assign(%s, this.%s, %s);", pe.typeDesc(f.Type(), tp), prop, dst))
 			}
+		case named != nil && pe.ownedField(s, i):
+			// A copy gets a header of its own (owned.go).
+			w.ln("declare %s$own: boolean;", prop)
+			assigns = append(assigns, fmt.Sprintf("this.%s$own = false;", prop))
+			clones = append(clones, "$rt.sliceHeader("+src+")")
+			sets = append(sets, fmt.Sprintf("this.%s = $rt.sliceHeader(%s);", prop, dst))
 		default:
 			clones = append(clones, src)
 			sets = append(sets, fmt.Sprintf("this.%s = %s;", prop, dst))
@@ -618,8 +624,10 @@ func (pe *pkgEmitter) emitFuncBody(w *writer, file *ast.File, fd *ast.FuncDecl, 
 	pe.split = split64Vars(pe.info, fd.Body, pe.prog.boxed)
 	pe.strBytes, pe.strMarshal = stringBytesVars(pe.info, fd.Body, pe.prog.boxed, fe.callBlocks)
 	pe.freshIfaces = freshIfaceVars(pe.info, fd.Body)
+	pe.owned = pe.findOwnedSlices(fd)
 	fe.funcBody(fd.Recv, fd.Type, fd.Body, sig)
 	pe.byteBools, pe.byteBoolMakes, pe.inBounds, pe.hdrLoops, pe.split, pe.scalar = nil, nil, nil, nil, nil, nil
+	pe.owned = nil
 	pe.strBytes, pe.strMarshal, pe.freshIfaces = nil, nil, nil
 	w.indent--
 	w.ln("}")

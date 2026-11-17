@@ -142,6 +142,7 @@ type pkgEmitter struct {
 	dtsFuncs                                     []string                 // the exported functions' declarations in DTS
 	dts                                          bool                     // jsTS renders types for DTS
 	noCopy                                       map[*types.TypeName]bool // uncopied, once computed
+	ownFields                                    *ownedFields             // fieldOwnership, once computed
 
 	lastPos token.Pos
 
@@ -170,6 +171,9 @@ type pkgEmitter struct {
 	// hdrLoops: the loops before which the headers of fixed slices are
 	// loaded (see inBoundsIndices and hoistSliceHeaders).
 	hdrLoops *hdrLoops
+	// owned: the slice variables of the function being emitted that can
+	// own their headers and append in place (see owned.go).
+	owned *ownedSlices
 	// scalar: the range value variables of the function being emitted
 	// that are read field by field (see scalarRangeVars).
 	scalar map[*types.Var][]int
