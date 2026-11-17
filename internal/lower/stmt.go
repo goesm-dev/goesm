@@ -1108,7 +1108,9 @@ func (fe *funcEmitter) rangeLoop(s *ast.RangeStmt, label string) {
 			str, i, r, wd := fe.tmp(), fe.tmp(), fe.tmp(), fe.tmp()
 			w.ln("%s%sfor (let %s = %s, %s = 0, %s = 0, %s = 0; %s < %s.length; %s += %s) {", m, lp, str, fe.expr(s.X), i, r, wd, i, str, i, wd)
 			w.indent++
-			w.ln("[%s, %s] = $rt.decodeRune(%s, %s);", r, wd, str, i)
+			// ASCII inline, other runes without an array (decodeRuneAt).
+			w.ln("%s = %s.charCodeAt(%s);", r, str, i)
+			w.ln("if (%s < 0x80) %s = 1; else { %s = $rt.decodeRuneAt(%s, %s); %s = $rt.$R.r1; }", r, wd, r, str, i, wd)
 			fe.rangeVars(s, i, r, types.Typ[types.Int], types.Typ[types.Int32])
 			fe.stmts(s.Body.List)
 			w.indent--

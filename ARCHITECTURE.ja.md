@@ -234,7 +234,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 | `runtime` | 他の package が使う exported API (`GOOS`、`Error`、`Goexit`、`Gosched`、`KeepAlive`、`Caller`、`MemStats` など)。scheduling とメモリは `@goesm/runtime` 側 |
 | `reflect` | runtime の型 descriptor の上の全 API (type、value、`Set*`、`Call`、`MakeFunc`、map、slice、`Convert`、`DeepEqual`、`VisibleFields` など)。`fmt` と `encoding/json` に足りる範囲 |
 | `internal/reflectlite` | `Type` = runtime の型 descriptor、`Value` = (descriptor, 値 or pointer)。`errors.Is` / `errors.As`、`sort.Slice`、`context` に足りる範囲 |
-| `sync` | `Mutex` と `RWMutex` は同期的に lock し、block を跨いで保持される mutex (§5) だけ待つ (async)。`WaitGroup` と `Cond` は channel で待つ。`Once`、`Map`、`Pool` は普通の Go |
+| `sync` | `Mutex` と `RWMutex` は同期的に lock し、block を跨いで保持される mutex (§5) だけ待つ (async)。`WaitGroup` と `Cond` は channel で待つ。`Once.Do` は、関数が block し得るなら別の goroutine の呼び出しを待ち (`doSlow`)、block しないなら同期のまま。`Map` と `Pool` は普通の Go |
 | `syscall/js` | js/wasm の `syscall/js` API を JS の値そのものの上に実装 (`Value` が値を持つ)。goesm は stdlib を js/wasm 向けに compile するので、`os`・`syscall`・`time` はこれを通じて host に届く。`js.Global().Get("fs")` は `globalThis.fs` が何であっても常に goesm 自身の file system で、`syscall` package が期待する callback API を持ち、return する前に callback を呼ぶ (Node・Bun・Deno では `node:fs` の上に、browser では console を使う代替)。そのため `os.Stdout` と `os.Stderr` はどこでも動き、呼び出し側を async にしない。`process` は host のもの、browser では最小限の代替。引数が真偽値・数値・文字列・`Value`・`Func`・nil だけの `Value.Get`・`Set`・`SetIndex`・`Call`・`Invoke`・`New` の呼び出しは、`ValueOf` のために引数を 1 つずつ box する代わりに、変換済みの引数を JavaScript の配列で受け取り、ASCII の定数名をそのまま受け取る非公開の版に lower される (`internal/lower/jsvalue.go`) |
 
 仕組み:
@@ -284,7 +284,7 @@ fixture を通すのに必要なものから実装しており、scheduler や r
 * goroutine は blocking 点でしか切り替わらない (協調的)。blocking する exported 関数は JS からは Promise を返す。データ競合と並列実行への影響は [docs/concurrency.ja.md](docs/concurrency.ja.md) にまとめている。
 * 動的呼び出しの blocking 判定は保守的 (§5) なので、不要な `await` が入ることがある (意味は変わらない)。
 * `print` / `println` は Go ランタイムと同じ書式で stderr に出力するが、ポインタ・map・channel・func・スライス・interface の値は実アドレスではなく固定のアドレスを表示する。
-* `sync`: 解析 (§5) が同期のままにした `Lock` は、待つ必要があると panic する。解析はこれを起こさないはずなので、goesm の bug である。最初の呼び出しの関数が block している間に 2 回目の `Once.Do` を呼ぶと、待たずに panic する。unlock 済み `Mutex` の unlock などの誤用は fatal error ではなく recover できる panic。`runtime.Caller` / `Callers` / `Stack` は何も報告せず、`SetFinalizer` は何もしない。
+* `sync`: 解析 (§5) が同期のままにした `Lock` は、待つ必要があると panic する。解析はこれを起こさないはずなので、goesm の bug である。最初の呼び出しの関数が block している間に 2 回目の `Once.Do` を呼ぶと、その関数が block し得るなら待ち、そうでなければ待たずに panic する。unlock 済み `Mutex` の unlock などの誤用は fatal error ではなく recover できる panic。`runtime.Caller` / `Callers` / `Stack` は何も報告せず、`SetFinalizer` は何もしない。
 * `unicode.ToUpper` と `ToLower`、つまり ASCII 以外の `strings.ToUpper` と `ToLower` は engine の Unicode のバージョンに従います。engine のものより新しいバージョンで追加された大文字と小文字の組 (Node.js 24 では Unicode 17 のもの) は変換しません。
 * Bun では JavaScriptCore が NaN の payload を保たないので、NaN の `math.Float64bits` が Go と異なることがある。
 * `time`: timer の channel は `GODEBUG=asynctimerchan=1` と同じく buffer が 1 つある (`len(t.C)` が 1 になり得る)。`Stop` と `Reset` は channel を空にするので、Go 1.23 と同じくその後に古い値を受信することはない。`Timer` と `Ticker` には unexported field が 1 つ多く、`%+v` で表示される。timer は host の event loop が処理できたときに発火するので、走り続ける goroutine があると遅れる。
