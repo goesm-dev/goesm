@@ -433,3 +433,90 @@ func ArrayLoopIndices() []string {
 		}),
 	)
 }
+
+// A function whose only defer statement is at the top of its body and
+// defers a call that cannot recover runs it with a try statement instead
+// of a defer frame (simpleDefer in internal/lower).
+
+type deferLog struct{ entries []string }
+
+func (l *deferLog) add(s string, n int) { l.entries = append(l.entries, s+itoa(n)) }
+
+func deferNamed(x int) (out int, err string) {
+	defer func() {
+		if out > 10 {
+			out, err = 10, "clamped"
+		}
+	}()
+	return x * 2, ""
+}
+
+func deferAfterReturn(early bool, l *deferLog) int {
+	if early {
+		return 1
+	}
+	defer l.add("late", 2)
+	return 2
+}
+
+func deferArgs(l *deferLog) {
+	n := 1
+	defer l.add("arg", n)
+	n = 2
+	l.add("body", n)
+}
+
+func deferOnPanic(l *deferLog) {
+	defer l.add("ran", 0)
+	var p *deferLog
+	p.add("nil", 1)
+}
+
+func recoverHere() string {
+	if r := recover(); r != nil {
+		return "recovered " + r.(string)
+	}
+	return "nothing"
+}
+
+func deferRecoverer(l *deferLog) (out string) {
+	defer func() { out = recoverHere() }()
+	panic("p")
+}
+
+func deferCallsRecoverer() {
+	defer recoverHere()
+	panic("q")
+}
+
+func deferRepanic() {
+	defer func() { panic("second") }()
+	panic("first")
+}
+
+func deferBuiltin(m map[string]int) int {
+	defer delete(m, "k")
+	return m["k"]
+}
+
+func SimpleDefers() []string {
+	l := &deferLog{}
+	o1, e1 := deferNamed(3)
+	o2, e2 := deferNamed(30)
+	deferAfterReturn(true, l)
+	deferAfterReturn(false, l)
+	deferArgs(l)
+	m := map[string]int{"k": 5}
+	v := deferBuiltin(m)
+	out := []string{itoa(o1), e1, itoa(o2), e2, itoa(v), itoa(len(m))}
+	out = append(out,
+		catch(func() { deferOnPanic(l) }),
+		// recoverHere is not the deferred function, so its recover
+		// returns nil and the panic goes on.
+		catch(func() { _ = deferRecoverer(l) }),
+		// Deferred directly, recoverHere recovers.
+		catch(func() { deferCallsRecoverer() }),
+		catch(func() { deferRepanic() }),
+	)
+	return append(out, l.entries...)
+}

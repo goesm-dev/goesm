@@ -13,6 +13,8 @@
 // many versions, so such a patch applies only to a file that declares
 // everything the patch replaces (internal/loader's modulePatch); the
 // directory of the patch is the package's import path, without a version.
+// A module patch may import only packages the module's package already
+// depends on: the loader finds them by path among the packages it lists.
 //
 // Functions declared without a body in a replacement, like the standard
 // library's own assembly and linkname declarations, are implemented by the
@@ -88,6 +90,19 @@ func PatchedFiles() [][2]string {
 		return err
 	})
 	return files
+}
+
+// HasModulePatches reports whether a patch is of a module's package rather
+// than of the standard library: whether the first element of its import
+// path has a dot.
+func HasModulePatches() bool {
+	for _, pf := range PatchedFiles() {
+		first, _, _ := strings.Cut(pf[0], "/")
+		if strings.Contains(first, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 var patched = sync.OnceValue(func() map[string]map[string]bool {

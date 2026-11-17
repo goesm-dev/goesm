@@ -77,6 +77,9 @@ export class Type {
   // Method set of this type (for named T: value receiver methods; for *T: all).
   methods = new Map<string, MethodImpl>();
   ptr: Type | null = null; // *T, once ptrTo made it
+  // Whether this dynamic type implements each interface type asked about
+  // (implementsIface); addMethods clears it.
+  impls: Map<Type, boolean> | null = null;
   zeroSized = 0; // for a struct: 0 not known yet, 1 no, 2 zero-sized (see zeroSized)
   // The same methods' functions by key, for calls through interfaces: a
   // property access is cached at each call site (see icall in the lowering).
@@ -439,6 +442,7 @@ export function setUnderlying(t: Type, u: Type, ctor?: any): void {
 // empty for a type all of whose methods were left out.
 export function addMethods(t: Type, methods: Record<string, [(recv: any, ...args: any[]) => any, Type]>): void {
   if (t.mt === noMethods) t.mt = Object.create({});
+  t.impls = null;
   for (const k of Object.keys(methods)) {
     const [fn, type] = methods[k];
     t.methods.set(k, { fn, type });
@@ -608,12 +612,29 @@ export function methodKey(name: string, pkgPath: string): string {
 
 // implementsIface reports whether type t (a dynamic type) implements interface
 // type iface, comparing method names and signature identity.
+// The answer is kept for each pair: a type assertion or type switch to an
+// interface type (protobuf's to protoreflect.Message, with 16 methods, for
+// each message it handles) looked up every method each time.
 export function implementsIface(t: Type, iface: Type): boolean {
-  for (const m of iface.imethods) {
-    const impl = t.methods.get(methodKey(m.name, m.pkgPath));
-    if (!impl || impl.type !== m.type) return false;
+  const ms = iface.imethods;
+  if (ms.length === 0) return true;
+  let known = t.impls;
+  if (known !== null) {
+    const r = known.get(iface);
+    if (r !== undefined) return r;
+  } else {
+    known = t.impls = new Map();
   }
-  return true;
+  let r = true;
+  for (const m of ms) {
+    const impl = t.methods.get(methodKey(m.name, m.pkgPath));
+    if (!impl || impl.type !== m.type) {
+      r = false;
+      break;
+    }
+  }
+  known.set(iface, r);
+  return r;
 }
 
 export function isAggregate(t: Type): boolean {

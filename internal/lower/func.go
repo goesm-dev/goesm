@@ -42,6 +42,9 @@ type funcEmitter struct {
 	// lowered (paramsync.go); not in its function literals.
 	assume   *types.Func
 	hasDefer bool
+	// deferVar is set when the function's defer statement stores its
+	// deferred call in $df (simpleDefer) instead of in a Defers.
+	deferVar bool
 	results  []string // JS references to the result variables, when materialised
 	resultTs []types.Type
 	named    bool                     // results are named Go variables (their address may escape)
@@ -284,6 +287,89 @@ func multiResult(vals []string, async bool) string {
 	return b.String()
 }
 
+// simpleDefer reports whether the function being lowered, whose body
+// contains a defer statement, runs its deferred call with a try statement
+// instead of a Defers: a synchronous function with a single defer
+// statement, directly in its body (not in a loop or another statement), and
+// no goto, which could run it twice, whose deferred function cannot
+// recover. A function literal, a declared function that does not call
+// recover, and a builtin other than recover cannot; a function value or an
+// interface method may. Most defer statements are of this kind (defer
+// mu.Unlock(), defer f.Close(), defer func() { ... }()), and a Defers, with
+// its two arrays and the closure it runs in a try statement of its own,
+// cost tens of times the call itself.
+func (fe *funcEmitter) simpleDefer(body *ast.BlockStmt) bool {
+	if fe.async {
+		return false
+	}
+	var top *ast.DeferStmt
+	for _, s := range body.List {
+		if d, ok := s.(*ast.DeferStmt); ok {
+			if top != nil {
+				return false
+			}
+			top = d
+		}
+	}
+	if top == nil {
+		return false
+	}
+	ok := true
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.DeferStmt:
+			ok = ok && n == top
+		case *ast.BranchStmt:
+			ok = ok && n.Tok != token.GOTO
+		}
+		return ok
+	})
+	return ok && fe.cannotRecover(top.Call)
+}
+
+// cannotRecover reports whether the function a deferred call calls is
+// known not to call recover.
+func (fe *funcEmitter) cannotRecover(call *ast.CallExpr) bool {
+	fun := unparen(call.Fun)
+	if tv, ok := fe.info.Types[fun]; ok && tv.IsType() {
+		return true // a conversion
+	}
+	switch f := fun.(type) {
+	case *ast.FuncLit:
+		return !fe.containsRecover(f.Body)
+	case *ast.IndexExpr:
+		fun = unparen(f.X)
+	case *ast.IndexListExpr:
+		fun = unparen(f.X)
+	}
+	var obj types.Object
+	switch f := fun.(type) {
+	case *ast.Ident:
+		obj = fe.info.Uses[f]
+	case *ast.SelectorExpr:
+		if sel, ok := fe.info.Selections[f]; ok {
+			if sel.Kind() == types.FieldVal {
+				return false
+			}
+			obj = sel.Obj()
+		} else {
+			obj = fe.info.Uses[f.Sel]
+		}
+	}
+	switch o := obj.(type) {
+	case *types.Builtin:
+		return o.Name() != "recover"
+	case *types.Func:
+		if recv := o.Signature().Recv(); recv != nil && isIface(recv.Type()) {
+			return false
+		}
+		return !fe.pe.prog.Recovers(o.Origin())
+	}
+	return false
+}
+
 func containsDefer(body *ast.BlockStmt) bool {
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
@@ -422,7 +508,7 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 	}
 
 	fe.loadParamHeaders(sig)
-	fe.hasDefer = containsDefer(body)
+	fe.hasDefer, fe.deferVar = containsDefer(body), false
 	named := sig.Results().Len() > 0 && sig.Results().At(0).Name() != ""
 	fe.results, fe.resultTs, fe.named = nil, nil, named
 	if named || fe.hasDefer {
@@ -455,6 +541,26 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 			// whose every case returns).
 			// globalThis: the package may declare its own Error.
 			w.ln("throw new globalThis.Error(\"goesm: unreachable\");")
+		}
+		return
+	}
+	if fe.simpleDefer(body) {
+		// One deferred call that cannot recover: a try statement runs it
+		// (deferReturn and deferThrow in runtime/src/panic.ts).
+		fe.deferVar = true
+		w.ln("let $df: (() => unknown) | null = null;")
+		if containsReturn(body) {
+			w.ln("$body: try {")
+		} else {
+			w.ln("try {")
+		}
+		w.indent++
+		fe.stmts(body.List)
+		w.indent--
+		w.ln("} catch ($e) { throw $rt.deferThrow($df, $e); }")
+		w.ln("$rt.deferReturn($df);")
+		if r := fe.resultsExpr(); r != "" {
+			w.ln("return %s;", r)
 		}
 		return
 	}

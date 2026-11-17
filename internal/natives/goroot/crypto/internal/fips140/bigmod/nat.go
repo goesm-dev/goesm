@@ -607,6 +607,28 @@ func newModulus(n *Nat) (*Modulus, error) {
 	return m, nil
 }
 
+// NewPublicModulus is NewModulus for a modulus that is not secret, such as
+// that of an RSA public key (goesm's patch of crypto/rsa's fipsPublicKey).
+// The runtime computes its Montgomery constant on BigInts (rrVarTime), in
+// time that depends on the modulus, instead of with the constant-time chain
+// of rr, which took a fifth of an RSA signature verification.
+func NewPublicModulus(b []byte) (*Modulus, error) {
+	m := &Modulus{nat: NewNat().resetToBytes(b)}
+	if m.nat.IsZero() == yes || m.nat.IsOne() == yes {
+		return nil, errors.New("modulus must be > 1")
+	}
+	if m.nat.IsOdd() == 1 {
+		m.odd = true
+		m.m0inv = minusInverseModW(m.nat.limbs[0])
+		m.rr = NewNat().resetFor(m)
+		rrVarTime(m.rr.limbs, m.nat.limbs)
+	}
+	return m, nil
+}
+
+// rrVarTime sets rr to 2^(2 * _W * len(m)) mod m, len(rr) being len(m).
+func rrVarTime(rr, m []uint32)
+
 // Size returns the size of m in bytes.
 func (m *Modulus) Size() int {
 	return (m.BitLen() + 7) / 8
@@ -1083,6 +1105,27 @@ func (out *Nat) ExpShortVarTime(x *Nat, e uint, m *Modulus) *Nat {
 	}
 	return out.montgomeryReduction(m)
 }
+
+// ExpPublicVarTime is ExpShortVarTime for values that are not secret, such
+// as an RSA signature being verified (goesm's patches of
+// crypto/internal/fips140/rsa's verifyPKCS1v15 and verifyPSS). The runtime
+// computes x^e mod m on BigInts (expVarTime), in time that depends on x and
+// m as well as on e. The Montgomery multiplications of ExpShortVarTime on
+// 32-bit limbs took two fifths of an RSA signature verification.
+func (out *Nat) ExpPublicVarTime(x *Nat, e uint, m *Modulus) *Nat {
+	if !m.odd {
+		panic("bigmod: modulus for ExpPublicVarTime must be odd")
+	}
+	if out == x {
+		x = NewNat().set(x)
+	}
+	out.resetFor(m)
+	expVarTime(out.limbs, x.limbs, e, m.nat.limbs)
+	return out
+}
+
+// expVarTime sets out to x^e mod m, len(out) being len(m).
+func expVarTime(out, x []uint32, e uint, m []uint32)
 
 // InverseVarTime calculates x = a⁻¹ mod m and returns (x, true) if a is
 // invertible. Otherwise, InverseVarTime returns (x, false) and x is not

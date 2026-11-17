@@ -248,7 +248,9 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 		w.ln("%s$rt.go(%s);", m, closure)
 	case *ast.DeferStmt:
 		closure := fe.deferredCall(s.Call)
-		if tok := fe.deferredTok(s.Call); tok != "" {
+		if fe.deferVar {
+			w.ln("%s$df = %s;", m, closure)
+		} else if tok := fe.deferredTok(s.Call); tok != "" {
 			w.ln("%s$d.defer(%s, %s);", m, closure, jsString(tok))
 		} else {
 			w.ln("%s$d.defer(%s);", m, closure)
