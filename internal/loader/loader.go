@@ -122,6 +122,14 @@ func load(dir, root, modcache string, overlay map[string][]byte, patterns ...str
 	}
 	var roots []*packages.Package
 	var err error
+	// go/packages type-checks a package against the imports the go command
+	// listed for its files on disk, so a module patch that imports a package
+	// the original file does not (one of its dependencies) needs loadMem,
+	// which resolves such imports by path. Unlike the standard library's
+	// files (patchImports), a module's files are only found by listing.
+	if mem == nil && natives.HasModulePatches() {
+		mem = &memOverlay{files: map[string][]byte{}, added: map[string][]string{}}
+	}
 	if mem != nil {
 		roots, err = loadMem(cfg, mem, root, modcache, patterns)
 	} else {

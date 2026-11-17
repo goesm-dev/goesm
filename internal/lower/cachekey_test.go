@@ -31,7 +31,10 @@ var covered = map[string]bool{
 	"LazyVar": true, "InitCalled": true, "VarReached": true,
 	// What PureEmitter answers depends on the files of an imported
 	// package, which are part of its importers' module keys.
-	"PureEmitter":    true,
+	"PureEmitter": true,
+	// Recovers reads the body of a function the package defers a call
+	// of, in its own files or a dependency's.
+	"Recovers":       true,
 	"UnicodeClasses": true,
 	"RegexpJS":       true, "RegexpOnlyJS": true,
 	"JSONv2": true, "jsonLeftOut": true,

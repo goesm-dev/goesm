@@ -948,6 +948,54 @@ export function native$math$big$addMulVVWW_g(z: S<number>, x: S<number>, y: S<nu
   return mulAdd32(z!.$array, z!.$offset, n, y!.$array, y!.$offset, m, x!.$array, x!.$offset, a);
 }
 
+// hexByte[b] is the byte b in two hexadecimal digits.
+const hexByte = /* @__PURE__ */ Array.from({ length: 256 }, (_, b) => (b < 16 ? "0" : "") + b.toString(16));
+
+// limbsBig returns the number whose little-endian uint32 limbs are s.
+function limbsBig(s: S<number>): bigint {
+  const n = sliceLen(s);
+  if (n === 0) return 0n;
+  const a = s!.$array, o = s!.$offset;
+  let hex = "0x";
+  for (let i = n - 1; i >= 0; i--) {
+    const l = a[o + i];
+    hex += hexByte[l >>> 24] + hexByte[(l >>> 16) & 0xff] + hexByte[(l >>> 8) & 0xff] + hexByte[l & 0xff];
+  }
+  return BigInt(hex);
+}
+
+// setLimbs writes v, which is below 2^(32 * len(s)), to the limbs of s.
+function setLimbs(s: S<number>, v: bigint): void {
+  const n = sliceLen(s);
+  if (n === 0) return;
+  const a = s!.$array, o = s!.$offset;
+  const hex = v.toString(16).padStart(n * 8, "0");
+  for (let i = 0, end = hex.length; i < n; i++, end -= 8) a[o + i] = parseInt(hex.slice(end - 8, end), 16);
+}
+
+// crypto/internal/fips140/bigmod.rrVarTime(rr, m []uint32): rr = 2^(64 *
+// len(m)) mod m, the Montgomery constant of a public modulus
+// (NewPublicModulus).
+export function native$crypto$internal$fips140$bigmod$rrVarTime(rr: S<number>, m: S<number>): void {
+  setLimbs(rr, (1n << BigInt(64 * sliceLen(m))) % limbsBig(m));
+}
+
+// crypto/internal/fips140/bigmod.expVarTime(out, x []uint32, e uint, m
+// []uint32): out = x^e mod m, for public values (ExpPublicVarTime). Like
+// ExpShortVarTime, it squares and multiplies from the exponent's top bit,
+// here on BigInts, and gives x for e = 0.
+export function native$crypto$internal$fips140$bigmod$expVarTime(out: S<number>, x: S<number>, e: number, m: S<number>): void {
+  const mod = limbsBig(m);
+  const base = limbsBig(x) % mod;
+  let r = base;
+  const bits = e.toString(2);
+  for (let i = 1; i < bits.length; i++) {
+    r = (r * r) % mod;
+    if (bits.charCodeAt(i) === 49) r = (r * base) % mod;
+  }
+  setLimbs(out, r);
+}
+
 // crypto/internal/fips140/bigmod.addMulVVW(z, x []uint32, y uint32)
 // (carry uint32): z += x*y.
 export function native$crypto$internal$fips140$bigmod$addMulVVW(z: S<number>, x: S<number>, y: number): number {
