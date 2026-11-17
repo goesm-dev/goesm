@@ -51,6 +51,7 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### 修正
 
+- 各 package が別の module になる場合 (`goesm build -split`、`goesm emit-ts`、その module を読み込む開発サーバー) も、package を 1 つずつ初期化するようになりました。初期化がブロックする package は module の top level で await し、JavaScript はその間にそれを import しない module の評価を進めていました。そのため、最初の package が待っている間に別の package の初期化が実行され、作りかけの状態を読むことがありました。最初の package が保持する mutex を見つけることもありました。Go では package の初期化中にほかの処理は動かないため、goesm はその mutex を待たないものに lower しています ("goesm did not lower this Lock to one that waits")。各 module は、評価の順でそれより前にある、初期化がブロックし得る最後の package も import するようになりました (`testdata/programs/splitinit`)。
 - ブロックすることがある `json.Marshal` の呼び出し (待つ `MarshalJSON` を持つ値に対するもの) の `[]byte` は、関数が `string(b)` と `len(b)` にしか使わないときも、返されたスライスとして保持するようになりました。goesm はこのような局所変数に高速なエンコーダーの文字列を割り当てていましたが、このエンコーダーはブロックしない呼び出しだけを lower します。そのため `string(b)` が文字列ではなくスライスのオブジェクトになり、`len` は undefined になっていました (`testdata/programs/jsonmarshalwait`)。
 - エントリーパッケージのエクスポートされた関数が関数の仮引数を呼ぶとき、その型の関数値のどれかがブロックするなら、その関数は async になります。JavaScript は Go から受け取った関数をその仮引数に渡すことがあるためです。export が受け取るか返す構造体型の関数フィールドも同じです。Go のコードがそのような関数を渡さない仮引数 (`func Apply(f func() string) string`) は Go が渡すものだけを持つと扱われ、`Apply` はブロックする `f` の Promise で計算していました (`test/js/poc.test.mjs`)。
 - goesm の数値が wrap しないために負になった `uint` を、fmt は Go が `uint(0)-1` を 18446744073709551615 と表示するのと同じく `uint64` への変換として書式化するようになりました。以前は負の数として表示していました (`testdata/programs/sprintfconcat`)。

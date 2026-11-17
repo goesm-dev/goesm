@@ -624,6 +624,11 @@ func (pe *pkgEmitter) emit() *Module {
 			deps = append(deps, ip.Path())
 		}
 	}
+	// Initialized after the package before it whose initialization may
+	// block (initorder.go).
+	if a := pe.prog.InitAfter(pkg); a != "" && !slices.Contains(deps, a) {
+		deps = append(deps, a)
+	}
 	sort.Strings(deps)
 	for _, path := range deps {
 		out.ln("import %s;", jsString(relSpecifier(pkg.PkgPath, ModuleFile(path))))
