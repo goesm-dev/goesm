@@ -132,15 +132,18 @@ func (fe *funcEmitter) stmt(s ast.Stmt, label string) {
 		}
 		w.ln("%s%s;", m, fe.expr(s.X))
 	case *ast.DeclStmt:
-		if fe.splitStmt(s, m) {
-			return
+		if !fe.splitStmt(s, m) {
+			fe.declStmt(s)
 		}
-		fe.declStmt(s)
+		fe.ownedResets(s)
 	case *ast.AssignStmt:
-		if fe.splitStmt(s, m) {
+		if fe.ownedAppend(s, m) || fe.ownedFieldAppend(s, m) {
 			return
 		}
-		fe.assign(s)
+		if !fe.splitStmt(s, m) {
+			fe.assign(s)
+		}
+		fe.ownedResets(s)
 	case *ast.IncDecStmt:
 		if fe.splitStmt(s, m) {
 			return

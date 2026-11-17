@@ -141,7 +141,7 @@ func (fe *funcEmitter) ident(e *ast.Ident) string {
 		if fe.isSplit(obj) {
 			return fe.splitRead(obj)
 		}
-		return fe.varRef(obj)
+		return fe.ownedEscape(e, obj, fe.varRef(obj))
 	case *types.Func:
 		if inst, ok := fe.info.Instances[e]; ok {
 			return fe.genericFuncValue(fe.nameOf(obj), inst.TypeArgs)
@@ -306,7 +306,7 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 			}
 		}
 		obj, prop := fe.fieldBase(e)
-		return fe.mark(e) + obj + "." + prop
+		return fe.mark(e) + fe.fieldEscape(e, obj, prop)
 	case types.MethodVal:
 		if slow, locker := fe.pe.prog.WaitLockVal(e); locker {
 			// l.Lock bound to the waiting variant (lockcheck.go).
