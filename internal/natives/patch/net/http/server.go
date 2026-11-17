@@ -25,13 +25,18 @@ import (
 	"time"
 )
 
-func init() {
-	hostSetServer(js.FuncOf(hostServeJS))
-}
+// hostServing is set once the runtime has the function that serves a
+// request with a Handler. ListenAndServe reads it, and its initializer runs
+// in a program whose entry package returns a Handler, of which the export
+// wrappers make fetch handlers (hostServing in internal/lower/reach.go).
+// Otherwise it has no effect for the analysis of package initialization
+// (effFree in internal/lower/effects.go), so a program that uses net/http's
+// client, or only its constants, leaves the server out.
+var hostServing = hostSetServer(js.FuncOf(hostServeJS))
 
 // hostSetServer gives the runtime the function that serves a request with a
-// Handler (runtime/src/http.ts).
-func hostSetServer(serve js.Func)
+// Handler (runtime/src/http.ts) and returns true.
+func hostSetServer(serve js.Func) bool
 
 // hostHandlerOf returns the Go value a JS value holds: the Handler the
 // runtime passes back to hostServeJS.
@@ -374,7 +379,7 @@ type hostServer struct {
 // non-nil error. After [Server.Shutdown] or [Server.Close], the returned
 // error is [ErrServerClosed].
 func (s *Server) ListenAndServe() error {
-	if s.shuttingDown() {
+	if !hostServing || s.shuttingDown() {
 		return ErrServerClosed
 	}
 	addr := s.Addr

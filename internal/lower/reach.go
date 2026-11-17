@@ -251,8 +251,16 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 		}
 	}
 	seen := map[*types.Func]bool{}
-	use := func(fn *types.Func) {
+	p.linkProvides = map[*types.Func]string{}
+	var use func(fn *types.Func)
+	use = func(fn *types.Func) {
 		fn = fn.Origin()
+		if target := p.linkTargets[fn]; target != nil {
+			if _, ok := p.linkProvides[target]; !ok {
+				p.linkProvides[target] = p.linkProvidesAll[target]
+				use(target)
+			}
+		}
 		if !leftOut[fn.FullName()] {
 			p.reachedFuncs[fn.FullName()] = true
 		}
@@ -299,9 +307,6 @@ func (p *Program) reachFrom(leftOut map[string]bool) {
 	}
 	if p.jsBoundaryIfaces() {
 		runtimeCall()
-	}
-	for fn := range p.linkProvides {
-		use(fn)
 	}
 	// Reflection calls methods by name (MethodByName with a name known at
 	// compile time) or any exported method (Method, MethodByName with
@@ -1036,4 +1041,51 @@ func recovered(info *types.Info, body ast.Node, e ast.Expr) bool {
 func isSignature(t types.Type) bool {
 	_, ok := t.Underlying().(*types.Signature)
 	return ok
+}
+
+// hostServing returns net/http's hostServing if an exported function or
+// method of an entry package returns a Handler, which JavaScript receives as
+// a fetch handler (exportOut in jsexport.go), or nil. The initializer of
+// the variable is then an effect (findEffects), which runs.
+func (p *Program) hostServing() *types.Var {
+	var v *types.Var
+	for _, pkg := range p.Pkgs {
+		if pkg.PkgPath == "net/http" {
+			v, _ = pkg.Types.Scope().Lookup("hostServing").(*types.Var)
+		}
+	}
+	if v == nil {
+		return nil
+	}
+	returnsHandler := func(sig *types.Signature) bool {
+		for i := 0; i < sig.Results().Len(); i++ {
+			if isHTTPHandler(sig.Results().At(i).Type()) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, pkg := range p.Pkgs {
+		if !p.Entries[pkg.PkgPath] && (len(p.Entries) > 0 || p.std[pkg] || p.Deps[pkg]) {
+			continue
+		}
+		scope := pkg.Types.Scope()
+		for _, name := range scope.Names() {
+			switch obj := scope.Lookup(name).(type) {
+			case *types.Func:
+				if obj.Exported() && returnsHandler(obj.Signature()) {
+					return v
+				}
+			case *types.TypeName:
+				if named, ok := obj.Type().(*types.Named); ok {
+					for i := 0; i < named.NumMethods(); i++ {
+						if m := named.Method(i); m.Exported() && returnsHandler(m.Signature()) {
+							return v
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
 }

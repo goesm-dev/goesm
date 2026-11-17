@@ -2245,8 +2245,9 @@ export const native$net$http$dialerOfContext = native$net$http$dialerOf;
 // net/http's server on the host (runtime/src/http.ts): hostSetServer
 // receives the js.Func of hostServeJS, hostHandlerOf unwraps the Handler
 // the runtime passes it, and hostListen starts the host's server.
-export function native$net$http$hostSetServer(f: any): void {
+export function native$net$http$hostSetServer(f: any): boolean {
   setHTTPServer(fromRef(f.Value.ref));
+  return true;
 }
 
 export function native$net$http$hostHandlerOf(v: any): any {
