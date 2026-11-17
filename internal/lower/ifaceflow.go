@@ -348,8 +348,14 @@ type ifaceCall struct {
 // ifaceCallBlocks reports whether calling method m through a value of
 // interface (or type parameter) type recv may reach a blocking method.
 func (p *Program) ifaceCallBlocks(recv types.Type, m *types.Func, seen map[types.Type]bool) bool {
+	return p.ifaceCallBlocker(recv, m, seen) != nil
+}
+
+// ifaceCallBlocker returns a blocking method that calling method m through
+// a value of interface (or type parameter) type recv may reach, or nil.
+func (p *Program) ifaceCallBlocker(recv types.Type, m *types.Func, seen map[types.Type]bool) *types.Func {
 	if seen[recv] {
-		return false
+		return nil
 	}
 	seen[recv] = true
 	iface, _ := recv.Underlying().(*types.Interface)
@@ -363,16 +369,16 @@ func (p *Program) ifaceCallBlocks(recv types.Type, m *types.Func, seen map[types
 		}
 		if r := impl.fn.Signature().Recv(); r != nil && isIface(r.Type()) {
 			// Promoted from an embedded interface.
-			if p.ifaceCallBlocks(r.Type(), impl.fn, seen) {
-				return true
+			if b := p.ifaceCallBlocker(r.Type(), impl.fn, seen); b != nil {
+				return b
 			}
 			continue
 		}
 		if p.async[impl.fn.Origin()] && p.liveMethod(impl.fn.Origin()) {
-			return true
+			return impl.fn.Origin()
 		}
 	}
-	return false
+	return nil
 }
 
 // liveMethod reports whether a call through an interface may reach the

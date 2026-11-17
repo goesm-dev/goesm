@@ -1,7 +1,7 @@
 // Command goesm builds Go packages into ES modules.
 //
 //	goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-overlay file] [-toolexec cmd] [-v] ./main
-//	goesm emit-ts [-o dir] [-dts] [-overlay file] [-toolexec cmd] [-v] ./main
+//	goesm emit-ts [-o dir] [-dts] [-blocking] [-overlay file] [-toolexec cmd] [-v] ./main
 //	goesm version
 //
 // Arguments are ordinary Go package patterns resolved by the go command.
@@ -24,7 +24,7 @@ import (
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
   goesm build [-o dist] [-split] [-minify] [-keep-ts dir] [-overlay file] [-toolexec cmd] [-v] <package>...
-  goesm emit-ts [-o dir] [-dts] [-overlay file] [-toolexec cmd] [-v] <package>...
+  goesm emit-ts [-o dir] [-dts] [-blocking] [-overlay file] [-toolexec cmd] [-v] <package>...
   goesm version`)
 	os.Exit(2)
 }
@@ -71,6 +71,7 @@ func main() {
 		tx := fs.String("toolexec", "", toolexecUsage)
 		verbose := fs.Bool("v", false, "list standard library functions that are not supported yet")
 		dts := fs.Bool("dts", false, "also write a declaration file (.d.ts) of each package's JS calling ABI")
+		blocking := fs.Bool("blocking", false, "also write, for each package, the functions that block and why (.blocking.json)")
 		fs.Parse(os.Args[2:])
 		if fs.NArg() == 0 {
 			usage()
@@ -89,6 +90,11 @@ func main() {
 		}
 		if *dts {
 			if err := build.WriteDTS(*out, l.Mods); err != nil {
+				fail(err)
+			}
+		}
+		if *blocking {
+			if err := build.WriteBlocking(*out, l); err != nil {
 				fail(err)
 			}
 		}
