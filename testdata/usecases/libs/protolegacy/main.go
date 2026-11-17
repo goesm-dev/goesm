@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/runtime/protoimpl"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
@@ -160,8 +159,15 @@ func load(name string, m any) {
 		f := d.Fields().Get(i)
 		fields = append(fields, fmt.Sprintf("%s=%d:%v", f.Name(), f.Number(), f.Kind()))
 	}
+	// In field order: Range's order depends on protobuf's detrand, a hash
+	// of the binary.
 	var values []string
-	pm.Range(func(f protoreflect.FieldDescriptor, v protoreflect.Value) bool {
+	for i := 0; i < d.Fields().Len(); i++ {
+		f := d.Fields().Get(i)
+		if !pm.Has(f) {
+			continue
+		}
+		v := pm.Get(f)
 		if f.IsList() {
 			for i := 0; i < v.List().Len(); i++ {
 				values = append(values, fmt.Sprintf("%s:%v", f.Name(), v.List().Get(i)))
@@ -169,8 +175,7 @@ func load(name string, m any) {
 		} else {
 			values = append(values, fmt.Sprintf("%s:%v", f.Name(), v))
 		}
-		return true
-	})
+	}
 	file := d.ParentFile()
 	last := file.Messages().Get(file.Messages().Len() - 1)
 	fmt.Printf("%s: %s %s %v %v %v %d %s %s\n", name, d.FullName(), file.Path(), file.Syntax(), fields, values, file.Messages().Len(), last.FullName(), last.Fields().Get(0).JSONName())
