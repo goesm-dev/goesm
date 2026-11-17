@@ -48,9 +48,14 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 - 型が interface 型を実装するかどうか (interface 型への型アサーションと型 switch が調べます) を、型ごとにキャッシュします。protobuf はメッセージを `protoreflect.Message` にアサートし、アサートのたびにその 16 個のメソッドを探していました。
 - JSON のコーデックを使う connect-go クライアントのローカルサーバーへの unary 呼び出しは、Node.js で 3.7 ms から 2.6 ms、Bun で 3.2 ms から 1.9 ms になりました。`fetch` をプロセス内で応答させたクライアント自身の処理は、1.66 ms から 0.86 ms と 3.66 ms から 1.34 ms になりました。
 - go-toml による TOML 文書のデコードとエンコードは Bun で 16 ms から 10 ms (`compare/invoice`)、goldmark による GFM のレンダリングは 3.7 ms から 2.4 ms (`compare/gfm`) になりました。
+- blocking 解析は、より多くの動的呼び出しについて、届き得る先を絞り込みます (`testdata/programs/asyncprecise`)。
+  - interface 型の変数、unexported な struct の field、parameter、結果は、次の条件を満たすとき、その型の method だけを呼ぶとみなします (`internal/lower/ifacevars.go`)。条件は、既知の型の値しか持たないこと、アドレスを取られないこと、値をすべて代入・composite literal・引数・return から受け取ることです。これまでは `Read` が待つ `io.Reader` が 1 つあると、`io.Reader` を通したすべての `Read` が block していました。`crypto/rand.Reader` を通して `crypto/rand.Read` も async になっていました。同じ generic なコードから届くデコーダーの reader を通して、`json.Encoder.Encode` も async になっていました。パッチした `regexp` のエンジンのうち `inputString` と `inputBytes` しか読まないものは、それ自体が同期になり、`$sync` の複製を作りません。
+  - 関数型の変数は、関数を返す結果が既知である宣言された関数の呼び出しからも値を受け取れます。`var copyenv = sync.OnceFunc(f)` がその例です。これまではプログラムのどこかで `func()` が block すると、`syscall` の `copyenv` を通して `os.Getenv` が async になっていました。さらに、`New` からそれを呼ぶ `sync.Pool` を通して、`fmt`、`regexp`、`encoding/json` も async になっていました。
+  - 一部の関数値は、値が既知である関数型の変数にしか格納されません。その変数も、呼び出し、同種の変数への格納、nil との比較にしか使われません。このような関数値は、同じ signature を持つ未知の関数値の呼び出しでは数えません。package 変数にある block する `func(string) string` があっても、`[]func(string) string` を通した呼び出しは async になりません。
 
 ### 修正
 
+- ポインタのスライス、配列、map の要素で `&T` を省いた composite literal (`[]*T{{f: g}}`) が関数型の field に格納する値も、その field の値として数えます。goesm はこの格納を見落としていました。そのため `g` が block しても field を通した呼び出しは同期のままで、`g` が返した Promise をそのまま使っていました (`testdata/programs/asyncprecise`)。
 - ブロックすることがある `json.Marshal` の呼び出し (待つ `MarshalJSON` を持つ値に対するもの) の `[]byte` は、関数が `string(b)` と `len(b)` にしか使わないときも、返されたスライスとして保持するようになりました。goesm はこのような局所変数に高速なエンコーダーの文字列を割り当てていましたが、このエンコーダーはブロックしない呼び出しだけを lower します。そのため `string(b)` が文字列ではなくスライスのオブジェクトになり、`len` は undefined になっていました (`testdata/programs/jsonmarshalwait`)。
 - エントリーパッケージのエクスポートされた関数が関数の仮引数を呼ぶとき、その型の関数値のどれかがブロックするなら、その関数は async になります。JavaScript は Go から受け取った関数をその仮引数に渡すことがあるためです。export が受け取るか返す構造体型の関数フィールドも同じです。Go のコードがそのような関数を渡さない仮引数 (`func Apply(f func() string) string`) は Go が渡すものだけを持つと扱われ、`Apply` はブロックする `f` の Promise で計算していました (`test/js/poc.test.mjs`)。
 - goesm の数値が wrap しないために負になった `uint` を、fmt は Go が `uint(0)-1` を 18446744073709551615 と表示するのと同じく `uint64` への変換として書式化するようになりました。以前は負の数として表示していました (`testdata/programs/sprintfconcat`)。

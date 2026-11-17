@@ -343,6 +343,10 @@ func (p *Program) findConversions(info *types.Info, n ast.Node, sig *types.Signa
 type ifaceCall struct {
 	recv types.Type
 	fn   *types.Func
+	// known is set when the value called through is a variable whose
+	// dynamic types are known (ifacevars.go): types.
+	known bool
+	types []types.Type
 }
 
 // ifaceCallBlocks reports whether calling method m through a value of

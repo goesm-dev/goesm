@@ -81,6 +81,16 @@ type Program struct {
 	// funcFieldStores are the declared functions stored in fields of
 	// funcVars, by the identifier that stores them (reach.go).
 	funcFieldStores map[*ast.Ident]*types.Var
+	// containedFuncs are the function values only function variables with
+	// known values hold: no call of another function value calls them
+	// (funcvars.go).
+	containedFuncs map[any]bool
+	// ifaceVars are the interface variables that only hold values of the
+	// types listed (ifacevars.go).
+	ifaceVars map[*types.Var][]types.Type
+	// unnamedFields are the fields of unnamed struct types, by the field
+	// of the first identical type, which ifaceVars has (ifacevars.go).
+	unnamedFields map[*types.Var]*types.Var
 
 	units []*unit
 	// funcValues are the functions that can be called through a function
@@ -560,6 +570,7 @@ func (p *Program) analyzeBlocking() {
 	p.encls = map[ast.Node]*types.Func{}
 	p.findIfaceTypes()
 	p.findFuncVars()
+	p.findIfaceVars()
 	var units []*unit
 	add := func(u *unit, encl *types.Func) {
 		u.encl = encl
@@ -814,7 +825,7 @@ func (p *Program) findFuncValues() (map[any]bool, map[string][]*types.Signature)
 							if sel != nil && sel.Kind() == types.MethodVal {
 								p.addLockVal(pkg, n, n.X)
 								if recv := fn.Signature().Recv().Type(); isIface(recv) {
-									p.ifaceVals = append(p.ifaceVals, ifaceCall{ifaceRecv(sel, recv), fn})
+									p.ifaceVals = append(p.ifaceVals, ifaceCall{recv: ifaceRecv(sel, recv), fn: fn})
 								}
 							}
 						}
@@ -1100,7 +1111,11 @@ func (p *Program) unitBlocksIn(u *unit, units []*unit, assume *types.Func) bool 
 		}
 	}
 	for _, c := range ifaceCalls {
-		if p.ifaceCallBlocks(c.recv, c.fn, map[types.Type]bool{}) {
+		if c.known {
+			if p.typesCallBlocks(c.types, c.fn, nil) {
+				return true
+			}
+		} else if p.ifaceCallBlocks(c.recv, c.fn, map[types.Type]bool{}) {
 			return true
 		}
 	}
@@ -1114,7 +1129,7 @@ func (p *Program) dynSigBlocks(s *types.Signature, u *unit, units []*unit) bool 
 		if !p.async[o.key] || o.sig == nil || p.live != nil && !p.live(o.key) {
 			continue
 		}
-		if p.funcValues[o.key] && p.valueSigMatch(s, u, o) {
+		if p.funcValues[o.key] && !p.containedFuncs[o.key] && p.valueSigMatch(s, u, o) {
 			return true
 		}
 		// A method reached through a method expression value: the
@@ -1282,7 +1297,11 @@ func (p *Program) classifyFunc(info *types.Info, fun ast.Expr, u *unit) {
 			case types.MethodVal, types.MethodExpr:
 				fn := sel.Obj().(*types.Func)
 				if recv := fn.Signature().Recv().Type(); isIface(recv) {
-					u.ifaceCalls = append(u.ifaceCalls, ifaceCall{ifaceRecv(sel, recv), fn})
+					c := ifaceCall{recv: ifaceRecv(sel, recv), fn: fn}
+					if sel.Kind() == types.MethodVal && isIface(sel.Recv()) {
+						c.types, c.known = p.knownTypes(info, f.X)
+					}
+					u.ifaceCalls = append(u.ifaceCalls, c)
 				} else {
 					u.callees = append(u.callees, fn.Origin())
 				}

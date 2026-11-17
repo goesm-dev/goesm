@@ -103,7 +103,7 @@ func (f lazyFlag) match(op syntax.EmptyOp) bool {
 // one pattern the lowering does not translate, made every method of every
 // Regexp async, those of the patterns matched with a RegExp too. find
 // never calls the engines with a RuneReader, and calls them with an input
-// of a concrete type (findIn), so goesm calls their synchronous clones.
+// of a concrete type (findIn), so goesm keeps those calls synchronous.
 //
 //goesm:original findGo
 func (re *Regexp) find(r io.RuneReader, b []byte, s string, pos int, ncap int, dstCap []int) []int {

@@ -18,17 +18,21 @@ import (
 //     which Pool.Get calls), or
 //   - a parameter of function type of a function declared without a
 //     receiver that is only ever called directly: never used as a value,
-//     linked with //go:linkname or called from JavaScript as an export,
+//     linked with //go:linkname or called from JavaScript as an export, or
+//   - a result of function type of a function declared with a body,
 //
 // whose address is never taken, which is not an exported field of a struct
 // that reflection can set, and every value of which, assigned, stored
-// in a composite literal or passed as an argument, is a function literal, a
-// declared function, nil, or another such variable, whose values it then
-// holds too.
+// in a composite literal, passed as an argument or returned, is a function
+// literal, a declared function, nil, or another such variable, or a call of
+// a declared function whose result is one (var f = sync.OnceFunc(g)), whose
+// values it then holds too.
 //
 // This keeps, for example, a component's update := func() {...} called from
 // its event handlers synchronous in a program where some other func() value
-// blocks, and Pool.Get synchronous unless some pool's New blocks.
+// blocks, and Pool.Get synchronous unless some pool's New blocks. The
+// function values only such variables hold do not count for the calls of
+// other function values either (findContainedFuncs).
 
 // findFuncVars sets p.funcVars.
 func (p *Program) findFuncVars() {
@@ -109,6 +113,9 @@ func (p *Program) findFuncVars() {
 	// not known.
 	var unnamed []*types.Struct
 	var named []types.Type
+	// shared are the struct types whose function fields other types'
+	// fields hold too, unknown there (containedFuncs).
+	var shared []types.Type
 	seenType := map[types.Type]bool{}
 	hasFuncField := func(st *types.Struct) bool {
 		for i := 0; i < st.NumFields(); i++ {
@@ -160,6 +167,7 @@ func (p *Program) findFuncVars() {
 		for _, u := range unnamed {
 			if !declared[u] && types.Identical(n.Underlying(), u) {
 				badFields(n)
+				shared = append(shared, n)
 				break
 			}
 		}
@@ -260,6 +268,59 @@ func (p *Program) findFuncVars() {
 		}
 	}
 
+	// The results of function type of the functions declared with a body
+	// hold the values their return statements return (named results are
+	// assigned too); a call of such a function gives those values.
+	type ret struct {
+		info    *types.Info
+		res     *types.Var
+		results []ast.Expr
+		i, n    int
+	}
+	var rets []ret
+	for _, pkg := range p.Pkgs {
+		for _, f := range pkg.Syntax {
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok || fd.Body == nil {
+					continue
+				}
+				fn, ok := pkg.TypesInfo.Defs[fd.Name].(*types.Func)
+				if !ok {
+					continue
+				}
+				results := fn.Signature().Results()
+				has := false
+				for i := 0; i < results.Len(); i++ {
+					if v := results.At(i); isFunc(v) {
+						cand[v] = true
+						has = true
+					}
+				}
+				if !has {
+					continue
+				}
+				ast.Inspect(fd.Body, func(n ast.Node) bool {
+					switch n := n.(type) {
+					case *ast.FuncLit:
+						return false
+					case *ast.ReturnStmt:
+						for i := 0; i < results.Len(); i++ {
+							if v := results.At(i); isFunc(v) && len(n.Results) > 0 {
+								rets = append(rets, ret{pkg.TypesInfo, v, n.Results, i, results.Len()})
+							}
+						}
+					}
+					return true
+				})
+			}
+		}
+	}
+
+	// stored are the expressions stored in function variables, and lhs
+	// the expressions assigned to (containedFuncs).
+	stored := map[ast.Expr]*types.Var{}
+	lhs := map[ast.Expr]bool{}
 	for _, pkg := range p.Pkgs {
 		info := pkg.TypesInfo
 		varOf := func(e ast.Expr) *types.Var {
@@ -290,6 +351,7 @@ func (p *Program) findFuncVars() {
 				bad[v] = true
 				return
 			}
+			stored[unparen(rhs)] = v
 			var id *ast.Ident
 			switch e := unparen(rhs).(type) {
 			case *ast.FuncLit:
@@ -316,6 +378,14 @@ func (p *Program) findFuncVars() {
 					return
 				}
 				id = e.Sel
+			case *ast.CallExpr:
+				// The function value a declared function returns.
+				if r := resultVar(info, e, 0, 1); r != nil {
+					deps[v] = append(deps[v], r)
+				} else {
+					bad[v] = true
+				}
+				return
 			default:
 				bad[v] = true
 				return
@@ -344,6 +414,27 @@ func (p *Program) findFuncVars() {
 				store(v, r)
 			}
 		}
+		// storeResult stores result i of rhs, a call of n results, in v.
+		storeResult := func(v *types.Var, rhs []ast.Expr, i, n int) {
+			if len(rhs) == 1 {
+				if call, ok := unparen(rhs[0]).(*ast.CallExpr); ok {
+					if r := resultVar(info, call, i, n); r != nil {
+						deps[v] = append(deps[v], r)
+						return
+					}
+				}
+			}
+			bad[v] = true
+		}
+		for _, r := range rets {
+			switch {
+			case r.info != info:
+			case len(r.results) == r.n:
+				store(r.res, r.results[r.i])
+			default:
+				storeResult(r.res, r.results, r.i, r.n)
+			}
+		}
 		for _, f := range pkg.Syntax {
 			ast.Inspect(f, func(n ast.Node) bool {
 				switch n := n.(type) {
@@ -359,11 +450,12 @@ func (p *Program) findFuncVars() {
 						case len(n.Values) == len(n.Names):
 							store(v, n.Values[i])
 						default:
-							bad[v] = true
+							storeResult(v, n.Values, i, len(n.Names))
 						}
 					}
 				case *ast.AssignStmt:
 					for i, l := range n.Lhs {
+						lhs[unparen(l)] = true
 						if n.Tok == token.DEFINE {
 							if id, ok := l.(*ast.Ident); ok {
 								if v, ok := info.Defs[id].(*types.Var); ok && isFunc(v) {
@@ -373,8 +465,8 @@ func (p *Program) findFuncVars() {
 						}
 						if len(n.Lhs) == len(n.Rhs) {
 							assign(l, n.Rhs[i])
-						} else {
-							assign(l, nil)
+						} else if v := varOf(l); v != nil && isFunc(v) {
+							storeResult(v, n.Rhs, i, len(n.Lhs))
 						}
 					}
 				case *ast.RangeStmt:
@@ -394,6 +486,11 @@ func (p *Program) findFuncVars() {
 					t := info.TypeOf(n)
 					if t == nil {
 						return true
+					}
+					// An element of a slice, array or map of pointers
+					// elides &T: its type is *T.
+					if ptr, ok := t.Underlying().(*types.Pointer); ok {
+						t = ptr.Elem()
 					}
 					st, ok := t.Underlying().(*types.Struct)
 					if !ok {
@@ -417,6 +514,11 @@ func (p *Program) findFuncVars() {
 				case *ast.CallExpr:
 					if tv, ok := info.Types[n.Fun]; ok && tv.IsType() {
 						badFields(tv.Type)
+						if len(n.Args) == 1 {
+							if t := info.TypeOf(n.Args[0]); t != nil {
+								shared = append(shared, t)
+							}
+						}
 						return true
 					}
 					fun := unparen(n.Fun)
@@ -493,6 +595,7 @@ func (p *Program) findFuncVars() {
 			}
 		}
 	}
+	p.containedFuncs = p.findContainedFuncs(resolved, stored, lhs, called, shared)
 	p.funcFieldStores = map[*ast.Ident]*types.Var{}
 	for id, v := range fieldStores {
 		if resolved[v] != nil {
@@ -633,4 +736,183 @@ func (p *Program) entryABIFuncFields() []*types.Var {
 		}
 	}
 	return out
+}
+
+// resultVar returns result i of the function call calls, when it is a
+// declared function or a method of a concrete type with n results, or nil.
+// The result is the variable of the generic function for an instance.
+func resultVar(info *types.Info, call *ast.CallExpr, i, n int) *types.Var {
+	fun := unparen(call.Fun)
+	switch x := fun.(type) {
+	case *ast.IndexExpr:
+		fun = x.X
+	case *ast.IndexListExpr:
+		fun = x.X
+	}
+	var fn *types.Func
+	switch f := unparen(fun).(type) {
+	case *ast.Ident:
+		fn, _ = info.Uses[f].(*types.Func)
+	case *ast.SelectorExpr:
+		if sel, ok := info.Selections[f]; ok {
+			if sel.Kind() != types.MethodVal {
+				return nil
+			}
+			fn, _ = sel.Obj().(*types.Func)
+		} else {
+			fn, _ = info.Uses[f.Sel].(*types.Func)
+		}
+	}
+	if fn == nil {
+		return nil
+	}
+	sig := fn.Origin().Signature()
+	if r := sig.Recv(); r != nil && isIface(r.Type()) || sig.Results().Len() != n {
+		return nil
+	}
+	return sig.Results().At(i)
+}
+
+// findContainedFuncs returns the function values that no call of an unknown
+// function value can call (dynSigBlocks): each use of them as a value
+// stores them in a function variable with known values (resolved), and
+// each use of such a variable that holds them is a call of it, a store of
+// it in another such variable, an assignment to it or a comparison with
+// nil. A blocking func(string) string kept in a package variable then does
+// not make every call of some other func(string) string value block. The
+// exported fields leak their values: reflection reads them.
+func (p *Program) findContainedFuncs(resolved map[*types.Var]map[any]bool, stored map[ast.Expr]*types.Var, lhs map[ast.Expr]bool, called map[*ast.Ident]bool, shared []types.Type) map[any]bool {
+	escapes := map[any]bool{}
+	leaks := map[*types.Var]bool{}
+	known := func(e ast.Expr) bool {
+		v := stored[e]
+		return v != nil && resolved[v] != nil
+	}
+	// JavaScript reads the exported package variables of an entry too.
+	for v := range resolved {
+		if v.Exported() && (v.IsField() || v.Parent() == v.Pkg().Scope() && p.Entries[v.Pkg().Path()]) {
+			leaks[v] = true
+		}
+	}
+	// The fields a conversion or an identical unnamed struct type reads
+	// as fields of another type.
+	for _, t := range shared {
+		if ptr, ok := t.Underlying().(*types.Pointer); ok {
+			t = ptr.Elem()
+		}
+		if st, ok := t.Underlying().(*types.Struct); ok {
+			for i := 0; i < st.NumFields(); i++ {
+				leaks[st.Field(i).Origin()] = true
+			}
+		}
+	}
+	// JavaScript gets the results of the functions and methods an entry
+	// exports, and may pass them back.
+	anyHandles := map[*types.Func]bool{}
+	if len(p.Entries) > 0 {
+		anyHandles = p.anyHandleMethods()
+	}
+	for _, pkg := range p.Pkgs {
+		for _, f := range pkg.Syntax {
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok {
+					continue
+				}
+				fn, ok := pkg.TypesInfo.Defs[fd.Name].(*types.Func)
+				if !ok || !(p.Entries[pkg.PkgPath] && fn.Exported() || anyHandles[fn]) {
+					continue
+				}
+				res := fn.Signature().Results()
+				for i := 0; i < res.Len(); i++ {
+					leaks[res.At(i)] = true
+				}
+			}
+		}
+	}
+	for _, pkg := range p.Pkgs {
+		info := pkg.TypesInfo
+		for _, f := range pkg.Syntax {
+			calleeLit := map[ast.Node]bool{}
+			nilCmp := map[ast.Expr]bool{}
+			parent := map[*ast.Ident]ast.Expr{}
+			ast.Inspect(f, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.CallExpr:
+					if lit, ok := unparen(n.Fun).(*ast.FuncLit); ok {
+						calleeLit[lit] = true
+					}
+					// A call of a function whose function results are
+					// known gives those results.
+					if tv, ok := info.Types[n.Fun]; ok && tv.IsType() {
+						break
+					}
+					if t, ok := info.TypeOf(n).(*types.Tuple); ok {
+						for i := 0; i < t.Len(); i++ {
+							if r := resultVar(info, n, i, t.Len()); r != nil && resolved[r] != nil {
+								leaks[r] = true
+							}
+						}
+					} else if r := resultVar(info, n, 0, 1); r != nil && resolved[r] != nil && !known(n) {
+						leaks[r] = true
+					}
+				case *ast.BinaryExpr:
+					if n.Op == token.EQL || n.Op == token.NEQ {
+						for _, pair := range [2][2]ast.Expr{{n.X, n.Y}, {n.Y, n.X}} {
+							if id, ok := unparen(pair[1]).(*ast.Ident); ok {
+								if _, isNil := info.Uses[id].(*types.Nil); isNil {
+									nilCmp[unparen(pair[0])] = true
+								}
+							}
+						}
+					}
+				case *ast.FuncLit:
+					if !calleeLit[n] && !known(n) {
+						escapes[n] = true
+					}
+				case *ast.SelectorExpr:
+					parent[n.Sel] = n
+				case *ast.Ident:
+					if called[n] {
+						break
+					}
+					var e ast.Expr = n
+					if s, ok := parent[n]; ok {
+						e = s
+					}
+					switch obj := info.Uses[n].(type) {
+					case *types.Func:
+						if !known(e) {
+							escapes[obj.Origin()] = true
+						}
+					case *types.Var:
+						v := obj.Origin()
+						if resolved[v] != nil && !lhs[e] && !nilCmp[e] && !known(e) {
+							leaks[v] = true
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+	for v := range leaks {
+		for fn := range resolved[v] {
+			escapes[fn] = true
+		}
+	}
+	// Methods stay function values: reflection makes method values of
+	// them too.
+	contained := map[any]bool{}
+	for _, set := range resolved {
+		for fn := range set {
+			if f, ok := fn.(*types.Func); ok && f.Signature().Recv() != nil {
+				continue
+			}
+			if !escapes[fn] {
+				contained[fn] = true
+			}
+		}
+	}
+	return contained
 }

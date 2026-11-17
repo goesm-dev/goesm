@@ -47,6 +47,19 @@ func TestAsyncStaysLocal(t *testing.T) {
 			syncStd: map[string][]string{"sync": {"Pool$Get"}},
 		},
 		{
+			// One blocking io.Reader, func(string) string and func() keep
+			// the code that cannot reach them synchronous.
+			program: "asyncprecise",
+			async:   []string{"chanReader$Read", "drain", "source$next", "handle", "shout", "main"},
+			sync:    []string{"randomLen", "quote", "applyAll", "env", "setup", "once", "pooled"},
+			syncStd: map[string][]string{
+				"crypto/rand":   {"Read"},
+				"encoding/json": {"Encoder$Encode"},
+				"os":            {"Getenv"},
+				"sync":          {"Pool$Get"},
+			},
+		},
+		{
 			program: "methodvalues",
 			async:   []string{"waiter$wait", "slow$call", "viaIface", "main"},
 			sync:    []string{"move", "bump", "counter$add", "counter$get"},
@@ -66,7 +79,7 @@ func TestAsyncStaysLocal(t *testing.T) {
 			syncStd: map[string][]string{"regexp": {
 				"MustCompile", "Regexp$MatchString", "Regexp$Match", "Regexp$FindAllString", "Regexp$FindStringSubmatch",
 				"Regexp$FindStringSubmatchIndex", "Regexp$FindAllIndex", "Regexp$ReplaceAllString", "Regexp$Split",
-				"Regexp$findIn$sync", "machine$match$sync", "Regexp$onePassIn$sync", "Regexp$backtrackIn$sync",
+				"Regexp$findIn", "machine$match$sync", "Regexp$onePassIn", "Regexp$backtrackIn",
 			}},
 		},
 	} {
