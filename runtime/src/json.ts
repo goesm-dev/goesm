@@ -1032,11 +1032,19 @@ export function jsonUnmarshalString(s: string, x: Iface | null): boolean {
 // A value decoded into an empty interface, a map[string]any or a []any is
 // all maps, slices, strings, numbers and booleans, which the engine's
 // JSON.parse reads several times faster than the one-pass decoder: the
-// result is converted to Go values. Go keeps the last of repeated names in
-// an object, as JSON.parse does, and turns an escaped lone surrogate into
-// U+FFFD, as fromJSString does. Invalid UTF-8, a number out of range,
+// result is converted to Go values, an escaped lone surrogate becoming
+// U+FFFD as fromJSString makes it. Invalid UTF-8, a number out of range,
 // nesting past the depth the decoder allows and any syntax error leave the
 // value to the one-pass decoder, and so to Go.
+//
+// Text with a repeated name in an object goes to the one-pass decoder too.
+// JSON.parse keeps the last value of the name at the place of the first,
+// dropping the values before it, in which Go may find an error (a number
+// out of range, nesting too deep), and two names that differ in lone
+// surrogates are the same Go string, which then takes the wrong value. The
+// conversion counts the names and strings it makes. Each has two quotes in
+// the text, and its other quotes are escaped ones in strings, so fewer
+// quotes than that mean that JSON.parse dropped a member.
 
 // parsesAny reports whether parsed decodes values of type t: an empty
 // interface, or a map with string keys or a slice of one.
@@ -1061,6 +1069,13 @@ function parsed(s: string, t: Type): any {
 // parsedText is parsed of the JSON text as a JS string, which is ascii if
 // all its characters are ASCII.
 function parsedText(text: string, ascii: boolean, t: Type): any {
+  // Every \" is an escaped quote unless a backslash comes before it, which
+  // makes it the end of a string that ends in a backslash.
+  let escaped = 0;
+  if (text.indexOf('\\"') >= 0) {
+    if (text.indexOf('\\\\"') >= 0) return undefined;
+    escaped = countOf(text, '\\"');
+  }
   let x: any;
   try {
     x = JSON.parse(text);
@@ -1071,15 +1086,31 @@ function parsedText(text: string, ascii: boolean, t: Type): any {
   // Strings are Go strings already when the text is ASCII and has no
   // escapes of other characters.
   ascii &&= text.indexOf("\\u") < 0;
+  strings = 0;
+  let v: any;
   switch (t.kind) {
     case Kind.Interface:
-      return untyped(x, ascii, 0);
+      v = untyped(x, ascii, 0);
+      break;
     case Kind.Map:
       if (typeof x !== "object" || Array.isArray(x)) abort();
-      return untypedMap(x, t.key!, ascii, 0);
+      v = untypedMap(x, t.key!, ascii, 0);
+      break;
+    default:
+      if (!Array.isArray(x)) abort();
+      v = untypedSlice(x, ascii, 0);
   }
-  if (!Array.isArray(x)) abort();
-  return untypedSlice(x, ascii, 0);
+  return 2 * strings + escaped === (text.match(quoteChars)?.length ?? 0) ? v : undefined;
+}
+
+// strings counts the names and strings that untyped converts.
+let strings = 0;
+const quoteChars = /"/g;
+
+function countOf(s: string, sub: string): number {
+  let n = 0;
+  for (let i = s.indexOf(sub); i >= 0; i = s.indexOf(sub, i + sub.length)) n++;
+  return n;
 }
 
 // untyped converts x, a value of JSON.parse, into the dynamic value of an
@@ -1089,6 +1120,7 @@ function parsedText(text: string, ascii: boolean, t: Type): any {
 function untyped(x: any, ascii: boolean, depth: number): Iface | null {
   switch (typeof x) {
     case "string":
+      strings++;
       return new Iface(tString, ascii ? x : goText(x));
     case "number":
       if (!Number.isFinite(x)) abort();
@@ -1114,7 +1146,10 @@ function untypedSlice(x: any[], ascii: boolean, depth: number): Slice<any> {
 function untypedMap(x: any, kt: Type, ascii: boolean, depth: number): GoMap<string, any> {
   if (depth > 100) abort();
   const m = makeMap<string, any>(kt), es = m.entries;
-  for (const k in x) es.set(ascii ? k : goText(k), untyped(x[k], ascii, depth + 1)); // direct: string keys
+  for (const k in x) {
+    strings++;
+    es.set(ascii ? k : goText(k), untyped(x[k], ascii, depth + 1)); // direct: string keys
+  }
   return m;
 }
 

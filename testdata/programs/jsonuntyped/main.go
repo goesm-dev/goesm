@@ -69,12 +69,22 @@ var inputs = []string{
 	`{"kéy":"v","世界":["a",{"b":null}]}`, ` {"b":1} `, "\t[1,\n2]\r", `[1,2]x`, `{"a":1,}`, `[1,]`,
 	`{"a"}`, `"\x"`, `01`, `NaN`, `[1e999]`, "\xef\xbb\xbf{}", `{"a":"  "}`,
 	`[[[[[[[[[[1]]]]]]]]]]`,
+	// Repeated names whose earlier values Go reports errors for, which
+	// JSON.parse drops, and distinct names that are the same Go string.
+	`{"a":1e400,"a":1}`, `{"a":-1e400,"a":1}`, `{"a":{"b":[1e999]},"a":1}`, `[{"a":1e400,"a":2}]`,
+	`{"a":1e-400,"a":1}`, `{"\ud800":1,"\udc00":2,"\ud800":3}`, `{"\ud800":1,"\udc00":2}`,
+	`{"x\udfff":1,"x\ud800":2,"x\udfff":3}`, `{"a":"x:y","a":1}`, `{"\u003a":1,"a":1,"a":2}`,
+	`{"a\"":1e400,"a\"":2}`, `{"\u0022":1e400,"\"":1}`, `["\"",{"a":1e400,"a":"\""}]`,
+	`{"x":"a\\","x":1e400,"x":"\\"}`, `{"q":"\\\"","q":[1e400],"q":"\"\\"}`,
+	`{"a\"b":"c\"","d":["\"\""]}`, `{"a" : 1e400 , "a" :2}`,
 }
 
 func main() {
 	deep := strings.Repeat("[", 120) + strings.Repeat("]", 120)
 	deepObj := strings.Repeat(`{"a":`, 120) + "1" + strings.Repeat("}", 120)
-	for _, s := range append(inputs, deep, deepObj) {
+	// Nesting past Go's limit in a value a repeated name replaces.
+	deepDup := `{"a":` + strings.Repeat("[", 10000) + strings.Repeat("]", 10000) + `,"a":1}`
+	for _, s := range append(inputs, deep, deepObj, deepDup) {
 		var v any
 		err := json.Unmarshal([]byte(s), &v)
 		fmt.Printf("%.40q any: %s %v\n", s, show(v), err)
