@@ -267,8 +267,17 @@ function grown<T>(s: S<T>, newLen: number, zero: () => T, et?: Type): Slice<T> {
     if (n > 0) copyInto(b, 0, s!.$array, s!.$offset, n);
     return new Slice(b as any, 0, newLen, newCap);
   }
-  const arr = new Array<T>(newCap);
   const agg = et !== undefined && isAggregate(et);
+  if (!agg && (s === null || Array.isArray(s.$array))) {
+    // A copy of the elements, then the zero values pushed: an array
+    // without holes, which engines copy and store into fastest.
+    const arr = n === 0 ? [] : s!.$array.slice(s!.$offset, s!.$offset + n);
+    const z = zero();
+    if (typeof z !== "object" || z === null) for (let i = n; i < newCap; i++) arr.push(z);
+    else for (let i = n; i < newCap; i++) arr.push(zero());
+    return new Slice(arr, 0, newLen, newCap);
+  }
+  const arr = new Array<T>(newCap);
   for (let i = 0; i < n; i++) {
     const v = s!.$array[s!.$offset + i];
     arr[i] = agg ? copy(et!, v) : v;
@@ -288,6 +297,66 @@ export function append1<T = any>(s: S<T>, v: T, zero: () => T): Slice<T> {
   const r = grown(s, (s === null ? 0 : s.$length) + 1, zero);
   r.$array[r.$length - 1] = v;
   return r;
+}
+
+// sliceHeader returns a header of its own for s, the copy of a struct
+// field whose header the struct may own (internal/lower/owned.go).
+export function sliceHeader<T>(s: S<T>): S<T> {
+  return s === null ? null : new Slice(s.$array, s.$offset, s.$length, s.$capacity);
+}
+
+// appendIn1 is x = append(x, v) for a local variable x that may own its
+// header (internal/lower/owned.go): no other variable holds the header
+// when own is set, so the element is stored and the length increased in
+// place if the capacity allows. Otherwise it is append1, whose header the
+// variable then owns.
+export function appendIn1<T = any>(s: S<T>, v: T, zero: () => T, own: boolean): Slice<T> {
+  if (own && s !== null && s.$length < s.$capacity) {
+    s.$array[s.$offset + s.$length++] = v;
+    return s;
+  }
+  return append1(s, v, zero);
+}
+
+// appendIn is appendIn1 for several elements.
+export function appendIn<T = any>(s: S<T>, vals: T[], zero: () => T, own: boolean): S<T> {
+  if (own && s !== null && s.$length + vals.length <= s.$capacity) {
+    const a = s.$array, j = s.$offset + s.$length;
+    for (let i = 0; i < vals.length; i++) a[j + i] = vals[i];
+    s.$length += vals.length;
+    return s;
+  }
+  return fresh(append(s, vals, zero), s);
+}
+
+// appendSliceIn is appendIn1 for append(x, src...).
+export function appendSliceIn<T = any>(dst: S<T>, src: S<T>, zero: () => T, own: boolean): S<T> {
+  if (own && dst !== null && src !== null && dst.$length + src.$length <= dst.$capacity) {
+    const n = dst.$length;
+    dst.$length = n + src.$length;
+    copyInto(dst.$array, dst.$offset + n, src.$array, src.$offset, src.$length);
+    return dst;
+  }
+  return fresh(appendSlice(dst, src, zero), dst);
+}
+
+// appendStringIn is appendIn1 for append(b, s...) of a string s.
+export function appendStringIn(b: S<number>, s: string, own: boolean): S<number> {
+  const m = s.length;
+  if (own && b !== null && b.$length + m <= b.$capacity) {
+    const a = b.$array, o = b.$offset + b.$length;
+    for (let i = 0; i < m; i++) a[o + i] = s.charCodeAt(i);
+    b.$length += m;
+    return b;
+  }
+  return fresh(appendString(b, s), b);
+}
+
+// fresh returns r, the result of appending to s, or a copy of its header if
+// it is s's: appending nothing returns s, whose header other variables may
+// hold.
+function fresh<T>(r: S<T>, s: S<T>): S<T> {
+  return r !== null && r === s ? new Slice(r.$array, r.$offset, r.$length, r.$capacity) : r;
 }
 
 // appendNew1 is append(s, v) for a value v of element type et (an aggregate

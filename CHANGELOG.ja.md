@@ -29,6 +29,9 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### 性能
 
+- `json.Encoder` の `Encode` は、`json.Marshal` と同じく単純な型の値をランタイムで符号化し、`SetEscapeHTML` と `SetIndent` に従います。Go 1.27 では json v2 を通り、そのオプションは `uint64` のフラグ、つまり goesm では BigInt でした。文字列の構造体・構造体のスライス・ポインターを持つ値を 1,000 回符号化すると、Node で 33 → 6.4 ms、Bun で 49 → 7.4 ms、`SetEscapeHTML(false)` では 28 → 4.5 ms と 45 → 4.6 ms になります。それ以外の値（`MarshalJSON` メソッド、チャネルなど）は Go と同じく json v2 で符号化します（`testdata/programs/jsonencoder`）。
+- ローカルの slice 変数の `x = append(x, ...)` は、ほかの変数がその変数の slice header を持っていない間、その場で追加します。容量に収まれば要素を書き込んで header の長さを増やし、append のたびに新しい header を作ることはしません。対象は、関数リテラルから参照されず、アドレスも取られない変数です。変数の隣のフラグは変数への append で立ち、ほかの代入と、header をコピーしうるすべての使い方 (関数に渡す、格納する、interface に変換する) で下ります。そのあとの append はこれまでどおり新しい header を作ります。構造体型のエクスポートされない slice のフィールド (バイト列を書くメソッドの `w.b = append(w.b, c)` など) も、同じようにその場で追加します。フラグは構造体のプロパティです。対象は、パッケージがそのフィールドを、関数リテラルから参照されないポインタ型のローカル変数と引数から直接だけ選択し、追加する値を関数呼び出しなしで計算するフィールドです。構造体のコピーは自分の header を持ちます (`testdata/programs/appendinplace`)。容量を超えた slice は穴のない配列にコピーします。23 KB の文字列を 1 バイトずつエスケープして `[]byte` にする処理は Node.js で 250 µs から 140 µs、Bun で 205 µs から 160 µs に、書き込み用の構造体のメソッドで 61 KB の JSON を書く処理は 530 µs から 400 µs、660 µs から 430 µs に、nil の slice に 20,000 個の `int` を追加する処理は 420 µs から 315 µs、930 µs から 260 µs になりました。
+- `[]rune(s)`、`for i, r := range s`、fmt の幅の計算は、rune をメモリを確保せずに復号します。runtime の復号関数は ASCII でない rune ごとに新しい `[rune, width]` 配列を返し、`range` のループはそれを分割代入していました。`string(runes)` はすべての rune の UTF-8 のバイトを書き、`[]byte` の変換と同じくエンジンの UTF-16 デコーダーで一定の長さずつ文字列にします。これまでは rune ごとに文字列を連結していました。各行に ASCII でない rune が少しある 13 KB のテキストで (`testdata/programs/runeconv` は不正な UTF-8 に対する結果を Go と比べます)、`[]rune(s)` は Node.js で 165 µs から 80 µs、Bun で 190 µs から 44 µs に、`string(runes)` は 118 µs から 56〜80 µs、215 µs から 75 µs に、`range` は 110 µs から 34 µs、135 µs から 30 µs になりました。
 - goesm が Go のエンジンに任せるパターンでブロックする RuneReader を検索するプログラムでも、`regexp.Regexp` のほかのメソッドは同期関数のままです。`Compile`、`MustCompile` と、文字列とバイトスライスに対する `Match`、`Find`、`Replace`、`Split` のメソッドがこれにあたります。Go のエンジンは入力を interface を通して読み、その `step` メソッドはこのような RuneReader に対してブロックします。そのため、このような検索が 1 つあると、RegExp で照合するパターンの検索も含めてプログラムのすべての検索が async になり、それらを呼ぶ関数もすべて async になっていました。regexp の patch は文字列とバイトスライスに対しては具体的な型の入力でエンジンを呼び、goesm はその呼び出しに同期版の複製を使います。RuneReader を読むのは `MatchReader`、`FindReaderIndex`、`FindReaderSubmatchIndex` だけです (`testdata/programs/regexpwait`)。
 - 曖昧さの後に、幅のないアサーションなしで一致を終えられる状態しか続かないパターンは、RegExp に変換するようになりました。バックトラックする照合器が最初に試す分け方が成功するからです。数字の並びを `\d+` と `\d*` に分けることができ、数字で始まる `-?\d+\.?\d*` は、これまで Go のエンジンを残していました。
 - `protojson.Unmarshal` (`google.golang.org/protobuf/encoding/protojson`) の処理時間が入力の大きさに比例するようになりました。このデコーダーは、文字列の終わりを探すたびに入力の残りを `unsafe.String` で文字列に変換していました。JavaScript の文字列はバイト配列とメモリを共有できないため、goesm ではこの変換で残りのバイトがコピーされ、デコードに入力の長さの 2 乗に比例する時間がかかっていました。goesm は、この関数を宣言している版のモジュールに対して、バイトを直接走査するようデコーダーのこの関数にパッチを当てます (`internal/natives/patch/google.golang.org/protobuf`)。16,000 個の文字列からなる 277 KB の配列のデコードは、Node.js で 570 ms から 239 ms になりました。モジュールのパッケージに対するパッチは、置き換える宣言をすべて持つファイルにだけ当たります (`TestModulePatch`)。そのため、別の版のモジュールはその版のソースからコンパイルされます (`testdata/usecases/libs/protojson`)。
@@ -51,6 +54,7 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### 修正
 
+- `sync.Once.Do` が、最初の呼び出しの関数が別の goroutine でブロックしているのを見つけた場合、自分の関数がブロックし得るときは、Go と同じくその関数が戻るのを待つようになりました。これまでは panic していました。このような呼び出しはもともと async なので、goesm はこれを待つ版に lower します。そのため、ブロックしない関数を渡す `Do` は同期関数のままです。ただし、この `Do` が別の goroutine でブロックしている関数を見つけた場合は、これまでどおり panic します。`OnceFunc`、`OnceValue`、`OnceValues` も同じく待ちます。関数が panic した場合、待っている `Do` の呼び出しは戻ります (`testdata/programs/oncewait`)。
 - ブロックすることがある `json.Marshal` の呼び出し (待つ `MarshalJSON` を持つ値に対するもの) の `[]byte` は、関数が `string(b)` と `len(b)` にしか使わないときも、返されたスライスとして保持するようになりました。goesm はこのような局所変数に高速なエンコーダーの文字列を割り当てていましたが、このエンコーダーはブロックしない呼び出しだけを lower します。そのため `string(b)` が文字列ではなくスライスのオブジェクトになり、`len` は undefined になっていました (`testdata/programs/jsonmarshalwait`)。
 - エントリーパッケージのエクスポートされた関数が関数の仮引数を呼ぶとき、その型の関数値のどれかがブロックするなら、その関数は async になります。JavaScript は Go から受け取った関数をその仮引数に渡すことがあるためです。export が受け取るか返す構造体型の関数フィールドも同じです。Go のコードがそのような関数を渡さない仮引数 (`func Apply(f func() string) string`) は Go が渡すものだけを持つと扱われ、`Apply` はブロックする `f` の Promise で計算していました (`test/js/poc.test.mjs`)。
 - goesm の数値が wrap しないために負になった `uint` を、fmt は Go が `uint(0)-1` を 18446744073709551615 と表示するのと同じく `uint64` への変換として書式化するようになりました。以前は負の数として表示していました (`testdata/programs/sprintfconcat`)。
@@ -61,6 +65,7 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### ツール
 
+- `goesm emit-ts -blocking` は、ビルドした各パッケージのモジュールの隣に `<package>.blocking.json` を書き出します。そのパッケージでブロックする関数と関数リテラルを、待つ操作までの呼び出しの連なりとともに並べます。連なりはインターフェースのメソッド、関数値、関数の引数の呼び出しもたどり、そうした呼び出しが届きうるもののうちブロックするメソッドか関数を挙げます ([docs/js-exports.ja.md](docs/js-exports.ja.md#ブロックする関数))。
 - `goesm emit-ts` が出力する TS→Go の source map (inline のものと `<module>.ts.map`) は、`.go` ファイルを絶対パスではなく module のディレクトリからの相対パスで示すようになりました。木を移動しても公開しても map が使えます。
 
 ## v0.0.1-beta.9

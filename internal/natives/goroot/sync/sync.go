@@ -268,13 +268,17 @@ func (wg *WaitGroup) Go(f func()) {
 
 // Once is an object that will perform exactly one action.
 //
-// Under goesm, a second Do while the first call's f is blocked (which can
-// only happen if f blocks, since goroutines switch only where they block)
-// panics instead of waiting for f to return.
+// A Do that finds the first call's f still running, which can only happen
+// if f blocks (goroutines switch only where they block), has to wait for
+// it. Do does not wait, so that a Do whose f cannot block stays
+// synchronous; goesm lowers a Do call that blocks anyway, as its f may
+// block, to doSlow, which waits (internal/lower/expr.go). A Do whose f
+// cannot block, finding another goroutine's f blocked, panics.
 type Once struct {
 	noCopy  noCopy
 	done    bool
 	running bool
+	waiters waitList
 }
 
 // Do calls the function f if and only if Do is being called for the first
@@ -284,12 +288,29 @@ func (o *Once) Do(f func()) {
 		return
 	}
 	if o.running {
-		fatal("sync: Once.Do called while its function is running (unsupported under goesm)")
+		fatal("sync: Once.Do called while its function is blocked in another goroutine, with a function that cannot block (unsupported under goesm)")
 	}
+	o.run(f)
+}
+
+// doSlow is Do for an f that may block: it waits for a call of f that is
+// running in another goroutine to return.
+func (o *Once) doSlow(f func()) {
+	for !o.done && o.running {
+		o.waiters.wait()
+	}
+	if o.done {
+		return
+	}
+	o.run(f)
+}
+
+func (o *Once) run(f func()) {
 	o.running = true
 	defer func() {
 		o.running = false
 		o.done = true
+		o.waiters.wake()
 	}()
 	f()
 }
