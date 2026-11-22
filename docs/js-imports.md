@@ -64,7 +64,7 @@ Arguments are converted from Go to JavaScript and results from JavaScript to Go,
 | `[]byte` | `Uint8Array` |
 | other slices and arrays | array; an empty one for a nil slice |
 | `map[string]T` | plain object; an empty one for a nil map |
-| struct, pointer to struct (other than `time.Time`) | plain object with the exported fields, named by their `js` tag, or else as `encoding/json` names them (the `json` tag name, or the field name); an embedded struct or pointer to struct contributes its fields |
+| struct, pointer to struct (other than `time.Time`) | plain object with the exported fields, named by their `js` tag, or else as `encoding/json` names them (the `json` tag name, or the field name); an embedded struct or pointer to struct contributes its fields; an embedded `time.Time` or `*time.Time` is a field named `Time` |
 | `time.Time` | `Date` of the same instant, to the millisecond. A result must be a `Date`, or `null` for the zero time, and is the time in UTC |
 | other pointers | the value pointed to, converted; `null` for nil. A result is a pointer to a converted copy, `nil` for `null` or `undefined` |
 | function (arguments only) | function, which converts its own arguments and results the same way |

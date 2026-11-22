@@ -338,4 +338,10 @@ test("JS calling ABI: a time.Time is a Date", async () => {
   // decodes it; an invalid Date's JSON is null.
   assert.equal(m.TypeOf(at), "string 2026-11-22T00:30:15.123Z");
   assert.equal(m.TypeOf(new Date(NaN)), "nil");
+  // An embedded time.Time or *time.Time is a field named Time.
+  const hour = (d) => new Date(d.getTime() + 3_600_000);
+  assert.deepEqual(m.Restamp({ Time: at, Name: "a" }), { Time: hour(at), Name: "a" });
+  assert.deepEqual(m.Restamp(m.Restamp({ Name: "b" })), { Time: new Date("0001-01-01T02:00:00Z"), Name: "b" });
+  assert.deepEqual(m.Remark({ Time: at, name: "c" }), { Time: hour(at), name: "c" });
+  assert.deepEqual(m.Remark({ name: "d" }), { Time: null, name: "d" });
 });

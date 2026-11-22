@@ -131,6 +131,15 @@ func nextDay(t time.Time) time.Time
 //goesm:import "./lib.ts" isoDates
 func isoDates(ts []time.Time, at map[string]*time.Time) string
 
+// An embedded time.Time is a field named Time.
+type stamped struct {
+	time.Time
+	Name string
+}
+
+//goesm:import "./lib.ts" restamp
+func restamp(s stamped) stamped
+
 //goesm:import "./lib.ts" Counter
 var Counter js.Value
 
@@ -214,6 +223,8 @@ func main() {
 	next := nextDay(day)
 	fmt.Println(next.Format(time.RFC3339Nano), next.Location(), next.Sub(day))
 	fmt.Println(isoDates([]time.Time{day, {}}, map[string]*time.Time{"at": &day, "none": nil}))
+	st := restamp(stamped{day, "a"})
+	fmt.Println(st.Format(time.RFC3339Nano), st.Name)
 
 	// Values are shaped as encoding/json shapes them.
 	for _, v := range []any{Outer{&Inner{"x"}, 1}, Outer{nil, 2}, Outer2{hidden{"s"}, 3}, map[string]any{"__proto__": map[string]int{"a": 1}}} {

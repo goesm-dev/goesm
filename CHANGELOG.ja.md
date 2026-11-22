@@ -66,7 +66,7 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
 
 ### JS calling ABI
 
-- `time.Time` は、同じ時刻の `Date` として両方向に渡るようになりました。スライス、マップ、構造体、ポインタ、`any` の中でも同じです。export した関数はこれを `Date` で返し、`Date` で受け取ります。`//goesm:import` の関数も `Date` を受け取り、`Date` を返します。これまではフィールドがエクスポートされていないため空のオブジェクトになり、引数はゼロ値の時刻になっていました。`Date` はミリ秒までで、ロケーションを持ちません。そのため JavaScript から戻る `time.Time` は、`encoding/json` が `Date` の JSON をデコードするときと同じく、ミリ秒までの UTC の時刻になります。`null` はゼロ値の時刻になり、有効な `Date` 以外の値は panic します。`*time.Time` はハンドルではなく `Date` か `null` になります。JavaScript が `any` に渡す `Date` は、`encoding/json` がデコードするときと同じく、その JSON の文字列になります。TypeScript と `emit-ts -dts` の宣言ファイルでは `Date` と `Date | null` になります ([docs/js-exports.ja.md](docs/js-exports.ja.md#変換))。
+- `time.Time` は、同じ時刻の `Date` として両方向に渡るようになりました。スライス、マップ、構造体、ポインタ、`any` の中でも同じです。export した関数はこれを `Date` で返し、`Date` で受け取ります。`//goesm:import` の関数も `Date` を受け取り、`Date` を返します。これまではフィールドがエクスポートされていないため空のオブジェクトになり、引数はゼロ値の時刻になっていました。`Date` はミリ秒までで、ロケーションを持ちません。そのため JavaScript から戻る `time.Time` は、`encoding/json` が `Date` の JSON をデコードするときと同じく、ミリ秒までの UTC の時刻になります。`null` はゼロ値の時刻になり、有効な `Date` 以外の値は panic します。`*time.Time` はハンドルではなく `Date` か `null` になります。埋め込んだ `time.Time` と `*time.Time` は、フィールドを外側のオブジェクトに出すのではなく、`Time` という名前のフィールドになります。JavaScript が `any` に渡す `Date` は、`encoding/json` がデコードするときと同じく、その JSON の文字列になります。TypeScript と `emit-ts -dts` の宣言ファイルでは `Date` と `Date | null` になります ([docs/js-exports.ja.md](docs/js-exports.ja.md#変換))。
 
 ### ツール
 

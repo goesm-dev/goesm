@@ -116,3 +116,7 @@ export function nextDay(d: Date): Date {
 export function isoDates(ts: Date[], at: Record<string, Date | null>): string {
   return ts.map((d) => d.toISOString()).join(" ") + " " + JSON.stringify(at);
 }
+
+export function restamp(s: { Time: Date; Name: string }): { Time: Date; Name: string } {
+  return { Time: new Date(s.Time.getTime() + 1000), Name: s.Name + "!" };
+}

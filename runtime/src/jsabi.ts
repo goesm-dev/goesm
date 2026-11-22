@@ -294,7 +294,8 @@ interface JSField {
 // jsFields are the fields of struct type t that cross the boundary: the
 // exported ones, named by their js tag, or else as encoding/json names them
 // (a json tag name, or the Go name), without those tagged "-". An embedded struct or
-// pointer to struct, exported or not, promotes its fields.
+// pointer to struct, exported or not, promotes its fields; an embedded
+// time.Time or *time.Time, which is a Date, is a field named Time.
 type JSFields = JSField[] & { direct: Set<string> }; // direct: the names of the fields not flattened
 
 const fieldCache = /* @__PURE__ */ new WeakMap<Type, JSFields>();
@@ -305,7 +306,7 @@ function jsFields(t: Type): JSFields {
   fs = Object.assign([] as JSField[], { direct: new Set<string>() });
   for (const f of t.fields) {
     const e = f.type.kind === Kind.Pointer ? f.type.elem! : f.type;
-    const promotes = f.embedded && e.kind === Kind.Struct;
+    const promotes = f.embedded && e.kind === Kind.Struct && !isTime(e);
     if (f.pkgPath !== "" && !promotes) continue;
     const m = /(?:^|\s)js:"([^"]*)"/.exec(f.tag) ?? /(?:^|\s)json:"([^"]*)"/.exec(f.tag);
     const tagName = m ? m[1].split(",")[0] : "";

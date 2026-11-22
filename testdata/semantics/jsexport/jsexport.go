@@ -367,3 +367,30 @@ func TypeOf(v any) string {
 	}
 	return "other"
 }
+
+// Stamped embeds a time.Time, which JavaScript sees as a field named Time.
+type Stamped struct {
+	time.Time
+	Name string
+}
+
+// Restamp moves the time of s by an hour.
+func Restamp(s Stamped) Stamped {
+	s.Time = s.Add(time.Hour)
+	return s
+}
+
+// Marked embeds a *time.Time, a field named Time that may be null.
+type Marked struct {
+	*time.Time
+	Name string `json:"name"`
+}
+
+// Remark moves the time of m by an hour, when it has one.
+func Remark(m Marked) Marked {
+	if m.Time != nil {
+		t := m.Add(time.Hour)
+		m.Time = &t
+	}
+	return m
+}

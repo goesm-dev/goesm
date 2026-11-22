@@ -47,7 +47,9 @@ const square: number = workers.Square(3);
 const launch: Date = jsexport.Launch();
 const told: string = jsexport.TimeOf(launch);
 const ends: Date | null = jsexport.Postpone({ at: launch }).end;
-export { discounted, receipt, sum, square, told, ends };
+const stamped: Date = jsexport.Restamp({ Time: launch, Name: "a" }).Time;
+const marked: Date | null = jsexport.Remark({ name: "b" }).Time;
+export { discounted, receipt, sum, square, told, ends, stamped, marked };
 
 // @ts-expect-error a string is not a []Item
 cart.Total("apple");

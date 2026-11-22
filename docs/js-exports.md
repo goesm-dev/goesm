@@ -44,7 +44,7 @@ One program can start from several packages: `goesm emit-ts ./cart ./checkout` (
 | other slices and arrays | array. A nil slice is an empty array, and an argument may be `null` |
 | `map[string]T` | plain object. A nil map is an empty object, and an argument may be `null` |
 | other maps | `Map`. A nil map is an empty `Map`, and an argument may be `null` |
-| struct | plain object with the exported fields, named by their `js` tag, or else as `encoding/json` names them (the `json` tag name, or the field name); an embedded struct contributes its fields. Fields an argument leaves out are zero. |
+| struct | plain object with the exported fields, named by their `js` tag, or else as `encoding/json` names them (the `json` tag name, or the field name); an embedded struct contributes its fields; an embedded `time.Time` or `*time.Time` is a field named `Time`. Fields an argument leaves out are zero. |
 | `time.Time` | `Date` of the same instant, to the millisecond; the location and the monotonic reading stay in Go. An argument must be a `Date`, or `null` for the zero time, and is the time in UTC, as `encoding/json` decodes the `Date`'s JSON (`toJSON`) |
 | pointer to a struct type with methods, other than `*time.Time` | the Go object itself, a handle (below) |
 | other pointers | the value pointed to, converted; `null` for nil. An argument is a pointer to a converted copy |
