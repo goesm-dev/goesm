@@ -64,6 +64,8 @@ type Lowered struct {
 	// Cached is the number of modules taken from the module cache (see
 	// modCache) instead of being lowered.
 	Cached int
+	// Prog is the analysed program (see lower.Program.Blocking).
+	Prog *lower.Program
 }
 
 // Lower runs the Go frontend and the semantic lowering.
@@ -109,7 +111,7 @@ func LowerOverlay(dir string, overlay map[string][]byte, patterns []string) (*Lo
 		}
 		return nil, &DiagError{Layer: "goesm", Lines: lines}
 	}
-	l := &Lowered{Mods: mods, Entries: entries, Cached: cached}
+	l := &Lowered{Mods: mods, Entries: entries, Cached: cached, Prog: lp}
 	for _, d := range lp.SortedWarns() {
 		l.Warnings = append(l.Warnings, d.String())
 	}
@@ -227,6 +229,57 @@ func WriteDTS(dir string, mods []*lower.Module) error {
 			return err
 		}
 		if err := os.WriteFile(p, []byte(m.DTS), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// A BlockingFunc is a function of an entry package that blocks, as
+// WriteBlocking writes it: Name is "" for a function literal.
+type BlockingFunc struct {
+	Name string `json:"name"`
+	Position
+	Steps []BlockingStep `json:"steps"`
+}
+
+// A BlockingStep is a step of why a function blocks (lower.BlockStep).
+type BlockingStep struct {
+	Position
+	What string `json:"what"`
+}
+
+// A Position is a position in a Go source file, as //line directives
+// report it.
+type Position struct {
+	File   string `json:"file"`
+	Line   int    `json:"line"`
+	Column int    `json:"column"`
+}
+
+// WriteBlocking writes, next to the module p.ts of each entry package, the
+// file p.blocking.json: the package's functions and function literals that
+// block, each with the chain of calls down to the operation that waits
+// (lower.Program.Blocking).
+func WriteBlocking(dir string, l *Lowered) error {
+	for _, e := range l.Entries {
+		funcs := []BlockingFunc{}
+		for _, f := range l.Prog.Blocking(e) {
+			bf := BlockingFunc{Name: f.Name, Position: Position{f.Pos.Filename, f.Pos.Line, f.Pos.Column}, Steps: []BlockingStep{}}
+			for _, s := range f.Steps {
+				bf.Steps = append(bf.Steps, BlockingStep{Position{s.Pos.Filename, s.Pos.Line, s.Pos.Column}, s.What})
+			}
+			funcs = append(funcs, bf)
+		}
+		data, err := json.MarshalIndent(funcs, "", "\t")
+		if err != nil {
+			return err
+		}
+		p := strings.TrimSuffix(tsPath(dir, e), ".ts") + ".blocking.json"
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, append(data, '\n'), 0o644); err != nil {
 			return err
 		}
 	}

@@ -314,6 +314,13 @@ const utf8Enc = /* @__PURE__ */ new TextEncoder();
 const htmlChars = /[<>&\u2028\u2029]/;
 const htmlCharsAll = /[<>&\u2028\u2029]/g;
 const htmlEscape = (c: string) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0");
+// U+2028 and U+2029, which Go escapes also without HTML escaping.
+const jsChars = /[\u2028\u2029]/;
+const jsCharsAll = /[\u2028\u2029]/g;
+// htmlEscapes matches the escapes of <, > and & in a text enc wrote: a \u
+// after an even number of backslashes, which escape each other.
+const htmlEscapes = /(?<!\\)((?:\\\\)*)\\u00(3c|3e|26)/g;
+const unescapeHTML = (_: string, bs: string, h: string) => bs + String.fromCharCode(parseInt(h, 16));
 
 function enc(t: Type, v: any, depth: number): string {
   switch (t.kind) {
@@ -378,8 +385,8 @@ function enc(t: Type, v: any, depth: number): string {
 }
 
 // jsonMarshal is json.Marshal(x), or null for Go's code to do it.
-export function jsonMarshal(x: Iface | null): S<number> {
-  const out = jsonText(x);
+export function jsonMarshal(x: Iface | null, escapeHTML = true): S<number> {
+  const out = jsonText(x, escapeHTML);
   if (out === null) return null;
   // UTF-8: a short text is usually ASCII, which needs no encoding; the
   // engine's encoder pays off on longer ones.
@@ -400,8 +407,9 @@ export function jsonMarshalString(x: Iface | null): string | null {
 // rather than a JS string to encode as UTF-8.
 let textIsGo = false;
 
-// jsonText is the JSON encoding of x, or null.
-function jsonText(x: Iface | null): string | null {
+// jsonText is the JSON encoding of x, or null; <, > and & are escaped
+// unless escapeHTML is false (json.Encoder's SetEscapeHTML).
+function jsonText(x: Iface | null, escapeHTML = true): string | null {
   textIsGo = true;
   if (x === null) return "null";
   if (!deepPlain(x.t)) return null;
@@ -411,10 +419,13 @@ function jsonText(x: Iface | null): string | null {
       js = toJS(x.t, x.v, 0);
     } catch (e) {
       if (e !== NoJS) throw e;
-      return enc(x.t, x.v, 0);
+      const out = enc(x.t, x.v, 0);
+      return escapeHTML || !out.includes("\\u00") ? out : out.replace(htmlEscapes, unescapeHTML);
     }
     let out = JSON.stringify(js);
-    if (htmlChars.test(out)) out = out.replace(htmlCharsAll, htmlEscape);
+    if (escapeHTML) {
+      if (htmlChars.test(out)) out = out.replace(htmlCharsAll, htmlEscape);
+    } else if (jsChars.test(out)) out = out.replace(jsCharsAll, htmlEscape);
     textIsGo = false;
     return out;
   } catch (e) {

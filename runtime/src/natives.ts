@@ -26,7 +26,7 @@ import {
   funcOf, icall, makeChan, makeMap, mapClear, mapDelete, mapLookup, mapOf, mapRange, mapSet, methodKey,
   newPtr, plainPanic, ptrTo, runesToString, select, slice, sliceArray, sliceClear, sliceData,
   sliceElemRef, sliceLit, sliceToArrayPtr, sliceOf, stringToBytes, stringToRunes, getG, setGLSPropagate, ptrAt, topString,
-  goThrown, typeArgsName, $R, tuple, untuple, jsNull, toRef, fromRef, isASCII, noteASCII, setHTTPServer, hostListen, hostBuiltin, decodeRune,
+  goThrown, typeArgsName, $R, tuple, untuple, jsNull, toRef, fromRef, isASCII, noteASCII, setHTTPServer, hostListen, hostBuiltin, decodeRuneAt,
 } from "./index.ts";
 import type { S } from "./index.ts";
 import { fmtFixed, fmtShortest, formatFloat64, mayTie, parseFloat64, roundToEven, sprintf, tieScale } from "./fmt.ts";
@@ -479,6 +479,11 @@ function int32Copy(a: number[], off: number, n: number): Int32Array | null {
 export function native$encoding$json$fastMarshal(v: Iface | null): S<number> {
   return jsonMarshal(v);
 }
+// Encoder.Encode of plain values (see the patch of v2_stream.go): Marshal's
+// text, with <, > and & as they are unless escapeHTML is set.
+export function native$encoding$json$fastEncode(v: Iface | null, escapeHTML: boolean): S<number> {
+  return jsonMarshal(v, escapeHTML);
+}
 export function native$encoding$json$fastUnmarshal(data: S<number>, v: Iface | null): boolean {
   return jsonUnmarshal(data, v);
 }
@@ -553,7 +558,7 @@ export function native$regexp$execJS(src: string, s: string, pos: number, ncap: 
     if (!rxASCII) {
       const units: number[] = [], offs: number[] = [];
       for (let i = 0; i < s.length;) {
-        const [r, w] = decodeRune(s, i);
+        const r = decodeRuneAt(s, i), w = $R.r1;
         if (r > 0xffff) {
           units.push(0xd800 + ((r - 0x10000) >> 10), 0xdc00 + ((r - 0x10000) & 0x3ff));
           offs.push(i, i);
@@ -666,7 +671,8 @@ export function native$strings$trimUnicodeSpace(s: string): string {
 export function native$strings$explodeAll(s: string): S<string> {
   const a: string[] = [];
   for (let i = 0; i < s.length;) {
-    const w = decodeRune(s, i)[1];
+    decodeRuneAt(s, i);
+    const w = $R.r1;
     a.push(s.substring(i, i + w));
     i += w;
   }

@@ -1125,34 +1125,43 @@ func (p *Program) unitBlocksIn(u *unit, units []*unit, assume *types.Func) bool 
 // dynSigBlocks reports whether a call of a function value of signature s,
 // in unit u, may block: whether some function value the program has may.
 func (p *Program) dynSigBlocks(s *types.Signature, u *unit, units []*unit) bool {
+	return p.dynSigBlocker(s, u, units) != nil
+}
+
+// dynSigBlocker returns a blocking function value that a call of a function
+// value of signature s, in unit u, may call: the key of a unit (a
+// *types.Func or a function literal), the *ast.SelectorExpr of a Lock
+// method value that waits, or the ifaceCall of a method value of an
+// interface value; nil if there is none.
+func (p *Program) dynSigBlocker(s *types.Signature, u *unit, units []*unit) any {
 	for _, o := range units {
 		if !p.async[o.key] || o.sig == nil || p.live != nil && !p.live(o.key) {
 			continue
 		}
 		if p.funcValues[o.key] && !p.containedFuncs[o.key] && p.valueSigMatch(s, u, o) {
-			return true
+			return o.key
 		}
 		// A method reached through a method expression value: the
 		// receiver is the first parameter (an interface for I.M).
 		if o.isMethod {
 			for _, e := range p.methodExprs[o.name] {
 				if sigMatch(s, e) && sigMatch(dropFirstParam(e), o.sig) {
-					return true
+					return o.key
 				}
 			}
 		}
 	}
 	for _, lv := range p.lockVals {
 		if p.waitLockVals[lv.sel] != nil && sigMatch(s, lv.sig) {
-			return true
+			return lv.sel
 		}
 	}
 	for _, c := range p.ifaceVals {
 		if sigMatch(s, c.fn.Signature()) && p.ifaceCallBlocks(c.recv, c.fn, map[types.Type]bool{}) {
-			return true
+			return c
 		}
 	}
-	return false
+	return nil
 }
 
 func (p *Program) scanUnit(pkg *packages.Package, key any, sig *types.Signature, isMethod bool, name string, body *ast.BlockStmt) *unit {
