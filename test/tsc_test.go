@@ -98,14 +98,15 @@ func TestTSC(t *testing.T) {
 	// files but not the consumer: its @ts-expect-error lines still need the
 	// Go types.
 	project := t.TempDir()
-	for _, pattern := range []string{"./cart", "./workers"} {
-		l, err := build.Lower(examples, []string{pattern})
-		if err != nil {
-			t.Fatalf("goesm %s: %v", pattern, err)
-		}
-		if err := build.WriteTS(project, l.Mods); err != nil {
-			t.Fatal(err)
-		}
+	// One program, as each program's modules fit only each other: which
+	// functions block, and so which have synchronous clones, depends on
+	// the whole program.
+	l, err := build.Lower(examples, []string{"./cart", "./workers"})
+	if err != nil {
+		t.Fatalf("goesm ./cart ./workers: %v", err)
+	}
+	if err := build.WriteTS(project, l.Mods); err != nil {
+		t.Fatal(err)
 	}
 	for name, src := range map[string]string{"tsconfig.json": projectConfig, "consumer.ts": consumer} {
 		if err := os.WriteFile(filepath.Join(project, name), []byte(src), 0o644); err != nil {
@@ -116,7 +117,12 @@ func TestTSC(t *testing.T) {
 		t.Fatalf("tsc reported errors in a project that imports goesm's output: %v\n%s", err, res)
 	}
 
-	for _, tg := range []struct{ dir, pattern string }{
+	// Each program goes to a directory of its own, the examples, which the
+	// consumer imports, to out itself.
+	if err := build.WriteTS(out, l.Mods); err != nil {
+		t.Fatal(err)
+	}
+	for i, tg := range []struct{ dir, pattern string }{
 		{testdata("example"), "./main"},
 		{testdata("semantics"), "./basics"},
 		{testdata("semantics"), "./complexnum"},
@@ -142,21 +148,19 @@ func TestTSC(t *testing.T) {
 		{testdata("programs"), "./timers"},
 		{testdata("programs"), "./mathfuncs"},
 		{testdata("programs"), "./jsnames"},
-		{examples, "./cart"},
 		{examples, "./textstats"},
-		{examples, "./workers"},
 	} {
 		l, err := build.Lower(tg.dir, []string{tg.pattern})
 		if err != nil {
 			t.Fatalf("goesm %s: %v", tg.pattern, err)
 		}
-		if err := build.WriteTS(out, l.Mods); err != nil {
+		if err := build.WriteTS(filepath.Join(out, fmt.Sprint(i)), l.Mods); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// The generated files turn type checking off for the projects that
 	// import them (lower.NoCheck); here it stays on.
-	err := filepath.WalkDir(out, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(out, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".ts") {
 			return err
 		}

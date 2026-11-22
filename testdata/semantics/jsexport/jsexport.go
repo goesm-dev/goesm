@@ -133,6 +133,18 @@ type Callback struct {
 // LaterFunc: no Go code stores one in the field.
 func ApplyField(c Callback) string { return c.F() + "?" }
 
+// keep gives JavaScript f, which it may pass back to ApplyInt.
+//
+//goesm:import "./keep.ts" keep
+func keep(f func(n int) string) { panic("goesm:import") }
+
+// KeepLater gives keep a function that waits, which no Go code stores
+// anywhere else.
+func KeepLater() { keep(func(n int) string { return Later(strconv.Itoa(n)) }) }
+
+// ApplyInt calls f, which JavaScript may pass back from keep.
+func ApplyInt(f func(n int) string) string { return f(7) + "!" }
+
 // LaterFunc returns a function that waits.
 func LaterFunc(s string) func() string {
 	return func() string { return Later(s) }

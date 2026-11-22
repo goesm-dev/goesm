@@ -373,6 +373,20 @@ func (p *Program) argBlocks(info *types.Info, arg ast.Expr, us map[string]paramU
 	if _, isTP := types.Unalias(t).(*types.TypeParam); isTP {
 		return true
 	}
+	if isIface(t) {
+		if ts, ok := p.knownTypes(info, e); ok {
+			for _, u := range us {
+				if u.m == nil {
+					if p.funcArgBlocks(info, e) {
+						return true
+					}
+				} else if p.typesCallBlocks(ts, u.m, u.via) {
+					return true
+				}
+			}
+			return false
+		}
+	}
 	for _, u := range us {
 		if u.m == nil {
 			if p.funcArgBlocks(info, e) {
