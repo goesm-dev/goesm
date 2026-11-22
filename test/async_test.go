@@ -60,6 +60,14 @@ func TestAsyncStaysLocal(t *testing.T) {
 			},
 		},
 		{
+			// The channel operations of a select with a default case
+			// never wait, nor do time.Timer's Stop and Reset.
+			program: "selectnowait",
+			async:   []string{"main"},
+			sync:    []string{"drain", "trySend", "isClosed", "stopTimer", "resetTimer", "cancelAfter"},
+			syncStd: map[string][]string{"time": {"Timer$Stop", "Timer$Reset", "AfterFunc", "NewTimer"}},
+		},
+		{
 			program: "methodvalues",
 			async:   []string{"waiter$wait", "slow$call", "viaIface", "main"},
 			sync:    []string{"move", "bump", "counter$add", "counter$get"},
