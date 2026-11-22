@@ -136,6 +136,13 @@ export function assert(x: Iface | null, src: Type, t: Type): any {
   return t.kind === Kind.Interface ? x : copy(t, x!.v);
 }
 
+// assertV is assert for a type t that is not an interface and whose values
+// are not copied (see mapGetV): the dynamic type is t itself.
+export function assertV(x: Iface | null, src: Type, t: Type): any {
+  if (x === null || x.t !== t) assertionError(x, src, t);
+  return x.v;
+}
+
 // unboxAs is the value of x, known to have type t, as a t: a type switch's
 // variable in a case of type parameter type.
 export function unboxAs(t: Type, x: Iface | null): any {
@@ -146,6 +153,12 @@ export function unboxAs(t: Type, x: Iface | null): any {
 export function assertOk(x: Iface | null, t: Type): any {
   if (!typeIs(x, t)) return ($R.r1 = false, t.zero());
   return ($R.r1 = true, t.kind === Kind.Interface ? x : copy(t, x!.v));
+}
+
+// assertOkV is assertOk as assertV is assert, with zero the zero value of t.
+export function assertOkV(x: Iface | null, t: Type, zero: any): any {
+  if (x !== null && x.t === t) return ($R.r1 = true, x.v);
+  return ($R.r1 = false, zero);
 }
 
 function comparable(t: Type): boolean {

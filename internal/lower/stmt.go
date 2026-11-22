@@ -386,13 +386,19 @@ func (fe *funcEmitter) commaOk(e ast.Expr) (string, types.Type, bool, bool) {
 	switch x := unparen(e).(type) {
 	case *ast.IndexExpr:
 		if mt, ok := under(fe.info.TypeOf(x.X)).(*types.Map); ok {
-			return fmt.Sprintf("%s$rt.mapLookup(%s, %s, %s)", fe.mark(x), fe.expr(x.X), fe.valueOf(x.Index, mt.Key()), fe.zeroFn(mt.Elem())),
-				types.NewTuple(types.NewVar(0, nil, "", mt.Elem()), types.NewVar(0, nil, "", types.Typ[types.Bool])), true, true
+			tuple := types.NewTuple(types.NewVar(0, nil, "", mt.Elem()), types.NewVar(0, nil, "", types.Typ[types.Bool]))
+			if z, ok := fe.plainZero(mt.Elem()); ok {
+				return fmt.Sprintf("%s$rt.mapLookupV(%s, %s, %s)", fe.mark(x), fe.expr(x.X), fe.valueOf(x.Index, mt.Key()), z), tuple, true, true
+			}
+			return fmt.Sprintf("%s$rt.mapLookup(%s, %s, %s)", fe.mark(x), fe.expr(x.X), fe.valueOf(x.Index, mt.Key()), fe.zeroFn(mt.Elem())), tuple, true, true
 		}
 	case *ast.TypeAssertExpr:
 		t := fe.info.TypeOf(x.Type)
-		return fmt.Sprintf("%s$rt.assertOk(%s, %s)", fe.mark(x), fe.expr(x.X), fe.desc(t)),
-			types.NewTuple(types.NewVar(0, nil, "", t), types.NewVar(0, nil, "", types.Typ[types.Bool])), true, true
+		tuple := types.NewTuple(types.NewVar(0, nil, "", t), types.NewVar(0, nil, "", types.Typ[types.Bool]))
+		if z, ok := fe.plainZero(t); ok && !types.IsInterface(t) {
+			return fmt.Sprintf("%s$rt.assertOkV(%s, %s, %s)", fe.mark(x), fe.expr(x.X), fe.desc(t), z), tuple, true, true
+		}
+		return fmt.Sprintf("%s$rt.assertOk(%s, %s)", fe.mark(x), fe.expr(x.X), fe.desc(t)), tuple, true, true
 	case *ast.UnaryExpr:
 		if x.Op == token.ARROW {
 			elem := under(fe.info.TypeOf(x.X)).(*types.Chan).Elem()
@@ -779,8 +785,12 @@ func (fe *funcEmitter) lvalueOf(e ast.Expr, prepare int) lvalue {
 		case *types.Map:
 			mp := stab(fe.expr(x.X))
 			k := stab(fe.valueOf(x.Index, u.Key()))
+			get := fmt.Sprintf("$rt.mapGet(%s, %s, %s)", mp, k, fe.zeroFn(u.Elem()))
+			if z, ok := fe.plainZero(u.Elem()); ok {
+				get = fmt.Sprintf("$rt.mapGetV(%s, %s, %s)", mp, k, z)
+			}
 			return lvalue{
-				get: fmt.Sprintf("$rt.mapGet(%s, %s, %s)", mp, k, fe.zeroFn(u.Elem())),
+				get: get,
 				set: func(rhs string) string { return fmt.Sprintf("%s$rt.mapSet(%s, %s, %s)", fe.mark(x), mp, k, rhs) },
 			}
 		case *types.Slice:

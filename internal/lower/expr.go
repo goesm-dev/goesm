@@ -105,7 +105,13 @@ func (fe *funcEmitter) expr(e ast.Expr) string {
 	case *ast.SliceExpr:
 		return fe.sliceExpr(e)
 	case *ast.TypeAssertExpr:
-		return fmt.Sprintf("%s$rt.assert(%s, %s, %s)", fe.mark(e), fe.expr(e.X), fe.desc(fe.info.TypeOf(e.X)), fe.desc(fe.info.TypeOf(e.Type)))
+		// A type whose values are not copied is asserted without the
+		// runtime's general typeIs and copy.
+		t := fe.info.TypeOf(e.Type)
+		if _, ok := fe.plainZero(t); ok && !types.IsInterface(t) {
+			return fmt.Sprintf("%s$rt.assertV(%s, %s, %s)", fe.mark(e), fe.expr(e.X), fe.desc(fe.info.TypeOf(e.X)), fe.desc(t))
+		}
+		return fmt.Sprintf("%s$rt.assert(%s, %s, %s)", fe.mark(e), fe.expr(e.X), fe.desc(fe.info.TypeOf(e.X)), fe.desc(t))
 	case *ast.CallExpr:
 		return fe.call(e)
 	case *ast.StarExpr:
@@ -575,6 +581,9 @@ func (fe *funcEmitter) index(e *ast.IndexExpr) string {
 		x, set, i := fe.indexTemp(fe.expr(e.X), fe.intNumber(e.Index))
 		return fe.byteBoolLoad(e.X, m+set+sliceIndex(x, i)+closeIf(set))
 	case *types.Map:
+		if z, ok := fe.plainZero(u.Elem()); ok {
+			return fmt.Sprintf("%s$rt.mapGetV(%s, %s, %s)", m, fe.expr(e.X), fe.valueOf(e.Index, u.Key()), z)
+		}
 		return fmt.Sprintf("%s$rt.mapGet(%s, %s, %s)", m, fe.expr(e.X), fe.valueOf(e.Index, u.Key()), fe.zeroFn(u.Elem()))
 	case *types.Array:
 		return fmt.Sprintf("%s%s[%s]", m, fe.expr(e.X), fe.arrayIndex(e))

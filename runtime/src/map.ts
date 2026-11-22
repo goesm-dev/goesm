@@ -94,6 +94,43 @@ export function mapGet<K = any, V = any>(m: M<K, V>, k: K, zero: () => V): V {
   return e === undefined ? zero() : e[1];
 }
 
+// mapGetV is mapGet for values that are never undefined, with zero the
+// zero value itself: a value of a basic type, a pointer, a slice, a map or
+// an interface, which the lowering passes as a literal (plainZero).
+export function mapGetV<K = any, V = any>(m: M<K, V>, k: K, zero: V): V {
+  if (m === null) return zero;
+  if (m.direct) {
+    const v = m.entries.get(k);
+    return v !== undefined ? v : zero;
+  }
+  const o = objKey(m, k);
+  if (o !== undefined) {
+    const e = objEntry(m, o, k);
+    if (e !== undefined) return e[1];
+    if (m.spilled === 0) return zero;
+  }
+  const e = m.entries.get(hashKey(m.keyType, k));
+  return e === undefined ? zero : e[1];
+}
+
+// mapLookupV is mapLookup as mapGetV is mapGet.
+export function mapLookupV<K = any, V = any>(m: M<K, V>, k: K, zero: V): V {
+  if (m === null) return ($R.r1 = false, zero);
+  if (m.direct) {
+    const v = m.entries.get(k);
+    return v !== undefined ? ($R.r1 = true, v) : ($R.r1 = false, zero);
+  }
+  const o = objKey(m, k);
+  if (o !== undefined) {
+    const e = objEntry(m, o, k);
+    if (e !== undefined) return ($R.r1 = true, e[1]);
+    if (m.spilled === 0) return ($R.r1 = false, zero);
+  }
+  const e = m.entries.get(hashKey(m.keyType, k));
+  if (e === undefined) return ($R.r1 = false, zero);
+  return ($R.r1 = true, e[1]);
+}
+
 // mapLookup is v, ok := m[k]: it returns v and leaves ok in $R.r1.
 export function mapLookup<K = any, V = any>(m: M<K, V>, k: K, zero: () => V): V {
   if (m === null) return ($R.r1 = false, zero());
