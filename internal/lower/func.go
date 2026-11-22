@@ -508,6 +508,7 @@ func (fe *funcEmitter) funcBody(recvList *ast.FieldList, ftype *ast.FuncType, bo
 	}
 
 	fe.loadParamHeaders(sig)
+	fe.declareOwned(body)
 	fe.hasDefer, fe.deferVar = containsDefer(body), false
 	named := sig.Results().Len() > 0 && sig.Results().At(0).Name() != ""
 	fe.results, fe.resultTs, fe.named = nil, nil, named

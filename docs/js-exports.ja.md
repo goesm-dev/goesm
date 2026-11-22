@@ -108,6 +108,23 @@ JavaScript まで届いた panic は、`name` が `"GoPanic"` の `Error` とし
 
 チャネル、ミューテックス、`time.Sleep`、`await` 付きで import した JavaScript の Promise などでブロックする Go の関数は、変換した戻り値の Promise を返します。エラーの戻り値は Promise を reject します。JavaScript から Go に渡した関数は同期的に呼ばれ、その戻り値がそのまま使われます。
 
+ブロックする関数を呼ぶ関数もブロックします。インターフェースのメソッドや関数値の呼び出しは、プログラムの中でその呼び出しが呼びうる関数のどれかがブロックするとき、ブロックします。`goesm emit-ts -blocking` は、その理由をビルドした各パッケージのモジュールの隣に書き出します。`<package>.blocking.json` には、そのパッケージでブロックする関数と関数リテラルが並び、それぞれに自分の本体から待つ操作までの呼び出しの連なりが付きます。各ステップには呼び出しか操作の位置があり、何を呼ぶかが書かれています。インターフェースのメソッドや関数値の呼び出しでは、その呼び出しが届きうるもののうちブロックするメソッドか関数を 1 つ挙げます。
+
+```json
+[
+  {
+    "name": "main.Load",
+    "file": "/src/app/main.go", "line": 12, "column": 6,
+    "steps": [
+      { "file": "/src/app/main.go", "line": 13, "column": 9, "what": "calls the method Read of io.Reader, which may be (*main.pipe).Read" },
+      { "file": "/src/app/main.go", "line": 30, "column": 9, "what": "receives from a channel" }
+    ]
+  }
+]
+```
+
+関数リテラルは `name` が空で、位置はその `func` のものです。位置は診断と同じく `//line` ディレクティブに従うので、別のファイルから Go を生成するツール (gosfc) はそのファイルの中で連なりを示せます。
+
 ## エッジのサーバー
 
 戻り値の `http.Handler` は fetch ハンドラになります。Cloudflare Workers、`Deno.serve`、`Bun.serve`、Service Worker で使えます。

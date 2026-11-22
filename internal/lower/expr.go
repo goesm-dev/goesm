@@ -141,7 +141,7 @@ func (fe *funcEmitter) ident(e *ast.Ident) string {
 		if fe.isSplit(obj) {
 			return fe.splitRead(obj)
 		}
-		return fe.varRef(obj)
+		return fe.ownedEscape(e, obj, fe.varRef(obj))
 	case *types.Func:
 		if inst, ok := fe.info.Instances[e]; ok {
 			return fe.genericFuncValue(fe.nameOf(obj), inst.TypeArgs)
@@ -306,7 +306,7 @@ func (fe *funcEmitter) selector(e *ast.SelectorExpr) string {
 			}
 		}
 		obj, prop := fe.fieldBase(e)
-		return fe.mark(e) + obj + "." + prop
+		return fe.mark(e) + fe.fieldEscape(e, obj, prop)
 	case types.MethodVal:
 		if slow, locker := fe.pe.prog.WaitLockVal(e); locker {
 			// l.Lock bound to the waiting variant (lockcheck.go).
@@ -1578,17 +1578,24 @@ func (fe *funcEmitter) call(e *ast.CallExpr) string {
 			}
 			prefix, recv, iface := fe.methodTarget(f, sel)
 			fn := sel.Obj().(*types.Func)
-			if slow, locker := fe.pe.prog.WaitLock(e); locker {
+			slow, locker := fe.pe.prog.WaitLock(e)
+			if locker {
 				// A type parameter constrained by Locker is boxed as one.
 				l := fe.convert(fe.expr(f.X), fe.info.TypeOf(f.X), fn.Signature().Recv().Type())
 				return fe.awaitIf(e, fe.mark(e)+fe.pe.methodFuncName(slow)+"(null, "+l+")")
-			} else if slow != nil {
+			}
+			if slow == nil && !iface && fe.callBlocks(e) {
+				// once.Do(f) of an f that may block waits for another
+				// goroutine's f (see sync.Once).
+				slow = onceWait(fn)
+			}
+			if slow != nil {
 				prefix = fe.pe.methodFuncName(slow) + "("
 			}
 			if iface {
 				callee = fe.icall(recv, methodKey(fn), args)
 			} else {
-				if slow, _ := fe.pe.prog.WaitLock(e); slow == nil && fe.pe.prog.SyncClone(fe.info, e, fe.assume) {
+				if slow == nil && fe.pe.prog.SyncClone(fe.info, e, fe.assume) {
 					prefix = strings.TrimSuffix(prefix, "(") + "$sync("
 				}
 				if args != "" {
@@ -2749,4 +2756,28 @@ func (fe *funcEmitter) printArg(t types.Type, v string) string {
 func isIntegerType(t types.Type) bool {
 	b, ok := under(t).(*types.Basic)
 	return ok && b.Info()&types.IsInteger != 0
+}
+
+// onceWait returns sync.Once's doSlow if fn is its Do method, or nil. A Do
+// call that blocks, as its function may, calls doSlow, which waits for a
+// call of the function running in another goroutine.
+func onceWait(fn *types.Func) *types.Func {
+	if fn.Name() != "Do" || fn.Pkg() == nil || fn.Pkg().Path() != "sync" {
+		return nil
+	}
+	recv := fn.Signature().Recv()
+	if recv == nil {
+		return nil
+	}
+	ptr, ok := recv.Type().(*types.Pointer)
+	if !ok {
+		return nil
+	}
+	named, ok := types.Unalias(ptr.Elem()).(*types.Named)
+	if !ok || named.Obj().Name() != "Once" {
+		return nil
+	}
+	obj, _, _ := types.LookupFieldOrMethod(ptr, false, fn.Pkg(), "doSlow")
+	slow, _ := obj.(*types.Func)
+	return slow
 }
