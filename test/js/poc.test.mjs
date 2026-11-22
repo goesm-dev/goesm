@@ -311,3 +311,37 @@ test("JS calling ABI: pointers, self-embedding structs and returned functions", 
   assert.throws(() => parse("x"), { name: "GoError", message: 'strconv.Atoi: parsing "x": invalid syntax' });
   assert.deepEqual(m.Grouper()(["go", "ts!"]), new Map([[2, ["go"]], [3, ["ts!"]]]));
 });
+
+test("JS calling ABI: a time.Time is a Date", async () => {
+  const m = await load("GOESM_JSEXPORT");
+  const at = m.Launch();
+  assert.ok(at instanceof Date);
+  // The instant, to the millisecond, without the location.
+  assert.equal(at.toISOString(), "2026-11-22T00:30:15.123Z");
+  assert.ok(Math.abs(m.Clock().getTime() - Date.now()) < 60_000);
+  // A Date is the time.Time of its instant in UTC, as encoding/json decodes
+  // its JSON.
+  assert.equal(m.TimeOf(at), "UTC 1795307415123 123000000 false");
+  assert.equal(m.TimeOf(new Date(-1500)), "UTC -1500 500000000 false");
+  assert.equal(m.TimeOf(new Date("0001-01-01T00:00:00Z")), "UTC -62135596800000 0 true");
+  assert.equal(m.TimeOf(null), "UTC -62135596800000 0 true");
+  assert.throws(() => m.TimeOf(new Date(NaN)), { name: "GoPanic", message: /an invalid Date cannot be converted to time\.Time/ });
+  assert.throws(() => m.TimeOf("2026-11-22"), { name: "GoPanic", message: /other than a Date cannot be converted to time\.Time/ });
+  // In structs, pointers, slices and maps.
+  const later = m.Postpone({ name: "a", at, end: at });
+  assert.deepEqual(later, { name: "a", at: new Date("2026-11-22T01:30:15.123Z"), end: new Date("2026-11-22T01:30:15.123Z") });
+  assert.deepEqual(m.Postpone({ name: "b", at }), { name: "b", at: new Date("2026-11-22T01:30:15.123Z"), end: null });
+  assert.deepEqual(m.Index([at, new Date(0)]), { 0: at, 1: new Date(0) });
+  // Inside an any.
+  assert.deepEqual(m.Moments(), { at, list: [at, 1], ptr: at, event: { name: "x", at, end: null }, none: null });
+  // A Date passed for an any is its JSON, a string, as encoding/json
+  // decodes it; an invalid Date's JSON is null.
+  assert.equal(m.TypeOf(at), "string 2026-11-22T00:30:15.123Z");
+  assert.equal(m.TypeOf(new Date(NaN)), "nil");
+  // An embedded time.Time or *time.Time is a field named Time.
+  const hour = (d) => new Date(d.getTime() + 3_600_000);
+  assert.deepEqual(m.Restamp({ Time: at, Name: "a" }), { Time: hour(at), Name: "a" });
+  assert.deepEqual(m.Restamp(m.Restamp({ Name: "b" })), { Time: new Date("0001-01-01T02:00:00Z"), Name: "b" });
+  assert.deepEqual(m.Remark({ Time: at, name: "c" }), { Time: hour(at), name: "c" });
+  assert.deepEqual(m.Remark({ name: "d" }), { Time: null, name: "d" });
+});

@@ -37,3 +37,27 @@ func TestRound(t *testing.T) {
 		t.Error("Round of NaN or -Inf")
 	}
 }
+
+// TestUTF16Edges covers the first character outside the Basic Multilingual
+// Plane, which takes two units where U+FFFF takes one, and text that starts
+// with a byte that is not valid UTF-8.
+func TestUTF16Edges(t *testing.T) {
+	s := "￿\U00010000b" // 3 + 4 + 1 bytes; 1 + 2 + 1 units
+	if n := UTF16Len(s); n != 4 {
+		t.Errorf("UTF16Len = %d, want 4", n)
+	}
+	for _, c := range []struct{ u, byteOff int }{{0, 0}, {1, 3}, {2, 3}, {3, 7}, {4, 8}} {
+		if got := ByteOffset(s, c.u); got != c.byteOff {
+			t.Errorf("ByteOffset(%d) = %d, want %d", c.u, got, c.byteOff)
+		}
+	}
+	bad := "\x80a" // the invalid byte is one unit, as the U+FFFD it becomes
+	if n := UTF16Len(bad); n != 2 {
+		t.Errorf("UTF16Len(%q) = %d, want 2", bad, n)
+	}
+	for _, c := range []struct{ byteOff, u int }{{0, 0}, {1, 1}, {2, 2}} {
+		if got := UTF16Offset(bad, c.byteOff); got != c.u {
+			t.Errorf("UTF16Offset(%q, %d) = %d, want %d", bad, c.byteOff, got, c.u)
+		}
+	}
+}
