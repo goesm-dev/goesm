@@ -307,3 +307,63 @@ func Rename(r Renamed) Renamed {
 func NilParts() ([]int, []string, []byte, map[string]int, map[int]int) {
 	return nil, nil, nil, nil, nil
 }
+
+// Event has times: JavaScript sees a time.Time as a Date, and a *time.Time
+// as a Date or null.
+type Event struct {
+	Name string     `json:"name"`
+	At   time.Time  `json:"at"`
+	End  *time.Time `json:"end"`
+}
+
+// Launch is a time with nanoseconds and a location, which a Date does not
+// keep.
+func Launch() time.Time {
+	return time.Date(2026, 11, 22, 9, 30, 15, 123456789, time.FixedZone("JST", 9*3600))
+}
+
+// Clock is the current time, with a monotonic reading.
+func Clock() time.Time { return time.Now() }
+
+// TimeOf describes a time.Time JavaScript passed: its location, Unix
+// milliseconds, nanoseconds and whether it is the zero time.
+func TimeOf(t time.Time) string {
+	return t.Location().String() + " " + strconv.FormatInt(t.UnixMilli(), 10) + " " + strconv.Itoa(t.Nanosecond()) + " " + strconv.FormatBool(t.IsZero())
+}
+
+// Postpone moves an event, and its end if it has one, by an hour.
+func Postpone(e Event) Event {
+	e.At = e.At.Add(time.Hour)
+	if e.End != nil {
+		end := e.End.Add(time.Hour)
+		e.End = &end
+	}
+	return e
+}
+
+// Index keys times by their position.
+func Index(ts []time.Time) map[string]time.Time {
+	m := map[string]time.Time{}
+	for i, t := range ts {
+		m[strconv.Itoa(i)] = t
+	}
+	return m
+}
+
+// Moments returns times inside an any: in a map, a slice, a pointer and a
+// struct.
+func Moments() any {
+	t := Launch()
+	return map[string]any{"at": t, "list": []any{t, 1}, "ptr": &t, "event": Event{Name: "x", At: t}, "none": (*time.Time)(nil)}
+}
+
+// TypeOf names the Go type of a value JavaScript passed for an any.
+func TypeOf(v any) string {
+	switch v := v.(type) {
+	case nil:
+		return "nil"
+	case string:
+		return "string " + v
+	}
+	return "other"
+}

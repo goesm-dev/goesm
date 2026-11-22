@@ -36,6 +36,7 @@ const tscConfig = `{
 // be the Go signatures (not any), so wrong uses are type errors.
 const consumer = `import * as cart from "./example.com/examples/cart.ts";
 import * as workers from "./example.com/examples/workers.ts";
+import * as jsexport from "./example.com/sem/jsexport.ts";
 
 const items = [{ Name: "りんご", Price: 120, Quantity: 3 }];
 const total: number = cart.Total(items);
@@ -43,7 +44,10 @@ const discounted: number = cart.Discount(total, 15);
 const receipt: string = cart.Receipt(items);
 const sum: Promise<number> = workers.SumSquares(10, 2);
 const square: number = workers.Square(3);
-export { discounted, receipt, sum, square };
+const launch: Date = jsexport.Launch();
+const told: string = jsexport.TimeOf(launch);
+const ends: Date | null = jsexport.Postpone({ at: launch }).end;
+export { discounted, receipt, sum, square, told, ends };
 
 // @ts-expect-error a string is not a []Item
 cart.Total("apple");
@@ -53,7 +57,11 @@ cart.Total([{ Name: "apple", Price: "120" }]);
 const notString: number = cart.Receipt(items);
 // @ts-expect-error SumSquares blocks, so it returns a Promise
 const notPromise: number = workers.SumSquares(10, 2);
-export { notString, notPromise };
+// @ts-expect-error a time.Time is a Date, not a string
+jsexport.TimeOf("2026-11-22");
+// @ts-expect-error a *time.Time may be null
+const notNull: Date = jsexport.Postpone({ at: launch }).end;
+export { notString, notPromise, notNull };
 `
 
 // projectConfig is a stock application setup, as create-next-app writes
@@ -98,10 +106,14 @@ func TestTSC(t *testing.T) {
 	// files but not the consumer: its @ts-expect-error lines still need the
 	// Go types.
 	project := t.TempDir()
-	for _, pattern := range []string{"./cart", "./workers"} {
-		l, err := build.Lower(examples, []string{pattern})
+	for _, tg := range []struct{ dir, pattern string }{
+		{examples, "./cart"},
+		{examples, "./workers"},
+		{testdata("semantics"), "./jsexport"},
+	} {
+		l, err := build.Lower(tg.dir, []string{tg.pattern})
 		if err != nil {
-			t.Fatalf("goesm %s: %v", pattern, err)
+			t.Fatalf("goesm %s: %v", tg.pattern, err)
 		}
 		if err := build.WriteTS(project, l.Mods); err != nil {
 			t.Fatal(err)

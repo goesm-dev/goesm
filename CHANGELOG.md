@@ -64,6 +64,10 @@ Changes on `main` since v0.0.1-beta.9: [v0.0.1-beta.9...main](https://github.com
   - A function declared without a body and a one-argument `//go:linkname` pulls the function another package pushes to its symbol, as it does with two arguments: `crypto/internal/fips140hash.Unwrap`, which `hmac.New` and `hkdf.Key` call, panicked with `crypto/sha3` hashes.
   - `chacha20poly1305` (`crypto/hpke`'s ChaCha20-Poly1305, `crypto/tls`) panicked with "invalid buffer overlap of output and input": the vendored `alias.AnyOverlap` compared addresses from `reflect.Value.Pointer`, so every pair of slices overlapped. It compares backing arrays and offsets, like `crypto/internal/fips140/alias`.
 
+### JS calling ABI
+
+- A `time.Time` crosses as a `Date` of the same instant, both ways, also inside slices, maps, structs, pointers and an `any`: exported functions return a `Date` for it and take a `Date`, and `//goesm:import` functions get and return one. It crossed as an empty object, since its fields are unexported, and an argument was the zero time. A `Date` has milliseconds and no location, so a `time.Time` that comes back from JavaScript is in UTC, to the millisecond, as `encoding/json` decodes a `Date`'s JSON; `null` is the zero time, and a value other than a valid `Date` panics. A `*time.Time` is a `Date` or `null` instead of a handle. A `Date` that JavaScript passes for an `any` is its JSON, a string, as `encoding/json` would decode it. TypeScript and the declaration files of `emit-ts -dts` type them `Date` and `Date | null` ([docs/js-exports.md](docs/js-exports.md#conversions)).
+
 ### Tools
 
 - `goesm emit-ts -blocking` writes `<package>.blocking.json` next to each built package's module: the package's functions and function literals that block, each with the chain of calls down to the operation that waits, through the calls of interface methods, function values and function parameters, naming a method or function that blocks among those each such call may reach ([docs/js-exports.md](docs/js-exports.md#functions-that-block)).

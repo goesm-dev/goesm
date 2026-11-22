@@ -431,7 +431,7 @@ func (pe *pkgEmitter) structToJS(t types.Type, x string) string {
 		ptr, t = true, p.Elem()
 	}
 	st, ok := t.Underlying().(*types.Struct)
-	if !ok || isJSValue(t) {
+	if !ok || isJSValue(t) || isTimeType(t) {
 		return ""
 	}
 	var props []string

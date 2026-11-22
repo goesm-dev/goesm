@@ -45,10 +45,11 @@ One program can start from several packages: `goesm emit-ts ./cart ./checkout` (
 | `map[string]T` | plain object. A nil map is an empty object, and an argument may be `null` |
 | other maps | `Map`. A nil map is an empty `Map`, and an argument may be `null` |
 | struct | plain object with the exported fields, named by their `js` tag, or else as `encoding/json` names them (the `json` tag name, or the field name); an embedded struct contributes its fields. Fields an argument leaves out are zero. |
-| pointer to a struct type with methods | the Go object itself, a handle (below) |
+| `time.Time` | `Date` of the same instant, to the millisecond; the location and the monotonic reading stay in Go. An argument must be a `Date`, or `null` for the zero time, and is the time in UTC, as `encoding/json` decodes the `Date`'s JSON (`toJSON`) |
+| pointer to a struct type with methods, other than `*time.Time` | the Go object itself, a handle (below) |
 | other pointers | the value pointed to, converted; `null` for nil. An argument is a pointer to a converted copy |
 | `error` | a final `error` result is thrown (below); elsewhere a `GoError` or `null` |
-| `any` | the conversion of the dynamic value; an argument becomes what `encoding/json` decodes into an `any` |
+| `any` | the conversion of the dynamic value; an argument becomes what `encoding/json` decodes into an `any`, so a `Date` is its JSON, a string |
 | other interfaces | the Go value, a handle |
 | `http.Handler` result | a fetch handler, `(request: Request) => Promise<Response>` |
 | function | function, which converts its own arguments and results the same way and throws its final `error` result |

@@ -108,3 +108,11 @@ export function nullable(n: number | null): string | null {
 export function optional(on: boolean): { note: string | null; n?: number } {
   return on ? { note: "あり", n: 1.5 } : { note: null };
 }
+
+export function nextDay(d: Date): Date {
+  return new Date(d.getTime() + 24 * 60 * 60 * 1000);
+}
+
+export function isoDates(ts: Date[], at: Record<string, Date | null>): string {
+  return ts.map((d) => d.toISOString()).join(" ") + " " + JSON.stringify(at);
+}

@@ -64,6 +64,10 @@ v0.0.1-beta.9 以降に `main` に入った変更です。差分は [v0.0.1-beta
   - 本体のない関数に引数 1 つの `//go:linkname` がある場合も、引数 2 つの場合と同じく、別のパッケージがそのシンボルに push した関数を呼ぶようになりました。`hmac.New` と `hkdf.Key` が呼ぶ `crypto/internal/fips140hash.Unwrap` は、`crypto/sha3` の hash で panic していました。
   - `chacha20poly1305` (`crypto/hpke` の ChaCha20-Poly1305、`crypto/tls`) が "invalid buffer overlap of output and input" で panic していました。vendor 版の `alias.AnyOverlap` が `reflect.Value.Pointer` のアドレスを比較するため、あらゆる slice の組が重なっていると判定されていました。`crypto/internal/fips140/alias` と同じく、backing array と offset を比較します。
 
+### JS calling ABI
+
+- `time.Time` は、同じ時刻の `Date` として両方向に渡るようになりました。スライス、マップ、構造体、ポインタ、`any` の中でも同じです。export した関数はこれを `Date` で返し、`Date` で受け取ります。`//goesm:import` の関数も `Date` を受け取り、`Date` を返します。これまではフィールドがエクスポートされていないため空のオブジェクトになり、引数はゼロ値の時刻になっていました。`Date` はミリ秒までで、ロケーションを持ちません。そのため JavaScript から戻る `time.Time` は、`encoding/json` が `Date` の JSON をデコードするときと同じく、ミリ秒までの UTC の時刻になります。`null` はゼロ値の時刻になり、有効な `Date` 以外の値は panic します。`*time.Time` はハンドルではなく `Date` か `null` になります。JavaScript が `any` に渡す `Date` は、`encoding/json` がデコードするときと同じく、その JSON の文字列になります。TypeScript と `emit-ts -dts` の宣言ファイルでは `Date` と `Date | null` になります ([docs/js-exports.ja.md](docs/js-exports.ja.md#変換))。
+
 ### ツール
 
 - `goesm emit-ts -blocking` は、ビルドした各パッケージのモジュールの隣に `<package>.blocking.json` を書き出します。そのパッケージでブロックする関数と関数リテラルを、待つ操作までの呼び出しの連なりとともに並べます。連なりはインターフェースのメソッド、関数値、関数の引数の呼び出しもたどり、そうした呼び出しが届きうるもののうちブロックするメソッドか関数を挙げます ([docs/js-exports.ja.md](docs/js-exports.ja.md#ブロックする関数))。

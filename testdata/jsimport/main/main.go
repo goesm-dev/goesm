@@ -10,6 +10,7 @@ import (
 	"sort"
 	"sync"
 	"syscall/js"
+	"time"
 )
 
 type Item struct {
@@ -122,6 +123,14 @@ func shout(s string) string
 //goesm:import "./plain.mjs" twice
 func twice(f func() int) int
 
+// A time.Time is a Date.
+//
+//goesm:import "./lib.ts" nextDay
+func nextDay(t time.Time) time.Time
+
+//goesm:import "./lib.ts" isoDates
+func isoDates(ts []time.Time, at map[string]*time.Time) string
+
 //goesm:import "./lib.ts" Counter
 var Counter js.Value
 
@@ -200,6 +209,11 @@ func main() {
 	fmt.Println("counter", c.Call("add", 3).Int())
 	fmt.Println("version", version)
 	fmt.Println("namespace", lib.Get("VERSION").String())
+
+	day := time.Date(2026, 11, 22, 9, 30, 15, 123456789, time.FixedZone("JST", 9*3600))
+	next := nextDay(day)
+	fmt.Println(next.Format(time.RFC3339Nano), next.Location(), next.Sub(day))
+	fmt.Println(isoDates([]time.Time{day, {}}, map[string]*time.Time{"at": &day, "none": nil}))
 
 	// Values are shaped as encoding/json shapes them.
 	for _, v := range []any{Outer{&Inner{"x"}, 1}, Outer{nil, 2}, Outer2{hidden{"s"}, 3}, map[string]any{"__proto__": map[string]int{"a": 1}}} {

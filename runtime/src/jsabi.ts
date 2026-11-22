@@ -15,9 +15,12 @@
 //	| struct, *struct                  | plain object of the exported       |
 //	|                                  | fields named by their js tag or as |
 //	|                                  | encoding/json does                 |
+//	| time.Time, *time.Time            | Date (to the millisecond; to Go,   |
+//	|                                  | in UTC)                            |
 //	| func (Go to JS only)             | function                           |
 //	| any                              | the dynamic value's conversion; to |
-//	|                                  | Go, JSON-shaped values             |
+//	|                                  | Go, JSON-shaped values (a Date is  |
+//	|                                  | its JSON, a string)                |
 //
 // Everything is copied: a slice or struct changed on the other side does not
 // change the original.
@@ -106,6 +109,7 @@ export function goToJS(t: Type, v: any, ex = false): any {
         case 1: return fromRef(v.ref);
         case 2: return fromRef(v.Value.ref);
       }
+      if (isTime(t)) return timeToJS(t, v);
       const o: Record<string, any> = {};
       const fs = jsFields(t);
       for (const f of fs) {
@@ -176,9 +180,51 @@ function isFieldName(t: Type, name: string): boolean {
 }
 
 // isHandle reports whether the pointer type t crosses to JavaScript as the Go
-// object itself: a pointer to a struct type with methods.
+// object itself: a pointer to a struct type with methods, other than
+// *time.Time, which is a Date or null.
 function isHandle(t: Type): boolean {
-  return t.elem!.kind === Kind.Struct && hasMethods(t);
+  return t.elem!.kind === Kind.Struct && hasMethods(t) && !isTime(t.elem!);
+}
+
+// isTime reports whether t is time.Time, which crosses as a Date
+// (isTimeType in internal/lower/jsexport.go).
+function isTime(t: Type): boolean {
+  return t.named && t.name === "Time" && t.pkgPath === "time";
+}
+
+// The constants of package time's representation of a Time: wall holds a
+// flag for a monotonic reading, then 33 bits of seconds since 1885 when it
+// has one, then 30 bits of nanoseconds; ext holds the seconds since year 1
+// when it has none (the monotonic reading otherwise). A nil loc is UTC.
+const hasMonotonic = 1n << 63n;
+const nsecMask = (1n << 30n) - 1n;
+const wallToInternal = 59453308800n; // seconds from year 1 to 1885
+const unixToInternal = 62135596800n; // seconds from year 1 to 1970
+
+function timeField(t: Type, name: string): string {
+  return t.fields.find((f) => f.name === name)!.prop;
+}
+
+// timeToJS converts the time.Time v to the Date of its instant, to the
+// millisecond, as Time.UnixMilli rounds: the location and the monotonic
+// reading do not cross. A time out of the range of a Date is an invalid
+// Date.
+function timeToJS(t: Type, v: any): Date {
+  const wall: bigint = v[timeField(t, "wall")], ext: bigint = v[timeField(t, "ext")];
+  const sec = wall & hasMonotonic ? wallToInternal + (BigInt.asUintN(64, wall << 1n) >> 31n) : ext;
+  return new Date(Number(sec - unixToInternal) * 1000 + Math.floor(Number(wall & nsecMask) / 1e6));
+}
+
+// timeFromJS converts the Date x to the time.Time of its instant in UTC, as
+// encoding/json decodes the Date's JSON (Date.prototype.toJSON); v is the
+// zero Time it fills.
+function timeFromJS(t: Type, v: any, x: any): any {
+  const ms = x instanceof Date ? x.getTime() : NaN;
+  if (Number.isNaN(ms)) plainPanic(x instanceof Date ? "goesm: an invalid Date cannot be converted to time.Time" : "goesm: a JavaScript value other than a Date cannot be converted to time.Time");
+  const msec = BigInt(ms), rem = ((msec % 1000n) + 1000n) % 1000n;
+  v[timeField(t, "wall")] = rem * 1000000n;
+  v[timeField(t, "ext")] = (msec - rem) / 1000n + unixToInternal;
+  return v;
 }
 
 // plainSliceToJS, stringsToJS and stringsToGo are goToJS and jsToGo for
@@ -434,6 +480,7 @@ export function jsToGo(t: Type, x: any, ex = false, embedding: Type[] | null = n
       }
       if (x === null || x === undefined) return v;
       if (t.ctor !== null && x instanceof t.ctor) return x.$clone(t);
+      if (isTime(t)) return timeFromJS(t, v, x);
       for (const f of jsFields(t)) {
         if (f.flatten) {
           const e = f.type.kind === Kind.Pointer ? f.type.elem! : f.type;
@@ -490,6 +537,8 @@ function jsonToAny(x: any): Iface | null {
     case "string": return box(tString, fromJSString(x));
     case "object":
       if (x === null) return null;
+      // A Date's JSON is a string, or null for an invalid Date.
+      if (x instanceof Date) return jsonToAny(x.toJSON());
       if (Array.isArray(x)) {
         const t = sliceOf(interfaceOf([]));
         return box(t, jsToGo(t, x));
