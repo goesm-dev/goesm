@@ -279,11 +279,66 @@ func (p *Program) SetEntries(paths []string) {
 	// of its own or functions Go returned to it: their parameters of
 	// function type and the function fields of the structs they take,
 	// which the first analysis took to hold only what Go stores in them
-	// (funcvars.go), hold unknown functions.
-	if p.entryParamsKnown() {
+	// (funcvars.go), hold unknown functions. The same goes for the
+	// parameters of interface type of the functions and methods JavaScript
+	// calls (ifacevars.go), and the function values JavaScript gets from
+	// them may come back to any call of a function value (containedFuncs).
+	if p.entryParamsKnown() || p.entryValuesKnown() {
 		p.analyzeBlocking()
 	}
 	p.refineBlocking()
+}
+
+// entryValuesKnown reports whether the first analysis, which had no
+// entries, took a value that JavaScript gives or gets to be known: a
+// parameter of interface type of a function or method JavaScript calls
+// (entryABICalls) with known types (ifaceVars), or a result of function
+// type of one, or an exported package variable of an entry, with known
+// values (funcVars).
+func (p *Program) entryValuesKnown() bool {
+	jsCalls := p.entryABICalls()
+	for _, pkg := range p.Pkgs {
+		for _, f := range pkg.Syntax {
+			for _, d := range f.Decls {
+				switch d := d.(type) {
+				case *ast.FuncDecl:
+					fn, ok := pkg.TypesInfo.Defs[d.Name].(*types.Func)
+					if !ok || !jsCalls[fn] && !(p.Entries[pkg.PkgPath] && fn.Exported()) {
+						continue
+					}
+					params, results := fn.Signature().Params(), fn.Signature().Results()
+					for i := 0; i < params.Len(); i++ {
+						if _, ok := p.ifaceVars[params.At(i)]; ok {
+							return true
+						}
+					}
+					for i := 0; i < results.Len(); i++ {
+						if _, ok := p.funcVars[results.At(i)]; ok {
+							return true
+						}
+					}
+				case *ast.GenDecl:
+					if !p.Entries[pkg.PkgPath] {
+						continue
+					}
+					for _, spec := range d.Specs {
+						vs, ok := spec.(*ast.ValueSpec)
+						if !ok {
+							continue
+						}
+						for _, name := range vs.Names {
+							if v, ok := pkg.TypesInfo.Defs[name].(*types.Var); ok && v.Exported() {
+								if _, ok := p.funcVars[v]; ok {
+									return true
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // entryParamsKnown reports whether a parameter of function type of an

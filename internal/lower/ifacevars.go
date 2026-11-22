@@ -322,10 +322,8 @@ func (p *Program) findIfaceVars() {
 		}
 		return false
 	}
-	anyHandles := map[*types.Func]bool{}
-	if len(p.Entries) > 0 {
-		anyHandles = p.anyHandleMethods()
-	}
+	// JavaScript calls these with its own arguments (entryABICalls).
+	jsCalls := p.entryABICalls()
 	// The parameters and results of the declared functions, and the
 	// return statements that store the results.
 	type ret struct {
@@ -346,11 +344,11 @@ func (p *Program) findIfaceVars() {
 				if !ok {
 					continue
 				}
-				unknown := asValue[fn] || provided[fn] || fd.Body == nil
+				unknown := asValue[fn] || provided[fn] || fd.Body == nil || jsCalls[fn]
 				if fd.Recv == nil {
 					unknown = unknown || p.Entries[pkg.PkgPath] && fn.Exported()
 				} else {
-					unknown = unknown || ifaceCallable(fn) || anyHandles[fn] ||
+					unknown = unknown || ifaceCallable(fn) ||
 						fn.Exported() && (reflectCalls || p.Entries[pkg.PkgPath])
 				}
 				sig := fn.Signature()

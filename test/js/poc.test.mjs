@@ -257,6 +257,17 @@ test("JS calling ABI: functions cross both ways", async () => {
   assert.equal(await m.Apply(m.LaterFunc("あ")), "later あ!");
   // ... and in a function field of a struct an export takes.
   assert.equal(await m.ApplyField({ F: m.LaterFunc("い") }), "later い?");
+  // ... and from a JavaScript import Go gave it to.
+  m.KeepLater();
+  assert.equal(await m.ApplyInt(globalThis.goesmKept), "later 7!");
+});
+
+test("JS calling ABI: values Go gave JavaScript come back", async () => {
+  const m = await load("GOESM_JSPASSBACK");
+  // A reader whose Read waits, to an export no Go code calls.
+  assert.equal(await m.ReadAll(m.NewSlow("あいう")), "あいう");
+  // A function that waits, to a method of a handle.
+  assert.equal(await m.NewBox().Call(m.Later()), "later!");
 });
 
 test("JS calling ABI: handles of other packages' types have their methods", async () => {

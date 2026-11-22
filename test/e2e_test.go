@@ -75,6 +75,7 @@ func TestJS(t *testing.T) {
 	jsfuncs := buildPkg(t, testdata("semantics"), "./jsfuncs")
 	jsfuncsBlocking := buildPkg(t, testdata("semantics"), "./jsfuncsblocking")
 	jsexport := buildPkg(t, testdata("semantics"), "./jsexport")
+	jspassback := buildPkg(t, testdata("semantics"), "./jspassback")
 	files, _ := filepath.Glob("js/*.test.mjs")
 	cmd := exec.Command("node", append([]string{"--test", "--enable-source-maps"}, files...)...)
 	cmd.Env = append(os.Environ(),
@@ -86,6 +87,7 @@ func TestJS(t *testing.T) {
 		"GOESM_JSFUNCS="+jsfuncs,
 		"GOESM_JSFUNCS_BLOCKING="+jsfuncsBlocking,
 		"GOESM_JSEXPORT="+jsexport,
+		"GOESM_JSPASSBACK="+jspassback,
 	)
 	out, err := cmd.CombinedOutput()
 	t.Logf("%s", out)

@@ -662,7 +662,23 @@ func (p *Program) reflectSets() bool {
 // and of the methods JavaScript calls on handles that cross inside interface
 // values, and in what those contain. Before SetEntries there are none.
 func (p *Program) entryABIFuncFields() []*types.Var {
+	fields, _ := p.entryABI()
+	return fields
+}
+
+// entryABICalls returns the functions and methods JavaScript calls through
+// the ABI of the entry packages (see entryABIFuncFields), by their origin.
+// Their arguments are JavaScript's, and JavaScript gets their results.
+// Before SetEntries there are none.
+func (p *Program) entryABICalls() map[*types.Func]bool {
+	_, calls := p.entryABI()
+	return calls
+}
+
+// entryABI returns entryABIFuncFields and entryABICalls.
+func (p *Program) entryABI() ([]*types.Var, map[*types.Func]bool) {
 	var out []*types.Var
+	calls := map[*types.Func]bool{}
 	seen := map[types.Type]bool{}
 	var walk func(t types.Type)
 	walkSig := func(sig *types.Signature) {
@@ -671,6 +687,12 @@ func (p *Program) entryABIFuncFields() []*types.Var {
 		}
 		for i := 0; i < sig.Results().Len(); i++ {
 			walk(sig.Results().At(i).Type())
+		}
+	}
+	walkMethods := func(n *types.Named) {
+		for _, fn := range handleMethods(n) {
+			calls[fn.Origin()] = true
+			walkSig(fn.Signature())
 		}
 	}
 	walk = func(t types.Type) {
@@ -682,9 +704,7 @@ func (p *Program) entryABIFuncFields() []*types.Var {
 		switch u := t.Underlying().(type) {
 		case *types.Pointer:
 			if n, ok := types.Unalias(u.Elem()).(*types.Named); ok && isHandleType(t) {
-				for _, fn := range handleMethods(n) {
-					walkSig(fn.Signature())
-				}
+				walkMethods(n)
 			}
 			walk(u.Elem())
 		case *types.Slice:
@@ -716,13 +736,12 @@ func (p *Program) entryABIFuncFields() []*types.Var {
 			switch obj := scope.Lookup(name).(type) {
 			case *types.Func:
 				if obj.Exported() && obj.Signature().TypeParams().Len() == 0 {
+					calls[obj] = true
 					walkSig(obj.Signature())
 				}
 			case *types.TypeName:
 				if n, ok := obj.Type().(*types.Named); ok && obj.Exported() && n.TypeParams().Len() == 0 {
-					for _, fn := range handleMethods(n) {
-						walkSig(fn.Signature())
-					}
+					walkMethods(n)
 				}
 			}
 		}
@@ -732,10 +751,11 @@ func (p *Program) entryABIFuncFields() []*types.Var {
 	// names.
 	if len(p.Entries) > 0 {
 		for fn := range p.anyHandleMethods() {
+			calls[fn.Origin()] = true
 			walkSig(fn.Signature())
 		}
 	}
-	return out
+	return out, calls
 }
 
 // resultVar returns result i of the function call calls, when it is a
@@ -807,11 +827,10 @@ func (p *Program) findContainedFuncs(resolved map[*types.Var]map[any]bool, store
 		}
 	}
 	// JavaScript gets the results of the functions and methods an entry
-	// exports, and may pass them back.
-	anyHandles := map[*types.Func]bool{}
-	if len(p.Entries) > 0 {
-		anyHandles = p.anyHandleMethods()
-	}
+	// exports and of the methods of the handles it gets (entryABICalls),
+	// and the arguments of the functions it implements (a //goesm:import or
+	// a native, declared without a body), and may pass them back.
+	jsCalls := p.entryABICalls()
 	for _, pkg := range p.Pkgs {
 		for _, f := range pkg.Syntax {
 			for _, d := range f.Decls {
@@ -820,7 +839,16 @@ func (p *Program) findContainedFuncs(resolved map[*types.Var]map[any]bool, store
 					continue
 				}
 				fn, ok := pkg.TypesInfo.Defs[fd.Name].(*types.Func)
-				if !ok || !(p.Entries[pkg.PkgPath] && fn.Exported() || anyHandles[fn]) {
+				if !ok {
+					continue
+				}
+				if fd.Body == nil {
+					params := fn.Signature().Params()
+					for i := 0; i < params.Len(); i++ {
+						leaks[params.At(i)] = true
+					}
+				}
+				if !(p.Entries[pkg.PkgPath] && fn.Exported() || jsCalls[fn]) {
 					continue
 				}
 				res := fn.Signature().Results()
