@@ -34,7 +34,9 @@ var covered = map[string]bool{
 	"PureEmitter": true,
 	// Recovers reads the body of a function the package defers a call
 	// of, in its own files or a dependency's.
-	"Recovers":       true,
+	"Recovers": true,
+	// The package a package is initialized after, recorded for the package.
+	"InitAfter":      true,
 	"UnicodeClasses": true,
 	"RegexpJS":       true, "RegexpOnlyJS": true,
 	"JSONv2": true, "jsonLeftOut": true,
