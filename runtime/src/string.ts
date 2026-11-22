@@ -209,6 +209,30 @@ function remembered(s: string): Uint8Array | null {
   return memoBytes !== null && s.length === memoStr.length && s === memoStr ? memoBytes : null;
 }
 
+// utf8Text returns s, a Go string, as a JS string if s is valid UTF-8, and
+// null if not: JSON.parse reads JS strings, and the engine's decoder would
+// replace invalid sequences differently from Go.
+export function utf8Text(s: string): string | null {
+  if (isASCII(s)) return s;
+  if (memoJS !== null && s.length === memoStr.length && s === memoStr) return memoJS;
+  let b = remembered(s);
+  if (b === null) {
+    b = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
+  }
+  return utf8Bytes(b);
+}
+
+// utf8Bytes is utf8Text of the bytes b.
+const utf8Strict = /* @__PURE__ */ new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+export function utf8Bytes(b: Uint8Array): string | null {
+  try {
+    return utf8Strict.decode(b);
+  } catch {
+    return null;
+  }
+}
+
 export function stringToBytes(s: string): Slice<number> {
   const a = newBytes(s.length);
   const m = remembered(s);
