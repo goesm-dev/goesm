@@ -323,7 +323,8 @@ func (pe *pkgEmitter) jsImportDecls() []string {
 
 // promotes reports whether the embedded field f promotes its fields into
 // the JavaScript object, as encoding/json flattens an embedded struct or
-// pointer to struct, exported or not.
+// pointer to struct, exported or not. An embedded time.Time or *time.Time
+// crosses as a Date, so it is a field named Time.
 func promotes(f *types.Var) bool {
 	if !f.Embedded() {
 		return false
@@ -333,7 +334,7 @@ func promotes(f *types.Var) bool {
 		t = p.Elem()
 	}
 	_, ok := t.Underlying().(*types.Struct)
-	return ok
+	return ok && !isTimeType(t)
 }
 
 // isJSValue reports whether t is syscall/js's Value or Func.
@@ -431,7 +432,7 @@ func (pe *pkgEmitter) structToJS(t types.Type, x string) string {
 		ptr, t = true, p.Elem()
 	}
 	st, ok := t.Underlying().(*types.Struct)
-	if !ok || isJSValue(t) {
+	if !ok || isJSValue(t) || isTimeType(t) {
 		return ""
 	}
 	var props []string

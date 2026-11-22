@@ -64,10 +64,11 @@ Arguments are converted from Go to JavaScript and results from JavaScript to Go,
 | `[]byte` | `Uint8Array` |
 | other slices and arrays | array; an empty one for a nil slice |
 | `map[string]T` | plain object; an empty one for a nil map |
-| struct, pointer to struct | plain object with the exported fields, named by their `js` tag, or else as `encoding/json` names them (the `json` tag name, or the field name); an embedded struct or pointer to struct contributes its fields |
+| struct, pointer to struct (other than `time.Time`) | plain object with the exported fields, named by their `js` tag, or else as `encoding/json` names them (the `json` tag name, or the field name); an embedded struct or pointer to struct contributes its fields; an embedded `time.Time` or `*time.Time` is a field named `Time` |
+| `time.Time` | `Date` of the same instant, to the millisecond. A result must be a `Date`, or `null` for the zero time, and is the time in UTC |
 | other pointers | the value pointed to, converted; `null` for nil. A result is a pointer to a converted copy, `nil` for `null` or `undefined` |
 | function (arguments only) | function, which converts its own arguments and results the same way |
-| `any` | to JavaScript, the conversion of the dynamic value; to Go, the value as `encoding/json` decodes it into an `any` |
+| `any` | to JavaScript, the conversion of the dynamic value; to Go, the value as `encoding/json` decodes it into an `any` (a `Date` is its JSON, a string) |
 | variadic parameter | separate arguments |
 
 Values are copied: a slice, map or struct changed on the other side does not change the original. JavaScript calling Go uses the same table in the other direction ([js-exports.md](js-exports.md)). A JavaScript value that should stay itself, such as a DOM element or a class instance, is a `js.Value`. Several results are an array returned by the JavaScript function. Types without a JavaScript counterpart, such as channels and complex numbers, are compile errors at the directive.

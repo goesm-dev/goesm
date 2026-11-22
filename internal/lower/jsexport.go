@@ -917,14 +917,14 @@ func isHTTPHandler(t types.Type) bool {
 
 // isHandleType reports whether values of type t cross to JavaScript as Go
 // values (see isHandle in runtime/src/jsabi.ts): pointers to struct types
-// with methods, non-empty interfaces other than error, channels, complex
-// numbers and unsafe pointers. A pointer to any other type is a handle in
-// arguments only, and in results as its element.
+// with methods other than *time.Time, non-empty interfaces other than error,
+// channels, complex numbers and unsafe pointers. A pointer to any other type
+// is a handle in arguments only, and in results as its element.
 func isHandleType(t types.Type) bool {
 	switch u := t.Underlying().(type) {
 	case *types.Pointer:
 		if _, ok := u.Elem().Underlying().(*types.Struct); ok {
-			return types.NewMethodSet(t).Len() > 0
+			return types.NewMethodSet(t).Len() > 0 && !isTimeType(u.Elem())
 		}
 	case *types.Interface:
 		return !u.Empty() && !isErrorType(t)
@@ -934,6 +934,13 @@ func isHandleType(t types.Type) bool {
 		return u.Info()&types.IsComplex != 0 || u.Kind() == types.UnsafePointer
 	}
 	return false
+}
+
+// isTimeType reports whether t is time.Time, which crosses to JavaScript as
+// a Date (isTime in runtime/src/jsabi.ts).
+func isTimeType(t types.Type) bool {
+	n, ok := types.Unalias(t).(*types.Named)
+	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "time" && n.Obj().Name() == "Time"
 }
 
 // jsTS is the TypeScript type JavaScript sees for a Go value of type t in
@@ -947,6 +954,9 @@ func (pe *pkgEmitter) jsTS(t types.Type, in bool, seen map[types.Type]bool) stri
 	}
 	if !in && isHTTPHandler(t) {
 		return "(request: Request, ...rest: any[]) => Promise<Response>"
+	}
+	if isTimeType(t) {
+		return "Date"
 	}
 	if _, ok := t.(*types.Named); ok {
 		if seen[t] {
