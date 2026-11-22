@@ -234,6 +234,10 @@ type Program struct {
 	// recovers are the declared functions that call recover (Recovers).
 	recovers     map[*types.Func]bool
 	recoversOnce sync.Once
+	// initAfter are the import paths of the packages whose modules the
+	// modules of packages import to be initialized after them (InitAfter).
+	initAfter     map[*packages.Package]string
+	initAfterOnce sync.Once
 
 	// pureEmitters answer returnsPure for the functions of imported
 	// packages (PureEmitter).
