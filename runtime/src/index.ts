@@ -20,6 +20,6 @@ export * from "./host.ts";
 export * from "./print.ts";
 export * from "./unsafe.ts";
 export { errText, fmtF, fmtFloatF, fmtNumberInt, fmtShortest, plainErr, quoteText } from "./fmt.ts";
-export { jsonAbort, jsonDecode, jsonFloat, jsonInt, jsonInt64, jsonKey, jsonMarshalString, jsonMarshalStringWith, jsonMarshalWith, jsonStr, jsonStrs, jsonUnmarshalString, jsonUnmarshalTo } from "./json.ts";
+export { jsonAbort, jsonDecode, jsonDecodeBytes, jsonFloat, jsonInt, jsonInt64, jsonKey, jsonMarshalString, jsonMarshalStringWith, jsonMarshalWith, jsonStr, jsonStrs, jsonUnmarshalString, jsonUnmarshalTo } from "./json.ts";
 
 export * from "./http.ts";
