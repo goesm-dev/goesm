@@ -12,7 +12,11 @@ import (
 func main() {
 	r := rand.New(rand.NewPCG(1, 2))
 	vals := []float64{0, math.Copysign(0, -1), 1, -1, 0.1, 0.5, 1.5, 2.5, 1e21, 1e-7, 123456789, 5e-324, math.MaxFloat64,
-		math.SmallestNonzeroFloat64 * 3, 2.2250738585072014e-308, 0.000001, 1e20, 9.999999999999999e22, math.Inf(1), math.Inf(-1), math.NaN()}
+		math.SmallestNonzeroFloat64 * 3, 2.2250738585072014e-308, 0.000001, 1e20, 9.999999999999999e22, math.Inf(1), math.Inf(-1), math.NaN(),
+		// The ends of the range where 'f' with the shortest digits is the
+		// engine's own formatting.
+		-0.000001, math.Nextafter(1e-6, 0), math.Nextafter(1e-6, 1), -math.Nextafter(1e-6, 0), math.Nextafter(1e21, 0), -math.Nextafter(1e21, 0), -1e21,
+		0.1 + 0.2, 1.0 / 3, 2.0 / 3, 1 << 53, 1<<53 + 2, 123.456, -98765.4321, 5e-6, 1.25e20}
 	for range 300 {
 		vals = append(vals, math.Float64frombits(r.Uint64()), r.Float64()*math.Pow(10, float64(r.IntN(40)-20)), float64(r.IntN(100000))/8)
 	}
@@ -25,6 +29,9 @@ func main() {
 		}
 		buf = strconv.AppendFloat(buf[:0], v, 'g', -1, 64)
 		f, err := strconv.ParseFloat(string(buf), 64)
+		fmt.Println(string(buf), f == v || f != f, err)
+		buf = strconv.AppendFloat(buf[:0], v, 'f', -1, 64)
+		f, err = strconv.ParseFloat(string(buf), 64)
 		fmt.Println(string(buf), f == v || f != f, err)
 	}
 	for _, s := range []string{"", "1", "-0", "+1.5", ".5", "5.", "1e", "1e+", "1_000.5", "1__0", "_1", "0x1p-2", "0x1.8p1", "0X_1p0", "0x1p", "0x.8p1",

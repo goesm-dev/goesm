@@ -314,6 +314,9 @@ export function formatFloat64(v: number, fmt: number, prec: number): string {
   const neg = v < 0 || Object.is(v, -0);
   if (v === 0) return fmtEFG(neg, "", 0, prec, fmt, prec < 0);
   if (prec < 0 && fmt === 103) return fmtShortest(v); // 'g'
+  // The engine writes the shortest digits of a number from 1e-6 up to 1e21
+  // without an exponent, as 'f' does.
+  if (prec < 0 && fmt === 102 && Math.abs(v) >= 1e-6 && Math.abs(v) < 1e21) return String(v);
   if (fmt === 102 && prec >= 0) { // 'f'
     const t = fmtFixed(v, prec);
     if (t !== "") return t;
