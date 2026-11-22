@@ -111,6 +111,12 @@ func (p *Program) Facts() (digests map[*packages.Package][32]byte, ok bool) {
 	for k, v := range p.linkProvides {
 		add("linkProvide", k, v)
 	}
+	// The package each package is initialized after (initorder.go).
+	for _, pkg := range p.Pkgs {
+		if a := p.InitAfter(pkg); a != "" && len(pkg.Syntax) > 0 {
+			add("initAfter", pkg.Syntax[0], a)
+		}
+	}
 	// Which methods the method tables list (methods.go); a table also
 	// lists methods promoted from dependencies, covered by their digests.
 	for _, pkg := range p.Pkgs {
