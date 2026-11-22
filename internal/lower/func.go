@@ -193,6 +193,26 @@ func (fe *funcEmitter) zero(t types.Type) string { return fe.pe.zeroOf(t, fe.tp)
 func (fe *funcEmitter) zeroFn(t types.Type) string {
 	return fe.pe.zeroFn(t, fe.tp)
 }
+
+// plainZero returns the zero value of t, and true, if the values of t are
+// JS primitives or null, which are never undefined and never copied: a
+// basic type other than a complex one, a pointer, slice, map, channel,
+// function or interface. The runtime's mapGetV and assertOkV take the zero
+// value itself instead of a function making it.
+func (fe *funcEmitter) plainZero(t types.Type) (string, bool) {
+	if hasTypeParam(t) {
+		return "", false
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Basic:
+		if u.Info()&types.IsComplex != 0 {
+			return "", false
+		}
+	case *types.Struct, *types.Array:
+		return "", false
+	}
+	return fe.zero(t), true
+}
 func (fe *funcEmitter) ts(t types.Type) string { return fe.pe.tsType(t, fe.tp) }
 
 // paramList declares parameters and returns their JS declarations.
